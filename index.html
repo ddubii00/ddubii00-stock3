@@ -312,7 +312,7 @@
             if (x1 === null || x2 === null) continue;
             
             const macd = ema12[i].value - ema26[i].value;
-            ctx.fillStyle = macd > 0 ? 'rgba(255, 0, 0, 0.08)' : 'rgba(15, 111, 255, 0.08)';
+            ctx.fillStyle = macd >= 0 ? 'rgba(255, 0, 0, 0.08)' : 'rgba(15, 111, 255, 0.08)';
             ctx.fillRect(Math.floor(x1), 0, Math.ceil(x2 - x1), height);
           }
         };
@@ -326,7 +326,26 @@
   
         inst.chart.applyOptions({ layout: { backgroundColor: '#ffffff' } });
 
-        
+        // Interval-aware tick formatting
+        const intervalStep = inst.interval === '1mo' ? 6 : (inst.interval === '1wk' ? 3 : 1);
+        const shownMonths = new Set();
+        inst.chart.applyOptions({
+          timeScale: {
+            tickMarkFormatter: (time) => {
+              let year, month;
+              if (time.year) { year = time.year; month = time.month; }
+              else if (typeof time === 'string') { year = parseInt(time.substring(0,4)); month = parseInt(time.substring(5,7)); }
+              else { const d = new Date(time * 1000); year = d.getFullYear(); month = d.getMonth() + 1; }
+              // Only show at interval boundaries
+              if ((month - 1) % intervalStep !== 0) return '';
+              const label = year + '.' + String(month).padStart(2, '0');
+              if (shownMonths.has(label)) return '';
+              shownMonths.add(label);
+              return label;
+            }
+          }
+        });
+
         [5, 10, 20, 60, 120, 240].forEach(p => {
           const smaData = calculateSMA(chartData, p);
           inst.maSeries[p].setData(smaData);
@@ -353,17 +372,10 @@
         layout: { backgroundColor: 'transparent', textColor: '#172033', fontFamily: 'Pretendard, sans-serif' },
         localization: { dateFormat: 'yyyy-MM-dd' },
         handleScale: { mouseWheel: false, pinch: false, axisPressedMouseMove: false },
-        handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
+        handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
         grid: { vertLines: { visible: false }, horzLines: { visible: false } },
         rightPriceScale: { borderColor: '#dbe3f1' },
-        timeScale: { borderColor: '#dbe3f1', tickMarkFormatter: (time, tickMarkType, locale) => {
-          if (tickMarkType === 0 || tickMarkType === 1) {
-            if (time.year) return time.year + '.' + String(time.month).padStart(2, '0');
-            if (typeof time === 'string') return time.substring(0,4) + '.' + time.substring(5,7);
-            const d = new Date(time*1000); return d.getFullYear() + '.' + String(d.getMonth()+1).padStart(2,'0');
-          }
-          return '';
-        } },
+        timeScale: { borderColor: '#dbe3f1' },
       });
       new ResizeObserver(entries => {
         if (entries.length === 0 || entries[0].target !== el) return;
