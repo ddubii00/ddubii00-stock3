@@ -312,7 +312,7 @@
             if (x1 === null || x2 === null) continue;
             
             const macd = ema12[i].value - ema26[i].value;
-            ctx.fillStyle = macd >= 0 ? 'rgba(255, 0, 0, 0.08)' : 'rgba(15, 111, 255, 0.08)';
+            ctx.fillStyle = macd >= 0 ? 'rgba(255, 80, 80, 0.18)' : 'rgba(60, 120, 255, 0.15)';
             ctx.fillRect(Math.floor(x1), 0, Math.ceil(x2 - x1), height);
           }
         };
@@ -323,6 +323,53 @@
         inst.chart.timeScale().subscribeVisibleLogicalRangeChange(drawBg);
         inst.chart.timeScale().subscribeSizeChange(drawBg);
         drawBg();
+
+        // --- Tooltip: open→close % change ---
+        let tooltipEl = chartContainer.querySelector('.lw-tooltip');
+        if (!tooltipEl) {
+          tooltipEl = document.createElement('div');
+          tooltipEl.className = 'lw-tooltip';
+          tooltipEl.style.cssText = 'position:absolute;z-index:50;pointer-events:none;display:none;padding:8px 12px;border-radius:8px;font-size:12px;line-height:1.5;background:rgba(20,20,35,0.92);color:#fff;box-shadow:0 4px 16px rgba(0,0,0,0.25);white-space:nowrap;backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,0.1);';
+          chartContainer.appendChild(tooltipEl);
+        }
+        inst.chart.subscribeCrosshairMove((param) => {
+          if (!param || !param.time || !param.seriesPrices) {
+            tooltipEl.style.display = 'none';
+            return;
+          }
+          const candle = param.seriesPrices.get(inst.candleSeries);
+          if (!candle || typeof candle.open !== 'number' || typeof candle.close !== 'number') {
+            tooltipEl.style.display = 'none';
+            return;
+          }
+          const openVal = candle.open;
+          const closeVal = candle.close;
+          const pctChange = openVal !== 0 ? ((closeVal - openVal) / openVal) * 100 : 0;
+          const sign = pctChange >= 0 ? '+' : '';
+          const color = pctChange > 0 ? '#ff6b6b' : pctChange < 0 ? '#6ba3ff' : '#aaa';
+          const arrow = pctChange > 0 ? '▲' : pctChange < 0 ? '▼' : '─';
+          // Format date
+          let dateStr = '';
+          if (typeof param.time === 'string') { dateStr = param.time; }
+          else if (param.time.year) { dateStr = `${param.time.year}-${String(param.time.month).padStart(2,'0')}-${String(param.time.day).padStart(2,'0')}`; }
+          else { dateStr = new Date(param.time * 1000).toISOString().slice(0,10); }
+          tooltipEl.innerHTML = `<div style="font-weight:700;margin-bottom:3px;color:#ddd;">${dateStr}</div><div>시가: <span style="font-weight:600;">${openVal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div><div>종가: <span style="font-weight:600;">${closeVal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div><div style="margin-top:4px;font-weight:800;font-size:13px;color:${color};">${arrow} ${sign}${pctChange.toFixed(2)}%</div>`;
+          tooltipEl.style.display = 'block';
+          // Position tooltip near crosshair
+          const x = param.point ? param.point.x : 0;
+          const y = param.point ? param.point.y : 0;
+          const cw = chartContainer.clientWidth;
+          const ch = chartContainer.clientHeight;
+          const tw = tooltipEl.offsetWidth;
+          const th = tooltipEl.offsetHeight;
+          let left = x + 16;
+          let top = y - th / 2;
+          if (left + tw > cw) left = x - tw - 16;
+          if (top < 4) top = 4;
+          if (top + th > ch - 4) top = ch - th - 4;
+          tooltipEl.style.left = left + 'px';
+          tooltipEl.style.top = top + 'px';
+        });
   
         inst.chart.applyOptions({ layout: { backgroundColor: '#ffffff' } });
 
