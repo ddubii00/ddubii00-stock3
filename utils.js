@@ -52,7 +52,32 @@ async function fallbackQuoteFromSeries(symbol) {
   };
 }
 
+function parseKoreanNumber(value) {
+  return Number(String(value ?? '').replace(/,/g, ''));
+}
+
+async function fetchNaverIndexQuote(symbol) {
+  const naverCode = symbol === '^KS11' ? 'KOSPI' : symbol === '^KQ11' ? 'KOSDAQ' : null;
+  if (!naverCode) return null;
+  const url = `https://m.stock.naver.com/api/index/${naverCode}/price?pageSize=1&page=1`;
+  const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  const rows = await r.json();
+  const row = Array.isArray(rows) ? rows[0] : null;
+  if (!row) return null;
+  const price = parseKoreanNumber(row.closePrice);
+  const changePercent = parseKoreanNumber(row.fluctuationsRatio);
+  if (!Number.isFinite(price) || !Number.isFinite(changePercent)) return null;
+  const out = { symbol, price, changePercent, asOf: row.localTradedAt, raw: 'naver-index' };
+  quoteCache.set(symbol, out);
+  return out;
+}
+
 async function fetchStooq(symbol) {
+  if (symbol === '^KS11' || symbol === '^KQ11') {
+    const naverQuote = await fetchNaverIndexQuote(symbol);
+    if (naverQuote) return naverQuote;
+  }
+
   // Yahoo for major indices
   if (['^KS11', '^KQ11', '^IXIC', '^GSPC'].includes(symbol)) {
     try {
