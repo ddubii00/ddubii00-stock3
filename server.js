@@ -1,6 +1,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const WebSocketClient = require('ws');
 
 const PORT = 8000;
 const ROOT = __dirname;
@@ -64,6 +65,476 @@ async function fallbackQuoteFromSeries(symbol) {
 
 function parseKoreanNumber(value) {
   return Number(String(value ?? '').replace(/,/g, ''));
+}
+
+function formatYmd(date) {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}${mm}${dd}`;
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchTextWithRetries(url, options = {}, attempts = 3, encoding = 'utf-8') {
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const r = await fetchWithTimeout(url, options, 12000);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const buffer = Buffer.from(await r.arrayBuffer());
+      return new TextDecoder(encoding).decode(buffer);
+    } catch (e) {
+      lastError = e;
+      await new Promise((resolve) => setTimeout(resolve, 350 * attempt));
+    }
+  }
+  throw lastError || new Error('fetch failed');
+}
+
+async function fetchFredYieldSeries(fredId, minValue = 0.1) {
+  const url = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${fredId}`;
+  const r = await fetchWithTimeout(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  const text = await r.text();
+  const lines = text.trim().split('\n');
+  const rows = [];
+  for (let i = 1; i < lines.length; i += 1) {
+    const parts = lines[i].split(',');
+    const close = Number(parts[1]);
+    if (parts[0] && Number.isFinite(close) && close > minValue && close < 20) {
+      rows.push({ date: parts[0], close });
+    }
+  }
+  return rows;
+}
+
+async function supplementTreasuryYield(rows, fieldName) {
+  try {
+    const year = new Date().getFullYear();
+    const url = `https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml?data=daily_treasury_yield_curve&field_tdr_date_value=${year}`;
+    const r = await fetchWithTimeout(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const xml = await r.text();
+    const dates = [...xml.matchAll(/<d:NEW_DATE[^>]*>([^<T]+)T/g)].map(m => m[1]);
+    const values = [...xml.matchAll(new RegExp(`<d:${fieldName}[^>]*>([^<]+)</d:${fieldName}>`, 'g'))].map(m => Number(m[1]));
+    const seen = new Set(rows.map(row => row.date));
+    for (let i = 0; i < dates.length; i += 1) {
+      const close = values[i];
+      if (!seen.has(dates[i]) && Number.isFinite(close) && close > 0.1 && close < 20) {
+        rows.push({ date: dates[i], close });
+      }
+    }
+    rows.sort((a, b) => a.date.localeCompare(b.date));
+  } catch (e) {
+    console.error('Failed to supplement Treasury yield data', e);
+  }
+  return rows;
+}
+
+async function fetchDaumInvestorDays(market = 'KOSPI', limit = 200) {
+  const safeMarket = market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
+  const safeLimit = Math.max(1, Math.min(500, Number(limit) || 200));
+  const url = `https://finance.daum.net/api/market_index/days?page=1&perPage=${safeLimit}&market=${safeMarket}&pagination=true`;
+  const r = await fetchWithTimeout(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0',
+      Referer: 'https://finance.daum.net/'
+    }
+  });
+  const json = await r.json();
+  const rows = Array.isArray(json?.data) ? json.data : [];
+  return rows.reverse().map((row) => ({
+    date: String(row.date || '').slice(0, 10),
+    foreign: Number(row.foreignStraightPurchasePrice) / 1000000000000,
+    institution: Number(row.institutionStraightPurchasePrice) / 1000000000000
+  })).filter((row) => row.date && Number.isFinite(row.foreign) && Number.isFinite(row.institution));
+}
+
+function stripHtml(value) {
+  return String(value || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseTrendNumber(value) {
+  const cleaned = stripHtml(value).replace(/,/g, '').replace(/[^\d.-]/g, '');
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+async function fetchNaverInvestorTimeRows(market = 'KOSPI') {
+  const safeMarket = market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
+  const sosok = safeMarket === 'KOSDAQ' ? '02' : '01';
+  const dayRows = await fetchDaumInvestorDays(safeMarket, 1);
+  const latestDate = dayRows[dayRows.length - 1]?.date || new Date().toISOString().slice(0, 10);
+  const bizdate = latestDate.replace(/-/g, '');
+  const rows = [];
+  const seen = new Set();
+
+  let emptyPages = 0;
+  for (let page = 1; page <= 40; page += 1) {
+    const url = `https://finance.naver.com/sise/investorDealTrendTime.naver?bizdate=${bizdate}&sosok=${sosok}&page=${page}`;
+    let text = '';
+    let lastError = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const r = await fetchWithTimeout(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0',
+            Referer: 'https://finance.naver.com/'
+          }
+        }, 10000);
+        const buffer = Buffer.from(await r.arrayBuffer());
+        text = new TextDecoder('euc-kr').decode(buffer);
+        break;
+      } catch (e) {
+        lastError = e;
+        await new Promise((resolve) => setTimeout(resolve, 300 * attempt));
+      }
+    }
+    if (!text) {
+      if (page === 1) throw lastError || new Error('Naver investor minute fetch failed');
+      emptyPages += 1;
+      if (emptyPages >= 8) break;
+      continue;
+    }
+
+    const tableRows = [...text.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
+    let foundInPage = 0;
+    for (const match of tableRows) {
+      const cells = [...match[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((m) => stripHtml(m[1]));
+      if (cells.length < 4) continue;
+      const time = cells[0].match(/\d{2}:\d{2}/)?.[0];
+      if (!time) continue;
+      const foreign = parseTrendNumber(cells[2]);
+      const institution = parseTrendNumber(cells[3]);
+      if (!Number.isFinite(foreign) || !Number.isFinite(institution)) continue;
+      const date = `${latestDate} ${time}`;
+      if (seen.has(date)) continue;
+      seen.add(date);
+      rows.push({ date, foreign: foreign / 10000, institution: institution / 10000 });
+      foundInPage += 1;
+    }
+    if (!foundInPage) {
+      emptyPages += 1;
+      if (emptyPages >= 8) break;
+    } else {
+      emptyPages = 0;
+    }
+  }
+
+  rows.sort((a, b) => a.date.localeCompare(b.date));
+  const regularRows = rows.filter((row) => {
+    const time = String(row.date || '').split(' ')[1] || '';
+    return time >= '09:00' && time <= '15:30';
+  });
+  const series = regularRows.length >= 5 ? regularRows : rows;
+  return {
+    unit: '조원',
+    note: `${safeMarket} 최신 거래일(${latestDate}) 시간별 누적 순매수, 단위: 조원. 휴장일에는 직전 거래일 기준입니다.`,
+    series
+  };
+}
+
+async function fetchInvestorSeries(market, kind, limit = 200) {
+  const safeMarket = market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
+  const marketLabel = safeMarket === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
+  if (kind === 'minute') {
+    return fetchNaverInvestorTimeRows(safeMarket);
+  }
+  const rows = await fetchDaumInvestorDays(safeMarket, limit);
+  if (!rows.length) return null;
+  let foreignTotal = 0;
+  let institutionTotal = 0;
+  const cumulativeRows = rows.map((row) => {
+    foreignTotal += row.foreign;
+    institutionTotal += row.institution;
+    return {
+      date: row.date,
+      foreign: foreignTotal,
+      institution: institutionTotal
+    };
+  });
+  return { unit: '조원', note: `${marketLabel} ${cumulativeRows.length}거래일 누적 순매수, 단위: 조원`, series: cumulativeRows };
+}
+
+async function fetchMarketFundsSeries(limit = 200) {
+  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 200));
+  const rows = [];
+  const seen = new Set();
+  for (let page = 1; page <= 50; page += 1) {
+    const url = `https://finance.naver.com/sise/sise_deposit.naver?&page=${page}`;
+    const html = await fetchTextWithRetries(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        Referer: 'https://finance.naver.com/sise/'
+      }
+    }, 3, 'euc-kr');
+    const tableRows = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
+    let foundInPage = 0;
+    for (const match of tableRows) {
+      const cells = [...match[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((m) => stripHtml(m[1]));
+      const dateCell = cells.find((cell) => /^\d{2}\.\d{2}\.\d{2}$/.test(cell));
+      if (!dateCell) continue;
+      if (cells.length < 4) continue;
+      const deposit = parseTrendNumber(cells[1]);
+      const credit = parseTrendNumber(cells[3]);
+      if (!Number.isFinite(deposit) || !Number.isFinite(credit)) continue;
+      const [yy, mm, dd] = dateCell.split('.');
+      const date = `20${yy}-${mm}-${dd}`;
+      if (seen.has(date)) continue;
+      seen.add(date);
+      rows.push({
+        date,
+        deposit: deposit / 10000,
+        credit: credit / 10000
+      });
+      foundInPage += 1;
+    }
+    if (!foundInPage && page > 1) break;
+    if (rows.length >= safeLimit) break;
+  }
+  rows.sort((a, b) => a.date.localeCompare(b.date));
+  if (!rows.length) return null;
+  const latest = rows[rows.length - 1]?.date || '';
+  return {
+    unit: '조원',
+    note: `네이버 증시자금동향 최신일(${latest}) 기준, 단위: 조원. 금융투자협회 통계 기반 메뉴의 공개값입니다.`,
+    series: rows.slice(-safeLimit)
+  };
+}
+
+function parseInvestingDate(value) {
+  const raw = String(value || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const match = raw.match(/^([A-Za-z]{3})\s+(\d{1,2}),\s+(\d{4})$/);
+  if (!match) return '';
+  const months = { Jan: 1, Feb: 2, Mar: 3, Apr: 4, May: 5, Jun: 6, Jul: 7, Aug: 8, Sep: 9, Oct: 10, Nov: 11, Dec: 12 };
+  const month = months[match[1]];
+  if (!month) return '';
+  return `${match[3]}-${String(month).padStart(2, '0')}-${String(match[2]).padStart(2, '0')}`;
+}
+
+function parseInvestingHistoricalPayload(text) {
+  const rows = [];
+  try {
+    const json = JSON.parse(text);
+    const candidates = Array.isArray(json) ? json : (json?.data || json?.series || json?.historicalData || []);
+    for (const row of candidates) {
+      const rawDate = row?.date || row?.rowDate || row?.rowDateRaw || row?.time || '';
+      const date = parseInvestingDate(rawDate) || (/^\d{10,13}$/.test(String(rawDate))
+        ? new Date(Number(rawDate) * (String(rawDate).length === 10 ? 1000 : 1)).toISOString().slice(0, 10)
+        : '');
+      const close = parseTrendNumber(row?.close ?? row?.last_close ?? row?.lastClose ?? row?.price ?? row?.last);
+      if (date && Number.isFinite(close) && close > 0) rows.push({ date, close });
+    }
+  } catch {
+    for (const line of String(text || '').split('\n')) {
+      const cells = line.split('|').map((cell) => cell.trim()).filter(Boolean);
+      if (cells.length < 2) continue;
+      const date = parseInvestingDate(cells[0]);
+      const close = parseTrendNumber(cells[1]);
+      if (date && Number.isFinite(close) && close > 0) rows.push({ date, close });
+    }
+  }
+  const unique = new Map(rows.map((row) => [row.date, row]));
+  return [...unique.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+async function fetchInvestingVkospi(limit, start, end) {
+  const headers = { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json,text/plain,*/*' };
+  const startDate = start.toISOString().slice(0, 10);
+  const endDate = end.toISOString().slice(0, 10);
+  const apiUrl = `https://api.investing.com/api/financialdata/historical/956761?start-date=${startDate}&end-date=${endDate}&interval=P1D&time-frame=Daily`;
+  const pageUrl = 'https://www.investing.com/indices/kospi-volatility-historical-data';
+  const urls = [
+    `https://r.jina.ai/http://${apiUrl.replace(/^https?:\/\//, '')}`,
+    `https://r.jina.ai/http://${pageUrl.replace(/^https?:\/\//, '')}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(apiUrl)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(pageUrl)}`
+  ];
+  const attempts = await Promise.allSettled(urls.map(async (url) => {
+    const r = await fetchWithTimeout(url, { headers }, 15000);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return parseInvestingHistoricalPayload(await r.text());
+  }));
+  for (const attempt of attempts) {
+    if (attempt.status === 'fulfilled' && attempt.value.length) return attempt.value.slice(-limit);
+  }
+  return [];
+}
+
+function tradingViewMessage(method, params) {
+  const payload = JSON.stringify({ m: method, p: params });
+  return `~m~${Buffer.byteLength(payload)}~m~${payload}`;
+}
+
+async function fetchTradingViewVkospi(limit) {
+  const candidates = ['KRX:VKI1!'];
+  return new Promise((resolve) => {
+    const session = `cs_${Math.random().toString(36).slice(2, 14)}`;
+    const ws = new WebSocketClient('wss://data.tradingview.com/socket.io/websocket?from=symbols%2FKRX-VKOSPI%2F&date=2026_08_15-12_00', {
+      headers: { Origin: 'https://www.tradingview.com', 'User-Agent': 'Mozilla/5.0' }
+    });
+    let settled = false;
+    const finish = (result = { rows: [], symbol: '' }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { ws.close(); } catch { /* Ignore close errors. */ }
+      resolve(result);
+    };
+    const timer = setTimeout(() => finish(), 12000);
+    ws.on('open', () => {
+      ws.send(tradingViewMessage('set_auth_token', ['unauthorized_user_token']));
+      ws.send(tradingViewMessage('chart_create_session', [session, '']));
+      candidates.forEach((symbol, index) => {
+        const alias = `symbol_${index}`;
+        const seriesId = `s${index}`;
+        ws.send(tradingViewMessage('resolve_symbol', [session, alias, `={"symbol":"${symbol}","adjustment":"splits","session":"regular"}`]));
+        ws.send(tradingViewMessage('create_series', [session, seriesId, seriesId, alias, '1D', limit]));
+      });
+    });
+    ws.on('message', (data) => {
+      const text = data.toString();
+      const payloads = text.split(/~m~\d+~m~/).filter((part) => part.startsWith('{'));
+      for (const payload of payloads) {
+        let message;
+        try { message = JSON.parse(payload); } catch { continue; }
+        if (message?.m !== 'timescale_update') continue;
+        const update = message?.p?.[1] || {};
+        for (let index = 0; index < candidates.length; index += 1) {
+          const points = update?.[`s${index}`]?.s;
+          if (!Array.isArray(points) || !points.length) continue;
+          const rows = points.map((point) => {
+            const values = point?.v || [];
+            return {
+              date: Number.isFinite(Number(values[0])) ? new Date(Number(values[0]) * 1000 + 9 * 60 * 60 * 1000).toISOString().slice(0, 10) : '',
+              close: Number(values[4])
+            };
+          }).filter((row) => row.date && Number.isFinite(row.close) && row.close > 0);
+          const uniqueRows = [...new Map(rows.map((row) => [row.date, row])).values()];
+          if (uniqueRows.length) return finish({ rows: uniqueRows.slice(-limit), symbol: candidates[index] });
+        }
+      }
+    });
+    ws.on('error', (error) => {
+      console.error('TradingView VKOSPI websocket error', error.message);
+      finish();
+    });
+    ws.on('close', (code) => {
+      if (!settled) console.error('TradingView VKOSPI websocket closed', code);
+      finish();
+    });
+  });
+}
+
+async function fetchVkospiSeries(limit = 200) {
+  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 200));
+  const end = new Date();
+  const start = new Date(end);
+  start.setDate(start.getDate() - Math.max(300, safeLimit * 2));
+  try {
+    const body = new URLSearchParams({
+      bld: 'dbms/MDC/STAT/standard/MDCSTAT00301',
+      locale: 'ko_KR',
+      indIdx: '1',
+      indIdx2: '167',
+      strtDd: formatYmd(start),
+      endDd: formatYmd(end),
+      share: '1',
+      money: '1',
+      csvxls_isNo: 'false'
+    });
+    const r = await fetchWithTimeout('https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd', {
+      method: 'POST',
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        Referer: 'https://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd',
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body
+    }, 5000);
+    if (!r.ok) throw new Error(`KRX HTTP ${r.status}`);
+    const text = await r.text();
+    const json = JSON.parse(text);
+    const rawRows = Array.isArray(json?.output) ? json.output : Array.isArray(json?.OutBlock_1) ? json.OutBlock_1 : [];
+    const rows = rawRows.map((row) => {
+      const rawDate = row.TRD_DD || row.trdDd || row.일자 || row.basDd || row.BAS_DD || '';
+      const rawClose = row.CLSPRC_IDX || row.CLS_IDX || row.close || row.종가 || row.CLSPRC || row.clsprcIdx || '';
+      const date = String(rawDate).replace(/\./g, '-').replace(/\//g, '-').replace(/\s+/g, '');
+      const close = parseTrendNumber(rawClose);
+      return { date, close };
+    }).filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date) && Number.isFinite(row.close) && row.close > 0);
+    rows.sort((a, b) => a.date.localeCompare(b.date));
+    if (rows.length) {
+      const latest = rows[rows.length - 1]?.date || '';
+      return { unit: 'P', note: `KRX V-KOSPI 200 최신 거래일(${latest}) 기준입니다. 휴장일에는 직전 거래일 기준으로 표시합니다.`, series: rows.slice(-safeLimit) };
+    }
+  } catch (e) {
+    console.error('Failed to fetch VKOSPI from KRX', e);
+  }
+  const tradingViewResult = await fetchTradingViewVkospi(safeLimit);
+  if (tradingViewResult.rows.length) {
+    const latest = tradingViewResult.rows[tradingViewResult.rows.length - 1]?.date || '';
+    const isFutures = tradingViewResult.symbol === 'KRX:VKI1!';
+    return {
+      unit: 'P',
+      note: isFutures
+        ? `VKOSPI 현물 공개 원천 차단으로 KRX V-KOSPI 200 선물 연속계약(VKI1!) 실제 일봉을 표시합니다. 최신 거래일(${latest}) 기준입니다.`
+        : `TradingView VKOSPI 최신 거래일(${latest}) 기준입니다. 휴장일에는 직전 거래일 기준으로 표시합니다.`,
+      series: tradingViewResult.rows
+    };
+  }
+  const investingRows = await fetchInvestingVkospi(safeLimit, start, end);
+  if (investingRows.length) {
+    const latest = investingRows[investingRows.length - 1]?.date || '';
+    return {
+      unit: 'P',
+      note: `Investing.com KOSPI Volatility(KSVKOSPI) 최신 거래일(${latest}) 기준입니다. 휴장일에는 직전 거래일 기준으로 표시합니다.`,
+      series: investingRows
+    };
+  }
+  const candidates = ['%5EVKOSPI', 'VKOSPI.KS', 'VKOSPI'];
+  for (const symbol of candidates) {
+    try {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=1y&interval=1d`;
+      const r = await fetchWithTimeout(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, 4000);
+      const json = await r.json();
+      const result = json?.chart?.result?.[0];
+      const ts = result?.timestamp || [];
+      const closes = result?.indicators?.quote?.[0]?.close || [];
+      const rows = [];
+      for (let i = 0; i < ts.length; i += 1) {
+        const close = Number(closes[i]);
+        if (!Number.isFinite(close) || close <= 0) continue;
+        rows.push({ date: new Date(ts[i] * 1000).toISOString().slice(0, 10), close });
+      }
+      if (rows.length) {
+        const latest = rows[rows.length - 1]?.date || '';
+        return { unit: 'P', note: `최신 거래일(${latest}) 기준입니다. 휴장일에는 직전 거래일 기준으로 표시합니다.`, series: rows.slice(-safeLimit) };
+      }
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  return {
+    unavailable: true,
+    error: 'VKOSPI 원천 데이터 확인 필요: KRX Open API는 인증키가 필요하고, Investing.com 공개 표는 서버 호출이 차단됩니다. 가짜 데이터로 대체하지 않았습니다.'
+  };
 }
 
 async function fetchNaverIndexQuote(symbol) {
@@ -159,56 +630,12 @@ async function fetchStooq(symbol) {
 
 async function fetchChartSeries(key, interval = '1d') {
   if (key === 'US10Y') {
-    const url = 'https://query1.finance.yahoo.com/v8/finance/chart/%5ETNX?range=1y&interval=1d';
-    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    const json = await r.json();
-    const result = json?.chart?.result?.[0];
-    const ts = result?.timestamp || [];
-    const closes = result?.indicators?.quote?.[0]?.close || [];
-    const rows = [];
-    for (let i = 0; i < ts.length; i += 1) {
-      const close = Number(closes[i]);
-      if (!Number.isFinite(close) || close <= 0) continue;
-      const date = new Date(ts[i] * 1000).toISOString().slice(0, 10);
-      rows.push({ date, close });
-    }
+    const rows = await supplementTreasuryYield(await fetchFredYieldSeries('DGS10', 0.2), 'BC_10YEAR');
     if (!rows.length) return null;
     return rows.slice(-120);
   }
   if (key === 'US2Y') {
-    const url = 'https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS2';
-    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    const text = await r.text();
-    const lines = text.trim().split('\n');
-    const rows = [];
-    for (let i = 1; i < lines.length; i += 1) {
-      const parts = lines[i].split(',');
-      if (parts.length === 2) {
-        const close = Number(parts[1]);
-        if (Number.isFinite(close) && close > 0) {
-          rows.push({ date: parts[0], close });
-        }
-      }
-    }
-    
-    // Supplement with Treasury.gov data (for the latest missing days)
-    try {
-      const year = new Date().getFullYear();
-      const tUrl = `https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml?data=daily_treasury_yield_curve&field_tdr_date_value=${year}`;
-      const tr = await fetch(tUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      const tXml = await tr.text();
-      const dates = [...tXml.matchAll(/<d:NEW_DATE[^>]*>([^<T]+)T/g)].map(m => m[1]);
-      const yields = [...tXml.matchAll(/<d:BC_2YEAR[^>]*>([^<]+)<\/d:BC_2YEAR>/g)].map(m => Number(m[1]));
-      
-      const lastFredDate = rows.length > 0 ? rows[rows.length - 1].date : '';
-      for (let i = 0; i < dates.length; i++) {
-        if (dates[i] > lastFredDate && Number.isFinite(yields[i]) && yields[i] > 0) {
-          rows.push({ date: dates[i], close: yields[i] });
-        }
-      }
-    } catch (e) {
-      console.error('Failed to fetch supplement Treasury data', e);
-    }
+    const rows = await supplementTreasuryYield(await fetchFredYieldSeries('DGS2', 0.1), 'BC_2YEAR');
     if (!rows.length) return null;
     return rows.slice(-120);
   }
@@ -478,6 +905,24 @@ const server = http.createServer(async (req, res) => {
       return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');
     }
   }
+  if (u.pathname === '/api/extra-chart') {
+    try {
+      const kind = u.searchParams.get('kind') || '';
+      const days = Number(u.searchParams.get('days') || 200);
+      let payload = null;
+      if (kind === 'kospi-investor-daily') payload = await fetchInvestorSeries('KOSPI', 'daily', days);
+      if (kind === 'kospi-investor-minute') payload = await fetchInvestorSeries('KOSPI', 'minute', days);
+      if (kind === 'kosdaq-investor-daily') payload = await fetchInvestorSeries('KOSDAQ', 'daily', days);
+      if (kind === 'kosdaq-investor-minute') payload = await fetchInvestorSeries('KOSDAQ', 'minute', days);
+      if (kind === 'market-funds') payload = await fetchMarketFundsSeries(days);
+      if (kind === 'vkospi') payload = await fetchVkospiSeries(days);
+      if (!payload) return send(res, 404, JSON.stringify({ ok: false, error: 'no data' }), 'application/json');
+      if (payload.unavailable) return send(res, 404, JSON.stringify({ ok: false, error: payload.error }), 'application/json');
+      return send(res, 200, JSON.stringify({ ok: true, ...payload }), 'application/json');
+    } catch (e) {
+      return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');
+    }
+  }
   if (u.pathname === '/api/stats') {
     try {
       const headers = { 'User-Agent': 'Mozilla/5.0', 'Referer': 'http://finance.daum.net/' };
@@ -565,7 +1010,13 @@ const server = http.createServer(async (req, res) => {
 });
 
 if (require.main === module) {
-  server.listen(PORT, () => {
+  server.listen(PORT, '127.0.0.1', () => {
     console.log(`Server running at http://127.0.0.1:${PORT}`);
   });
 }
+
+module.exports = {
+  fetchInvestorSeries,
+  fetchMarketFundsSeries,
+  fetchVkospiSeries
+};

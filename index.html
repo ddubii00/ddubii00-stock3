@@ -58,10 +58,19 @@
     .head-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
     .asof { color: var(--muted); font-size: 12px; margin: -2px 0 8px; }
     .memo { color: #4d5b78; font-size: 12px; line-height: 1.35; margin: -2px 0 8px; white-space: pre-line; }
+    .chart-note { color: var(--muted); font-size: 12px; margin: -4px 0 8px; min-height: 16px; }
+    .chart-control { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 800; white-space: nowrap; }
+    .chart-control input { width: 72px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font-weight: 800; color: var(--text); }
 
     .chart {
       width: 100%; height: 270px; border-radius: 12px; overflow: hidden; border: 1px solid var(--line);
-      background: linear-gradient(180deg, #ffffff 0%, #f7f9ff 100%);
+      background: linear-gradient(180deg, #ffffff 0%, #f7f9ff 100%); position: relative;
+    }
+    .extra-tooltip {
+      position: absolute; z-index: 20; display: none; pointer-events: none; min-width: 145px;
+      padding: 9px 11px; border: 1px solid rgba(23, 32, 51, 0.14); border-radius: 9px;
+      background: rgba(255, 255, 255, 0.96); box-shadow: 0 8px 22px rgba(16, 35, 70, 0.16);
+      color: var(--text); font-size: 12px; line-height: 1.5; white-space: nowrap;
     }
 
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -158,6 +167,66 @@
       <div class="card span-6">
         <div class="head-row"><div class="title">국제금값 (Gold)</div></div>
         <div class="chart" id="chart-gold"></div>
+      </div>
+
+      <div class="card span-6">
+        <div class="head-row">
+          <div class="title">KOSPI 외국인/기관 매수 일봉</div>
+          <label class="chart-control">거래일
+            <input id="days-kospi-investor-daily" type="number" min="20" max="500" value="200" />
+          </label>
+        </div>
+        <div class="chart-note" id="note-kospi-investor-daily"></div>
+        <div class="chart" id="chart-kospi-investor-daily"></div>
+      </div>
+
+      <div class="card span-6">
+        <div class="head-row">
+          <div class="title">KOSPI 외국인/기관 매수 분봉</div>
+        </div>
+        <div class="chart-note" id="note-kospi-investor-minute"></div>
+        <div class="chart" id="chart-kospi-investor-minute"></div>
+      </div>
+
+      <div class="card span-6">
+        <div class="head-row">
+          <div class="title">KOSDAQ 외국인/기관 일봉</div>
+          <label class="chart-control">거래일
+            <input id="days-kosdaq-investor-daily" type="number" min="20" max="500" value="200" />
+          </label>
+        </div>
+        <div class="chart-note" id="note-kosdaq-investor-daily"></div>
+        <div class="chart" id="chart-kosdaq-investor-daily"></div>
+      </div>
+
+      <div class="card span-6">
+        <div class="head-row">
+          <div class="title">KOSDAQ 외국인/기관 매수 분봉</div>
+        </div>
+        <div class="chart-note" id="note-kosdaq-investor-minute"></div>
+        <div class="chart" id="chart-kosdaq-investor-minute"></div>
+      </div>
+
+      <div class="card span-6">
+        <div class="head-row">
+          <div class="title">신용잔고/예탁금 잔고 일봉</div>
+          <label class="chart-control">거래일
+            <input id="days-market-funds" type="number" min="20" max="500" value="200" />
+          </label>
+        </div>
+        <div class="chart-note" id="note-market-funds"></div>
+        <div class="chart" id="chart-market-funds"></div>
+      </div>
+
+      <div class="card span-6">
+        <div class="head-row">
+          <div class="title">VKOSPI 지수 일봉</div>
+          <label class="chart-control">거래일
+            <input id="days-vkospi" type="number" min="20" max="500" value="200" />
+          </label>
+        </div>
+        <div class="chart-note" id="note-vkospi"></div>
+        <div class="chart" id="chart-vkospi"></div>
       </div>
 
       <div class="card span-6">
@@ -711,12 +780,28 @@
       };
     }
 
+    async function fetchJsonWithRetry(url, retries = 2) {
+      let lastError = null;
+      for (let attempt = 0; attempt <= retries; attempt += 1) {
+        try {
+          const cacheBustedUrl = `${url}${url.includes('?') ? '&' : '?'}_=${Date.now()}`;
+          const res = await fetch(cacheBustedUrl);
+          const json = await res.json();
+          if (res.ok && json?.ok) return json;
+          lastError = new Error(json?.error || `HTTP ${res.status}`);
+        } catch (e) {
+          lastError = e;
+        }
+        await new Promise(resolve => setTimeout(resolve, 350 * (attempt + 1)));
+      }
+      throw lastError || new Error('no data');
+    }
+
     async function renderMiniChart(containerId, key) {
       const el = document.getElementById(containerId);
       if (!el) return;
       try {
-        const res = await fetch(`/api/chart?key=${encodeURIComponent(key)}`);
-        const json = await res.json();
+        const json = await fetchJsonWithRetry(`/api/chart?key=${encodeURIComponent(key)}`);
         if (!json?.ok || !Array.isArray(json.series) || !json.series.length) throw new Error('no data');
         const series = json.series;
         const values = series.map(x => Number(x.close));
@@ -786,6 +871,213 @@
       } catch (e) {
         el.innerHTML = '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:#5f6b85;font-size:13px;">차트 데이터 없음</div>';
       }
+    }
+
+    async function renderExtraChart(containerId, noteId, kind, fields, options = {}) {
+      const el = document.getElementById(containerId);
+      const noteEl = document.getElementById(noteId);
+      if (!el) return;
+      try {
+        const params = new URLSearchParams({ kind });
+        if (options.daysInputId) {
+          const rawDays = Number(document.getElementById(options.daysInputId)?.value || 200);
+          const safeDays = Math.max(20, Math.min(500, rawDays || 200));
+          params.set('days', String(safeDays));
+        }
+        const json = await fetchJsonWithRetry(`/api/extra-chart?${params.toString()}`);
+        const series = json?.series || [];
+        if (!json?.ok || !Array.isArray(series) || !series.length) throw new Error(json?.error || 'no data');
+        if (noteEl) noteEl.textContent = json.note || `단위: ${json.unit || '-'}`;
+        const formatChartValue = (value) => {
+          const numeric = Number(value);
+          if (!Number.isFinite(numeric)) return '-';
+          if (json.unit === '조원' || json.unit === 'P') {
+            return numeric.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          }
+          return Math.round(numeric).toLocaleString('ko-KR');
+        };
+
+        const w = el.clientWidth || 900;
+        const h = el.clientHeight || 260;
+        const padL = 66;
+        const padR = options.dualAxis ? 66 : 16;
+        const padT = 28;
+        const padB = 28;
+        const xFor = (i) => padL + (i * (w - padL - padR)) / Math.max(1, series.length - 1);
+
+        const valuesForFields = (selectedFields) => {
+          const values = [];
+          selectedFields.forEach((field) => series.forEach((row) => {
+            const value = Number(row[field.key]);
+            if (Number.isFinite(value)) values.push(value);
+          }));
+          return values;
+        };
+        const makeScale = (values, includeZero = false) => {
+          if (!values.length) return null;
+          let min = Math.min(...values);
+          let max = Math.max(...values);
+          if (includeZero) {
+            min = Math.min(0, min);
+            max = Math.max(0, max);
+          } else {
+            const margin = (max - min || Math.abs(max) || 1) * 0.06;
+            min -= margin;
+            max += margin;
+          }
+          const span = (max - min) || 1;
+          return {
+            min,
+            max,
+            span,
+            yFor: (value) => h - padB - ((value - min) / span) * (h - padT - padB)
+          };
+        };
+        const leftFields = options.dualAxis ? fields.filter((field) => field.axis !== 'right') : fields;
+        const rightFields = options.dualAxis ? fields.filter((field) => field.axis === 'right') : [];
+        const leftScale = makeScale(valuesForFields(leftFields), options.zeroLine);
+        const rightScale = options.dualAxis ? makeScale(valuesForFields(rightFields), options.zeroLine) : leftScale;
+        if (!leftScale || !rightScale) throw new Error('no numeric data');
+        const scaleForField = (field) => options.dualAxis && field.axis === 'right' ? rightScale : leftScale;
+        const yForField = (field, value) => scaleForField(field).yFor(value);
+
+        const makeTicks = (scale) => {
+          const raw = scale.span / 4 || 1;
+          const pow = Math.pow(10, Math.floor(Math.log10(Math.abs(raw) || 1)));
+          const step = Math.max(pow, Math.ceil(raw / pow) * pow);
+          const start = Math.ceil(scale.min / step) * step;
+          const ticks = [];
+          for (let value = start; value <= scale.max + step * 0.001; value += step) ticks.push(value);
+          return ticks;
+        };
+        const leftTickSvg = makeTicks(leftScale).map((value) => {
+          const y = leftScale.yFor(value);
+          return `<text x="6" y="${y + 4}" fill="#5f6b85" font-size="11">${formatChartValue(value)}</text>
+                  <line x1="${padL}" y1="${y}" x2="${w - padR}" y2="${y}" stroke="#e6ecf7" stroke-width="1" />`;
+        }).join('');
+        const rightTickSvg = options.dualAxis ? makeTicks(rightScale).map((value) => {
+          const y = rightScale.yFor(value);
+          return `<text x="${w - 6}" y="${y + 4}" fill="#5f6b85" font-size="11" text-anchor="end">${formatChartValue(value)}</text>`;
+        }).join('') : '';
+        const zeroLineSvg = options.zeroLine && leftScale.min <= 0 && leftScale.max >= 0
+          ? `<line x1="${padL}" y1="${leftScale.yFor(0)}" x2="${w - padR}" y2="${leftScale.yFor(0)}" stroke="#111827" stroke-width="1.4" stroke-dasharray="5 4" />
+             <text x="${padL + 4}" y="${leftScale.yFor(0) - 5}" fill="#111827" font-size="11" font-weight="800">0</text>`
+          : '';
+        const lines = fields.map((field) => {
+          if (series.length === 1) {
+            const v = Number(series[0][field.key]);
+            if (!Number.isFinite(v)) return '';
+            return `<circle cx="${padL}" cy="${yForField(field, v)}" r="4" fill="${field.color}" />`;
+          }
+          const points = series.map((row, i) => {
+            const v = Number(row[field.key]);
+            if (!Number.isFinite(v)) return null;
+            return `${xFor(i)},${yForField(field, v)}`;
+          }).filter(Boolean).join(' ');
+          return `<polyline fill="none" stroke="${field.color}" stroke-width="2.2" points="${points}" />`;
+        }).join('');
+        const legend = fields.map((field, i) => {
+          const x = padL + i * 110;
+          return `<text x="${x}" y="${padT - 9}" fill="${field.color}" font-size="12" font-weight="800">${field.label}</text>`;
+        }).join('');
+        const xTicks = [];
+        if (options.intraday) {
+          const step = Math.max(1, Math.ceil(series.length / 6));
+          series.forEach((row, i) => {
+            if (i % step === 0 || i === series.length - 1) xTicks.push({ i, d: String(row.date || '') });
+          });
+        } else {
+          let prevYm = '';
+          series.forEach((row, i) => {
+            const d = String(row.date || '');
+            const ym = d.slice(0, 7);
+            if (ym && ym !== prevYm) {
+              xTicks.push({ i, d });
+              prevYm = ym;
+            }
+          });
+        }
+        const xTickSvg = xTicks.map((t) => {
+          const label = options.intraday
+            ? (t.d.split(' ')[1] || t.d).slice(0, 5)
+            : `${t.d.slice(0, 4)}.${t.d.slice(5, 7)}.`;
+          return `<text x="${xFor(t.i) - 20}" y="${h - 6}" fill="#5f6b85" font-size="11">${label}</text>`;
+        }).join('');
+        const lastDate = series[series.length - 1]?.date || '';
+        el.innerHTML = `<svg width="100%" height="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+          <rect x="0" y="0" width="${w}" height="${h}" fill="#f9fbff"/>
+          ${leftTickSvg}
+          ${rightTickSvg}
+          ${zeroLineSvg}
+          ${lines}
+          ${legend}
+          <text x="${w - padR}" y="${padT - 9}" fill="#111" font-size="13" font-weight="800" text-anchor="end">${lastDate}</text>
+          ${xTickSvg}
+          <g id="${containerId}-extra-hover"></g>
+        </svg>`;
+
+        if (options.tooltip) {
+          let tooltip = el.querySelector('.extra-tooltip');
+          if (!tooltip) {
+            tooltip = document.createElement('div');
+            tooltip.className = 'extra-tooltip';
+            el.appendChild(tooltip);
+          }
+          el.onmousemove = (event) => {
+            const rect = el.getBoundingClientRect();
+            const mouseX = event.clientX - rect.left;
+            const plotWidth = rect.width * (w - padL - padR) / w;
+            const plotLeft = rect.width * padL / w;
+            const ratio = Math.max(0, Math.min(1, (mouseX - plotLeft) / Math.max(1, plotWidth)));
+            const index = Math.round(ratio * Math.max(0, series.length - 1));
+            const row = series[index];
+            if (!row) return;
+            const x = xFor(index);
+            const points = fields.map((field) => {
+              const value = Number(row[field.key]);
+              return Number.isFinite(value)
+                ? `<circle cx="${x}" cy="${yForField(field, value)}" r="3.5" fill="${field.color}" stroke="#fff" stroke-width="1.5" />`
+                : '';
+            }).join('');
+            const hoverGroup = el.querySelector(`#${containerId}-extra-hover`);
+            if (hoverGroup) hoverGroup.innerHTML = `<line x1="${x}" y1="${padT}" x2="${x}" y2="${h - padB}" stroke="#111827" stroke-width="1.2" stroke-dasharray="5 4" />${points}`;
+            const valueRows = fields.map((field) => {
+              const value = Number(row[field.key]);
+              if (!Number.isFinite(value)) return '';
+              const label = field.tooltipLabel || field.label;
+              const cumulativeLabel = options.cumulative ? ' 누적' : '';
+              return `<div style="color:${field.color};font-weight:800;">${label}${cumulativeLabel}: ${formatChartValue(value)}${json.unit ? ` ${json.unit}` : ''}</div>`;
+            }).join('');
+            tooltip.innerHTML = `<div style="font-weight:900;margin-bottom:4px;color:#111827;">${row.date || '-'}</div>${valueRows}`;
+            tooltip.style.display = 'block';
+            const tooltipLeft = event.clientX - rect.left + 12;
+            const tooltipTop = event.clientY - rect.top + 12;
+            tooltip.style.left = `${Math.min(Math.max(6, tooltipLeft), Math.max(6, rect.width - tooltip.offsetWidth - 6))}px`;
+            tooltip.style.top = `${Math.min(Math.max(6, tooltipTop), Math.max(6, rect.height - tooltip.offsetHeight - 6))}px`;
+          };
+          el.onmouseleave = () => {
+            tooltip.style.display = 'none';
+            const hoverGroup = el.querySelector(`#${containerId}-extra-hover`);
+            if (hoverGroup) hoverGroup.innerHTML = '';
+          };
+        } else {
+          el.onmousemove = null;
+          el.onmouseleave = null;
+        }
+      } catch (e) {
+        const message = e?.message || '원천 데이터 미제공/확인 필요';
+        if (noteEl) noteEl.textContent = message;
+        el.innerHTML = `<div style="height:100%;display:flex;align-items:center;justify-content:center;text-align:center;padding:16px;color:#5f6b85;font-size:13px;line-height:1.5;">${message}</div>`;
+      }
+    }
+
+    function bindInvestorDaysInput(inputId, renderFn) {
+      const input = document.getElementById(inputId);
+      if (!input) return;
+      input.addEventListener('change', renderFn);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') renderFn();
+      });
     }
 
         async function fetchYahooQuote(symbol) {
@@ -956,6 +1248,69 @@
     renderMiniChart('chart-wti', 'WTI');
     renderMiniChart('chart-dxy', 'DXY');
     renderMiniChart('chart-gold', 'GOLD');
+    const investorFields = [
+      { key: 'foreign', label: '외국인', color: '#d92c2c' },
+      { key: 'institution', label: '기관', color: '#0f6fff' }
+    ];
+    const renderKospiInvestorDaily = () => renderExtraChart(
+      'chart-kospi-investor-daily',
+      'note-kospi-investor-daily',
+      'kospi-investor-daily',
+      investorFields,
+      { zeroLine: true, daysInputId: 'days-kospi-investor-daily', tooltip: true, cumulative: true }
+    );
+    const renderKospiInvestorMinute = () => renderExtraChart(
+      'chart-kospi-investor-minute',
+      'note-kospi-investor-minute',
+      'kospi-investor-minute',
+      investorFields,
+      { zeroLine: true, intraday: true, tooltip: true, cumulative: true }
+    );
+    const renderKosdaqInvestorDaily = () => renderExtraChart(
+      'chart-kosdaq-investor-daily',
+      'note-kosdaq-investor-daily',
+      'kosdaq-investor-daily',
+      investorFields,
+      { zeroLine: true, daysInputId: 'days-kosdaq-investor-daily', tooltip: true, cumulative: true }
+    );
+    const renderKosdaqInvestorMinute = () => renderExtraChart(
+      'chart-kosdaq-investor-minute',
+      'note-kosdaq-investor-minute',
+      'kosdaq-investor-minute',
+      investorFields,
+      { zeroLine: true, intraday: true, tooltip: true, cumulative: true }
+    );
+    const renderMarketFunds = () => renderExtraChart('chart-market-funds', 'note-market-funds', 'market-funds', [
+      { key: 'credit', label: '신용잔고 (좌)', tooltipLabel: '신용잔고', color: '#f59e0b', axis: 'left' },
+      { key: 'deposit', label: '예탁금 (우)', tooltipLabel: '예탁금', color: '#10b981', axis: 'right' }
+    ], { zeroLine: true, dualAxis: true, daysInputId: 'days-market-funds', tooltip: true });
+    const renderVkospi = () => renderExtraChart('chart-vkospi', 'note-vkospi', 'vkospi', [
+      { key: 'close', label: 'VKOSPI', color: '#7c3aed' }
+    ], { daysInputId: 'days-vkospi', tooltip: true });
+    renderKospiInvestorDaily();
+    renderKospiInvestorMinute();
+    renderKosdaqInvestorDaily();
+    renderKosdaqInvestorMinute();
+    renderMarketFunds();
+    renderVkospi();
+    bindInvestorDaysInput('days-kospi-investor-daily', renderKospiInvestorDaily);
+    bindInvestorDaysInput('days-kosdaq-investor-daily', renderKosdaqInvestorDaily);
+    bindInvestorDaysInput('days-market-funds', renderMarketFunds);
+    bindInvestorDaysInput('days-vkospi', renderVkospi);
+    const isKoreaMarketHours = () => {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Seoul', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false
+      }).formatToParts(new Date());
+      const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+      if (values.weekday === 'Sat' || values.weekday === 'Sun') return false;
+      const minutes = Number(values.hour) * 60 + Number(values.minute);
+      return minutes >= 9 * 60 && minutes <= 15 * 60 + 30;
+    };
+    setInterval(() => {
+      if (!isKoreaMarketHours()) return;
+      renderKospiInvestorMinute();
+      renderKosdaqInvestorMinute();
+    }, 5 * 60 * 1000);
     refreshFlowTable();
     renderTurnoverTable();
     updateSummaryNumbers();
