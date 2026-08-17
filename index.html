@@ -964,6 +964,10 @@
         if (!leftScale || !rightScale) throw new Error('no numeric data');
         const scaleForField = (field) => options.dualAxis && field.axis === 'right' ? rightScale : leftScale;
         const yForField = (field, value) => scaleForField(field).yFor(value);
+        const colorForField = (field, value = 0) => {
+          if (field.type === 'bar') return value >= 0 ? field.positiveColor : field.negativeColor;
+          return field.color;
+        };
 
         const makeTicks = (scale) => {
           const raw = scale.span / 4 || 1;
@@ -981,17 +985,34 @@
         }).join('');
         const rightTickSvg = options.dualAxis ? makeTicks(rightScale).map((value) => {
           const y = rightScale.yFor(value);
-          return `<text x="${w - 6}" y="${y + 4}" fill="#5f6b85" font-size="11" text-anchor="end">${formatChartValue(value)}</text>`;
+          return `<line x1="${w - padR}" y1="${y}" x2="${w - padR + 5}" y2="${y}" stroke="#94a0b8" stroke-width="1" />
+                  <text x="${w - 6}" y="${y + 4}" fill="#5f6b85" font-size="11" text-anchor="end">${formatChartValue(value)}</text>`;
         }).join('') : '';
         const zeroLineSvg = options.zeroLine && leftScale.min <= 0 && leftScale.max >= 0
           ? `<line x1="${padL}" y1="${leftScale.yFor(0)}" x2="${w - padR}" y2="${leftScale.yFor(0)}" stroke="#111827" stroke-width="1.4" stroke-dasharray="5 4" />
              <text x="${padL + 4}" y="${leftScale.yFor(0) - 5}" fill="#111827" font-size="11" font-weight="800">0</text>`
           : '';
-        const lines = fields.map((field) => {
+        const rightZeroLineSvg = options.dualAxis && rightScale.min <= 0 && rightScale.max >= 0
+          ? `<line x1="${padL}" y1="${rightScale.yFor(0)}" x2="${w - padR}" y2="${rightScale.yFor(0)}" stroke="#94a0b8" stroke-width="1" stroke-dasharray="3 4" />`
+          : '';
+        const plotWidth = w - padL - padR;
+        const barWidth = Math.max(1.5, Math.min(10, (plotWidth / Math.max(1, series.length)) * 0.72));
+        const bars = fields.filter((field) => field.type === 'bar').map((field) => {
+          const baseY = yForField(field, 0);
+          return series.map((row, i) => {
+            const value = Number(row[field.key]);
+            if (!Number.isFinite(value)) return '';
+            const valueY = yForField(field, value);
+            const y = Math.min(baseY, valueY);
+            const height = Math.max(1, Math.abs(baseY - valueY));
+            return `<rect x="${xFor(i) - barWidth / 2}" y="${y}" width="${barWidth}" height="${height}" fill="${colorForField(field, value)}" />`;
+          }).join('');
+        }).join('');
+        const lines = fields.filter((field) => field.type !== 'bar').map((field) => {
           if (series.length === 1) {
             const v = Number(series[0][field.key]);
             if (!Number.isFinite(v)) return '';
-            return `<circle cx="${padL}" cy="${yForField(field, v)}" r="4" fill="${field.color}" />`;
+            return `<circle cx="${padL}" cy="${yForField(field, v)}" r="4" fill="${colorForField(field, v)}" />`;
           }
           const points = series.map((row, i) => {
             const v = Number(row[field.key]);
@@ -1001,8 +1022,9 @@
           return `<polyline fill="none" stroke="${field.color}" stroke-width="2.2" points="${points}" />`;
         }).join('');
         const legend = fields.map((field, i) => {
-          const x = padL + i * 110;
-          return `<text x="${x}" y="${padT - 9}" fill="${field.color}" font-size="12" font-weight="800">${field.label}</text>`;
+          const x = padL + i * 125;
+          const legendColor = field.type === 'bar' ? '#7b8498' : field.color;
+          return `<text x="${x}" y="${padT - 9}" fill="${legendColor}" font-size="12" font-weight="800">${field.label}</text>`;
         }).join('');
         const xTicks = [];
         if (options.intraday) {
@@ -1033,6 +1055,8 @@
           ${leftTickSvg}
           ${rightTickSvg}
           ${zeroLineSvg}
+          ${rightZeroLineSvg}
+          ${bars}
           ${lines}
           ${legend}
           <text x="${w - padR}" y="${padT - 9}" fill="#111" font-size="13" font-weight="800" text-anchor="end">${lastDate}</text>
@@ -1060,7 +1084,7 @@
             const points = fields.map((field) => {
               const value = Number(row[field.key]);
               return Number.isFinite(value)
-                ? `<circle cx="${x}" cy="${yForField(field, value)}" r="3.5" fill="${field.color}" stroke="#fff" stroke-width="1.5" />`
+                ? `<circle cx="${x}" cy="${yForField(field, value)}" r="3.5" fill="${colorForField(field, value)}" stroke="#fff" stroke-width="1.5" />`
                 : '';
             }).join('');
             const hoverGroup = el.querySelector(`#${containerId}-extra-hover`);
@@ -1070,7 +1094,8 @@
               if (!Number.isFinite(value)) return '';
               const label = field.tooltipLabel || field.label;
               const cumulativeLabel = options.cumulative ? ' 누적' : '';
-              return `<div style="color:${field.color};font-weight:800;">${label}${cumulativeLabel}: ${formatChartValue(value)}${json.unit ? ` ${json.unit}` : ''}</div>`;
+              const valueLabel = field.type === 'bar' ? '' : cumulativeLabel;
+              return `<div style="color:${colorForField(field, value)};font-weight:800;">${label}${valueLabel}: ${formatChartValue(value)}${json.unit ? ` ${json.unit}` : ''}</div>`;
             }).join('');
             tooltip.innerHTML = `<div style="font-weight:900;margin-bottom:4px;color:#111827;">${row.date || '-'}</div>${valueRows}`;
             tooltip.style.display = 'block';
@@ -1276,12 +1301,23 @@
       { key: 'foreign', label: '외국인', color: '#d92c2c' },
       { key: 'institution', label: '기관', color: '#0f6fff' }
     ];
+    const kospiInvestorDailyFields = [
+      ...investorFields,
+      {
+        key: 'dailyForeign',
+        label: '외국인 일별(우)',
+        type: 'bar',
+        axis: 'right',
+        positiveColor: 'rgba(217, 44, 44, 0.34)',
+        negativeColor: 'rgba(31, 91, 216, 0.34)'
+      }
+    ];
     const renderKospiInvestorDaily = () => renderExtraChart(
       'chart-kospi-investor-daily',
       'note-kospi-investor-daily',
       'kospi-investor-daily',
-      investorFields,
-      { zeroLine: true, daysInputId: 'days-kospi-investor-daily', tooltip: true, cumulative: true }
+      kospiInvestorDailyFields,
+      { zeroLine: true, dualAxis: true, daysInputId: 'days-kospi-investor-daily', tooltip: true, cumulative: true }
     );
     const renderKospiInvestorMinute = () => renderExtraChart(
       'chart-kospi-investor-minute',

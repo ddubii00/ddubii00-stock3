@@ -263,6 +263,8 @@ async function fetchInvestorSeries(market, kind, limit = 200) {
     institutionTotal += row.institution;
     return {
       date: row.date,
+      dailyForeign: row.foreign,
+      dailyInstitution: row.institution,
       foreign: foreignTotal,
       institution: institutionTotal
     };
