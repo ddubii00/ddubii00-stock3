@@ -270,6 +270,87 @@ async function fetchInvestorSeries(market, kind, limit = 200) {
   return { unit: '조원', note: `${marketLabel} ${cumulativeRows.length}거래일 누적 순매수, 단위: 조원`, series: cumulativeRows };
 }
 
+async function fetchForeignFuturesSeries(limit = 200) {
+  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 200));
+  const rows = [];
+  const seen = new Set();
+  const bizdate = formatYmd(new Date());
+  const maxPages = Math.ceil(safeLimit / 10) + 5;
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const url = `https://finance.naver.com/sise/investorDealTrendDay.naver?bizdate=${bizdate}&sosok=03&page=${page}`;
+    const html = await fetchTextWithRetries(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        Referer: 'https://finance.naver.com/sise/'
+      }
+    }, 3, 'euc-kr');
+    const tableRows = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
+    let foundInPage = 0;
+
+    for (const match of tableRows) {
+      const cells = [...match[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((m) => stripHtml(m[1]));
+      if (cells.length < 3 || !/^\d{2}\.\d{2}\.\d{2}$/.test(cells[0])) continue;
+      const foreign = parseTrendNumber(cells[2]);
+      if (!Number.isFinite(foreign)) continue;
+      const [yy, mm, dd] = cells[0].split('.');
+      const date = `20${yy}-${mm}-${dd}`;
+      if (seen.has(date)) continue;
+      seen.add(date);
+      rows.push({ date, foreign });
+      foundInPage += 1;
+    }
+
+    if (!foundInPage && page > 1) break;
+    if (rows.length >= safeLimit) break;
+  }
+
+  rows.sort((a, b) => a.date.localeCompare(b.date));
+  if (!rows.length) return null;
+  const series = rows.slice(-safeLimit);
+  const latest = series[series.length - 1]?.date || '';
+  return {
+    unit: '계약',
+    note: `네이버 선물 일자별 순매수 최신 거래일(${latest}) 기준, 외국인 순매수 단위: 계약.`,
+    series
+  };
+}
+
+async function fetchMarketTurnoverSeries(limit = 200) {
+  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 200));
+  const fetchMarket = async (market) => {
+    const url = `https://finance.daum.net/api/market_index/days?page=1&perPage=${safeLimit}&market=${market}&pagination=true`;
+    const response = await fetchWithTimeout(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        Referer: 'https://finance.daum.net/'
+      }
+    });
+    const json = await response.json();
+    const rows = Array.isArray(json?.data) ? json.data : [];
+    return rows.map((row) => ({
+      date: String(row.date || '').slice(0, 10),
+      value: Number(row.accTradePrice) / 1000000
+    })).filter((row) => row.date && Number.isFinite(row.value));
+  };
+
+  const [kospiRows, kosdaqRows] = await Promise.all([fetchMarket('KOSPI'), fetchMarket('KOSDAQ')]);
+  const kospiByDate = new Map(kospiRows.map((row) => [row.date, row.value]));
+  const kosdaqByDate = new Map(kosdaqRows.map((row) => [row.date, row.value]));
+  const series = [...kospiByDate.keys()]
+    .filter((date) => kosdaqByDate.has(date))
+    .sort()
+    .slice(-safeLimit)
+    .map((date) => ({ date, kospi: kospiByDate.get(date), kosdaq: kosdaqByDate.get(date) }));
+  if (!series.length) return null;
+  const latest = series[series.length - 1]?.date || '';
+  return {
+    unit: '조원',
+    note: `Daum Finance 시장별 일일 거래대금 최신 거래일(${latest}) 기준, 단위: 조원.`,
+    series
+  };
+}
+
 async function fetchMarketFundsSeries(limit = 200) {
   const safeLimit = Math.max(20, Math.min(500, Number(limit) || 200));
   const rows = [];
@@ -916,6 +997,8 @@ const server = http.createServer(async (req, res) => {
       if (kind === 'kosdaq-investor-minute') payload = await fetchInvestorSeries('KOSDAQ', 'minute', days);
       if (kind === 'market-funds') payload = await fetchMarketFundsSeries(days);
       if (kind === 'vkospi') payload = await fetchVkospiSeries(days);
+      if (kind === 'foreign-futures-daily') payload = await fetchForeignFuturesSeries(days);
+      if (kind === 'market-turnover-daily') payload = await fetchMarketTurnoverSeries(days);
       if (!payload) return send(res, 404, JSON.stringify({ ok: false, error: 'no data' }), 'application/json');
       if (payload.unavailable) return send(res, 404, JSON.stringify({ ok: false, error: payload.error }), 'application/json');
       return send(res, 200, JSON.stringify({ ok: true, ...payload }), 'application/json');
@@ -947,6 +1030,7 @@ const server = http.createServer(async (req, res) => {
       const rKosdaqDaum = await fetch('https://finance.daum.net/api/market_index/days?page=1&perPage=2&market=KOSDAQ&pagination=true', { headers });
       const jsonKosdaq = await rKosdaqDaum.json();
       const kosdaqData = jsonKosdaq.data || [];
+      const futuresPayload = await fetchForeignFuturesSeries(20);
       
       let kospiTurnover = 0, kosdaqTurnover = 0;
       let kospiTurnoverDiff = '0', kosdaqTurnoverDiff = '0';
@@ -958,15 +1042,8 @@ const server = http.createServer(async (req, res) => {
         const diff = (kospiData[0].accTradePrice - kospiData[1].accTradePrice) / 1000000;
         kospiTurnoverDiff = diff.toFixed(2);
         
-        let sum = 0;
-        for (let i = 0; i < kospiData.length && i < 20; i++) {
-          sum += Math.round(kospiData[i].foreignStraightPurchasePrice / 100000000);
-          if (i === 0) futuresArray[0] = sum;
-          if (i === 2) futuresArray[1] = sum;
-          if (i === 4) futuresArray[2] = sum;
-          if (i === 9) futuresArray[3] = sum;
-          if (i === 19 || i === kospiData.length - 1) futuresArray[4] = sum;
-        }
+        const recentFutures = (futuresPayload?.series || []).slice().reverse().map((row) => Number(row.foreign) || 0);
+        futuresArray = [1, 3, 5, 10, 20].map((days) => recentFutures.slice(0, days).reduce((sum, value) => sum + value, 0));
         if (futuresArray[0] !== 0) {
           const ratio = prog / futuresArray[0];
           progsArray[1] = Math.round(futuresArray[1] * ratio);
@@ -1018,5 +1095,7 @@ if (require.main === module) {
 module.exports = {
   fetchInvestorSeries,
   fetchMarketFundsSeries,
-  fetchVkospiSeries
+  fetchVkospiSeries,
+  fetchForeignFuturesSeries,
+  fetchMarketTurnoverSeries
 };

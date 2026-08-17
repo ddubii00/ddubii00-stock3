@@ -3,6 +3,8 @@
 // 1) 외국인 수급 / 프로그램
 // 2) 시장 거래대금
 
+const { fetchForeignFuturesSeries } = require('../server');
+
 function sendJson(res, statusCode, body) {
   res.statusCode = statusCode;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -133,10 +135,11 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const [kospiData, kosdaqData, programToday] = await Promise.all([
+    const [kospiData, kosdaqData, programToday, futuresPayload] = await Promise.all([
       fetchDaumMarketDays('KOSPI', 20),
       fetchDaumMarketDays('KOSDAQ', 20),
-      fetchProgramTradingEok()
+      fetchProgramTradingEok(),
+      fetchForeignFuturesSeries(20)
     ]);
 
     const kospiToday = kospiData[0] || {};
@@ -147,15 +150,9 @@ module.exports = async function handler(req, res) {
     const kospiTurnover = numberOrZero(kospiToday.accTradePrice);
     const kosdaqTurnover = numberOrZero(kosdaqToday.accTradePrice);
 
-    // Daum field is won value. Convert to 억원 for cumulative flow.
-    // Note: the current index.html label says "외국인 선물(계약)",
-    // but this value is actually foreign net buying amount in 억원 when Daum provides it.
-    const foreignNetBuyEok = kospiData
-      .slice(0, 20)
-      .map((row) => toEokWon(row.foreignStraightPurchasePrice));
-
     const days = [1, 3, 5, 10, 20];
-    const futuresArray = cumulative(foreignNetBuyEok, days);
+    const recentFutures = (futuresPayload?.series || []).slice().reverse().map((row) => row.foreign);
+    const futuresArray = cumulative(recentFutures, days);
 
     // Naver only gives today's program number here.
     // Use the current ratio as an estimate for 3/5/10/20-day cumulative values.
@@ -184,7 +181,7 @@ module.exports = async function handler(req, res) {
       asOf: new Date().toISOString(),
       source: {
         turnover: 'Daum Finance market_index/days',
-        foreignFlow: 'Daum Finance foreignStraightPurchasePrice, converted to eok won',
+        foreignFlow: 'Naver Finance futures investorDealTrendDay, sosok=03, contracts',
         program: 'Naver Finance KOSPI page'
       }
     });

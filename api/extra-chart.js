@@ -3,7 +3,9 @@
 const {
   fetchInvestorSeries,
   fetchMarketFundsSeries,
-  fetchVkospiSeries
+  fetchVkospiSeries,
+  fetchForeignFuturesSeries,
+  fetchMarketTurnoverSeries
 } = require('../server');
 
 module.exports = async function handler(req, res) {
@@ -21,6 +23,8 @@ module.exports = async function handler(req, res) {
     if (kind === 'kosdaq-investor-minute') payload = await fetchInvestorSeries('KOSDAQ', 'minute', days);
     if (kind === 'market-funds') payload = await fetchMarketFundsSeries(days);
     if (kind === 'vkospi') payload = await fetchVkospiSeries(days);
+    if (kind === 'foreign-futures-daily') payload = await fetchForeignFuturesSeries(days);
+    if (kind === 'market-turnover-daily') payload = await fetchMarketTurnoverSeries(days);
 
     if (!payload) return res.status(404).json({ ok: false, error: 'no data' });
     if (payload.unavailable) return res.status(404).json({ ok: false, error: payload.error });

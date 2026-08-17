@@ -231,6 +231,28 @@
 
       <div class="card span-6">
         <div class="head-row">
+          <div class="title">외국인 선물 수급 일봉</div>
+          <label class="chart-control">거래일
+            <input id="days-foreign-futures" type="number" min="20" max="500" value="200" />
+          </label>
+        </div>
+        <div class="chart-note" id="note-foreign-futures"></div>
+        <div class="chart" id="chart-foreign-futures"></div>
+      </div>
+
+      <div class="card span-6">
+        <div class="head-row">
+          <div class="title">시장 거래대금 일봉</div>
+          <label class="chart-control">거래일
+            <input id="days-market-turnover" type="number" min="20" max="500" value="200" />
+          </label>
+        </div>
+        <div class="chart-note" id="note-market-turnover"></div>
+        <div class="chart" id="chart-market-turnover"></div>
+      </div>
+
+      <div class="card span-6">
+        <div class="head-row">
           <div>
             <div class="title">외국인 선물 수급</div>
           </div>
@@ -1287,16 +1309,27 @@
     const renderVkospi = () => renderExtraChart('chart-vkospi', 'note-vkospi', 'vkospi', [
       { key: 'close', label: 'VKOSPI', color: '#7c3aed' }
     ], { daysInputId: 'days-vkospi', tooltip: true });
+    const renderForeignFutures = () => renderExtraChart('chart-foreign-futures', 'note-foreign-futures', 'foreign-futures-daily', [
+      { key: 'foreign', label: '외국인 순매수', color: '#d92c2c' }
+    ], { zeroLine: true, daysInputId: 'days-foreign-futures', tooltip: true });
+    const renderMarketTurnover = () => renderExtraChart('chart-market-turnover', 'note-market-turnover', 'market-turnover-daily', [
+      { key: 'kospi', label: 'KOSPI', color: '#d92c2c' },
+      { key: 'kosdaq', label: 'KOSDAQ', color: '#0f6fff' }
+    ], { daysInputId: 'days-market-turnover', tooltip: true });
     renderKospiInvestorDaily();
     renderKospiInvestorMinute();
     renderKosdaqInvestorDaily();
     renderKosdaqInvestorMinute();
     renderMarketFunds();
     renderVkospi();
+    renderForeignFutures();
+    renderMarketTurnover();
     bindInvestorDaysInput('days-kospi-investor-daily', renderKospiInvestorDaily);
     bindInvestorDaysInput('days-kosdaq-investor-daily', renderKosdaqInvestorDaily);
     bindInvestorDaysInput('days-market-funds', renderMarketFunds);
     bindInvestorDaysInput('days-vkospi', renderVkospi);
+    bindInvestorDaysInput('days-foreign-futures', renderForeignFutures);
+    bindInvestorDaysInput('days-market-turnover', renderMarketTurnover);
     const isKoreaMarketHours = () => {
       const parts = new Intl.DateTimeFormat('en-US', {
         timeZone: 'Asia/Seoul', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false
