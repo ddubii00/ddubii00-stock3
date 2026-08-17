@@ -173,7 +173,7 @@
         <div class="head-row">
           <div class="title">KOSPI 외국인/기관 매수 일봉</div>
           <label class="chart-control">거래일
-            <input id="days-kospi-investor-daily" type="number" min="20" max="500" value="120" />
+            <input id="days-kospi-investor-daily" type="number" min="20" max="500" value="200" />
           </label>
         </div>
         <div class="chart-note" id="note-kospi-investor-daily"></div>
@@ -192,7 +192,7 @@
         <div class="head-row">
           <div class="title">KOSDAQ 외국인/기관 일봉</div>
           <label class="chart-control">거래일
-            <input id="days-kosdaq-investor-daily" type="number" min="20" max="500" value="120" />
+            <input id="days-kosdaq-investor-daily" type="number" min="20" max="500" value="200" />
           </label>
         </div>
         <div class="chart-note" id="note-kosdaq-investor-daily"></div>
@@ -211,7 +211,7 @@
         <div class="head-row">
           <div class="title">신용잔고/예탁금 잔고 일봉</div>
           <label class="chart-control">거래일
-            <input id="days-market-funds" type="number" min="20" max="500" value="120" />
+            <input id="days-market-funds" type="number" min="20" max="500" value="200" />
           </label>
         </div>
         <div class="chart-note" id="note-market-funds"></div>
@@ -222,7 +222,7 @@
         <div class="head-row">
           <div class="title">VKOSPI 지수 일봉</div>
           <label class="chart-control">거래일
-            <input id="days-vkospi" type="number" min="20" max="500" value="120" />
+            <input id="days-vkospi" type="number" min="20" max="500" value="200" />
           </label>
         </div>
         <div class="chart-note" id="note-vkospi"></div>
@@ -233,7 +233,7 @@
         <div class="head-row">
           <div class="title">외국인 선물 수급 일봉</div>
           <label class="chart-control">거래일
-            <input id="days-foreign-futures" type="number" min="20" max="500" value="120" />
+            <input id="days-foreign-futures" type="number" min="20" max="500" value="200" />
           </label>
         </div>
         <div class="chart-note" id="note-foreign-futures"></div>
@@ -244,7 +244,7 @@
         <div class="head-row">
           <div class="title">시장 거래대금 일봉</div>
           <label class="chart-control">거래일
-            <input id="days-market-turnover" type="number" min="20" max="500" value="120" />
+            <input id="days-market-turnover" type="number" min="20" max="500" value="200" />
           </label>
         </div>
         <div class="chart-note" id="note-market-turnover"></div>
@@ -902,8 +902,8 @@
       try {
         const params = new URLSearchParams({ kind });
         if (options.daysInputId) {
-          const rawDays = Number(document.getElementById(options.daysInputId)?.value || 120);
-          const safeDays = Math.max(20, Math.min(500, rawDays || 120));
+          const rawDays = Number(document.getElementById(options.daysInputId)?.value || 200);
+          const safeDays = Math.max(20, Math.min(500, rawDays || 200));
           params.set('days', String(safeDays));
         }
         const json = await fetchJsonWithRetry(`/api/extra-chart?${params.toString()}`);
