@@ -1347,9 +1347,24 @@
     const renderVkospi = () => renderExtraChart('chart-vkospi', 'note-vkospi', 'vkospi', [
       { key: 'close', label: 'VKOSPI', color: '#7c3aed' }
     ], { daysInputId: 'days-vkospi', tooltip: true });
-    const renderForeignFutures = () => renderExtraChart('chart-foreign-futures', 'note-foreign-futures', 'foreign-futures-daily', [
-      { key: 'foreign', label: '외국인 순매수', color: '#d92c2c' }
-    ], { zeroLine: true, daysInputId: 'days-foreign-futures', tooltip: true, cumulative: true });
+    const foreignFuturesFields = [
+      { key: 'foreign', label: '외국인 누적', color: '#d92c2c' },
+      {
+        key: 'dailyForeign',
+        label: '외국인 일별(우)',
+        type: 'bar',
+        axis: 'right',
+        positiveColor: 'rgba(217, 44, 44, 0.34)',
+        negativeColor: 'rgba(31, 91, 216, 0.34)'
+      }
+    ];
+    const renderForeignFutures = () => renderExtraChart(
+      'chart-foreign-futures',
+      'note-foreign-futures',
+      'foreign-futures-daily',
+      foreignFuturesFields,
+      { zeroLine: true, dualAxis: true, daysInputId: 'days-foreign-futures', tooltip: true, cumulative: true }
+    );
     const renderMarketTurnover = () => renderExtraChart('chart-market-turnover', 'note-market-turnover', 'market-turnover-daily', [
       { key: 'kospi', label: 'KOSPI', color: '#d92c2c' },
       { key: 'kosdaq', label: 'KOSDAQ', color: '#0f6fff' }
