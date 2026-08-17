@@ -29,8 +29,9 @@ function formatNumber(value) {
 function pctChange(current, previous) {
   const c = numberOrZero(current);
   const p = numberOrZero(previous);
-  if (!p) return '0.00';
-  return (((c - p) / p) * 100).toFixed(2);
+  if (!p) return '0';
+  const percent = ((c - p) / p) * 100;
+  return Math.abs(percent) < 0.005 ? '0' : percent.toFixed(2);
 }
 
 function cumulative(values, days) {
@@ -151,7 +152,7 @@ module.exports = async function handler(req, res) {
     const kosdaqTurnover = numberOrZero(kosdaqToday.accTradePrice);
 
     const days = [1, 3, 5, 10, 20];
-    const recentFutures = (futuresPayload?.series || []).slice().reverse().map((row) => row.foreign);
+    const recentFutures = (futuresPayload?.series || []).slice().reverse().map((row) => row.dailyForeign);
     const futuresArray = cumulative(recentFutures, days);
 
     // Naver only gives today's program number here.

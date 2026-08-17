@@ -913,10 +913,12 @@
         const formatChartValue = (value) => {
           const numeric = Number(value);
           if (!Number.isFinite(numeric)) return '-';
+          const normalized = Math.abs(numeric) < 0.005 ? 0 : numeric;
+          if (normalized === 0) return '0';
           if (json.unit === '조원' || json.unit === 'P') {
-            return numeric.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            return normalized.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
           }
-          return Math.round(numeric).toLocaleString('ko-KR');
+          return Math.round(normalized).toLocaleString('ko-KR');
         };
 
         const w = el.clientWidth || 900;
@@ -1311,7 +1313,7 @@
     ], { daysInputId: 'days-vkospi', tooltip: true });
     const renderForeignFutures = () => renderExtraChart('chart-foreign-futures', 'note-foreign-futures', 'foreign-futures-daily', [
       { key: 'foreign', label: '외국인 순매수', color: '#d92c2c' }
-    ], { zeroLine: true, daysInputId: 'days-foreign-futures', tooltip: true });
+    ], { zeroLine: true, daysInputId: 'days-foreign-futures', tooltip: true, cumulative: true });
     const renderMarketTurnover = () => renderExtraChart('chart-market-turnover', 'note-market-turnover', 'market-turnover-daily', [
       { key: 'kospi', label: 'KOSPI', color: '#d92c2c' },
       { key: 'kosdaq', label: 'KOSDAQ', color: '#0f6fff' }

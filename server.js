@@ -307,11 +307,15 @@ async function fetchForeignFuturesSeries(limit = 200) {
 
   rows.sort((a, b) => a.date.localeCompare(b.date));
   if (!rows.length) return null;
-  const series = rows.slice(-safeLimit);
+  let cumulativeForeign = 0;
+  const series = rows.slice(-safeLimit).map((row) => {
+    cumulativeForeign += row.foreign;
+    return { date: row.date, dailyForeign: row.foreign, foreign: cumulativeForeign };
+  });
   const latest = series[series.length - 1]?.date || '';
   return {
     unit: '계약',
-    note: `네이버 선물 일자별 순매수 최신 거래일(${latest}) 기준, 외국인 순매수 단위: 계약.`,
+    note: `네이버 선물 일자별 순매수 ${series.length}거래일 누적, 최신 거래일(${latest}), 단위: 계약.`,
     series
   };
 }
@@ -1039,10 +1043,10 @@ const server = http.createServer(async (req, res) => {
 
       if (kospiData.length >= 2) {
         kospiTurnover = Math.round(kospiData[0].accTradePrice);
-        const diff = (kospiData[0].accTradePrice - kospiData[1].accTradePrice) / 1000000;
-        kospiTurnoverDiff = diff.toFixed(2);
+        const diff = ((kospiData[0].accTradePrice - kospiData[1].accTradePrice) / kospiData[1].accTradePrice) * 100;
+        kospiTurnoverDiff = Math.abs(diff) < 0.005 ? '0' : diff.toFixed(2);
         
-        const recentFutures = (futuresPayload?.series || []).slice().reverse().map((row) => Number(row.foreign) || 0);
+        const recentFutures = (futuresPayload?.series || []).slice().reverse().map((row) => Number(row.dailyForeign) || 0);
         futuresArray = [1, 3, 5, 10, 20].map((days) => recentFutures.slice(0, days).reduce((sum, value) => sum + value, 0));
         if (futuresArray[0] !== 0) {
           const ratio = prog / futuresArray[0];
@@ -1057,8 +1061,8 @@ const server = http.createServer(async (req, res) => {
       
       if (kosdaqData.length >= 2) {
         kosdaqTurnover = Math.round(kosdaqData[0].accTradePrice);
-        const diff = (kosdaqData[0].accTradePrice - kosdaqData[1].accTradePrice) / 1000000;
-        kosdaqTurnoverDiff = diff.toFixed(2);
+        const diff = ((kosdaqData[0].accTradePrice - kosdaqData[1].accTradePrice) / kosdaqData[1].accTradePrice) * 100;
+        kosdaqTurnoverDiff = Math.abs(diff) < 0.005 ? '0' : diff.toFixed(2);
       }
 
       return send(res, 200, JSON.stringify({
