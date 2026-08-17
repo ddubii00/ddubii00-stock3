@@ -14,7 +14,7 @@ module.exports = async function handler(req, res) {
 
   try {
     const kind = String(req.query?.kind || '');
-    const days = Number(req.query?.days || 200);
+    const days = Number(req.query?.days || 120);
     let payload = null;
 
     if (kind === 'kospi-investor-daily') payload = await fetchInvestorSeries('KOSPI', 'daily', days);

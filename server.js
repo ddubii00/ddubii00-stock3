@@ -138,9 +138,9 @@ async function supplementTreasuryYield(rows, fieldName) {
   return rows;
 }
 
-async function fetchDaumInvestorDays(market = 'KOSPI', limit = 200) {
+async function fetchDaumInvestorDays(market = 'KOSPI', limit = 120) {
   const safeMarket = market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
-  const safeLimit = Math.max(1, Math.min(500, Number(limit) || 200));
+  const safeLimit = Math.max(1, Math.min(500, Number(limit) || 120));
   const url = `https://finance.daum.net/api/market_index/days?page=1&perPage=${safeLimit}&market=${safeMarket}&pagination=true`;
   const r = await fetchWithTimeout(url, {
     headers: {
@@ -248,7 +248,7 @@ async function fetchNaverInvestorTimeRows(market = 'KOSPI') {
   };
 }
 
-async function fetchInvestorSeries(market, kind, limit = 200) {
+async function fetchInvestorSeries(market, kind, limit = 120) {
   const safeMarket = market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
   const marketLabel = safeMarket === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
   if (kind === 'minute') {
@@ -270,8 +270,8 @@ async function fetchInvestorSeries(market, kind, limit = 200) {
   return { unit: '조원', note: `${marketLabel} ${cumulativeRows.length}거래일 누적 순매수, 단위: 조원`, series: cumulativeRows };
 }
 
-async function fetchForeignFuturesSeries(limit = 200) {
-  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 200));
+async function fetchForeignFuturesSeries(limit = 120) {
+  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 120));
   const rows = [];
   const seen = new Set();
   const bizdate = formatYmd(new Date());
@@ -320,8 +320,8 @@ async function fetchForeignFuturesSeries(limit = 200) {
   };
 }
 
-async function fetchMarketTurnoverSeries(limit = 200) {
-  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 200));
+async function fetchMarketTurnoverSeries(limit = 120) {
+  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 120));
   const fetchMarket = async (market) => {
     const url = `https://finance.daum.net/api/market_index/days?page=1&perPage=${safeLimit}&market=${market}&pagination=true`;
     const response = await fetchWithTimeout(url, {
@@ -355,8 +355,8 @@ async function fetchMarketTurnoverSeries(limit = 200) {
   };
 }
 
-async function fetchMarketFundsSeries(limit = 200) {
-  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 200));
+async function fetchMarketFundsSeries(limit = 120) {
+  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 120));
   const rows = [];
   const seen = new Set();
   for (let page = 1; page <= 50; page += 1) {
@@ -526,8 +526,8 @@ async function fetchTradingViewVkospi(limit) {
   });
 }
 
-async function fetchVkospiSeries(limit = 200) {
-  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 200));
+async function fetchVkospiSeries(limit = 120) {
+  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 120));
   const end = new Date();
   const start = new Date(end);
   start.setDate(start.getDate() - Math.max(300, safeLimit * 2));
@@ -993,7 +993,7 @@ const server = http.createServer(async (req, res) => {
   if (u.pathname === '/api/extra-chart') {
     try {
       const kind = u.searchParams.get('kind') || '';
-      const days = Number(u.searchParams.get('days') || 200);
+      const days = Number(u.searchParams.get('days') || 120);
       let payload = null;
       if (kind === 'kospi-investor-daily') payload = await fetchInvestorSeries('KOSPI', 'daily', days);
       if (kind === 'kospi-investor-minute') payload = await fetchInvestorSeries('KOSPI', 'minute', days);
