@@ -459,6 +459,21 @@ function parseInvestingHistoricalPayload(text) {
   return [...unique.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
+function readVkospiSnapshot(limit) {
+  try {
+    const file = path.join(ROOT, 'data', 'vkospi.json');
+    const payload = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const rows = (Array.isArray(payload?.series) ? payload.series : [])
+      .map((row) => ({ date: String(row?.date || ''), close: Number(row?.close) }))
+      .filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date) && Number.isFinite(row.close) && row.close > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    return rows.slice(-limit);
+  } catch (error) {
+    console.error('Failed to read bundled VKOSPI snapshot', error.message);
+    return [];
+  }
+}
+
 async function fetchInvestingVkospi(limit, start, end) {
   const headers = {
     'User-Agent': 'Mozilla/5.0',
@@ -571,6 +586,18 @@ async function fetchVkospiSeries(limit = 200) {
   const end = new Date();
   const start = new Date(end);
   start.setDate(start.getDate() - Math.max(300, safeLimit * 2));
+  const snapshotRows = readVkospiSnapshot(safeLimit);
+  const snapshotLatest = snapshotRows[snapshotRows.length - 1]?.date || '';
+  const todayKst = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  // Avoid waiting on blocked remote requests when today's verified spot data is bundled.
+  if (snapshotLatest === todayKst) {
+    return {
+      unit: 'P',
+      note: `VKOSPI 현물 최신 거래일(${snapshotLatest}) 기준입니다. 평일 장 마감 후 자동 갱신합니다.`,
+      series: snapshotRows
+    };
+  }
   let krxRows = [];
   try {
     const body = new URLSearchParams({
@@ -609,7 +636,6 @@ async function fetchVkospiSeries(limit = 200) {
     if (rows.length) {
       krxRows = rows.slice(-safeLimit);
       const latest = rows[rows.length - 1]?.date || '';
-      const todayKst = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
       if (latest === todayKst) {
         return { unit: 'P', note: `KRX V-KOSPI 200 최신 거래일(${latest}) 기준입니다. 휴장일에는 직전 거래일 기준으로 표시합니다.`, series: krxRows };
       }
@@ -623,6 +649,7 @@ async function fetchVkospiSeries(limit = 200) {
   ]);
   const sourceCandidates = [
     { source: 'krx', priority: 3, rows: krxRows },
+    { source: 'snapshot', priority: 2.5, rows: snapshotRows },
     { source: 'investing', priority: 2, rows: investingRows },
     { source: 'tradingview', priority: 1, rows: tradingViewResult.rows }
   ].filter((candidate) => candidate.rows.length);
@@ -641,6 +668,13 @@ async function fetchVkospiSeries(limit = 200) {
       return {
         unit: 'P',
         note: `Investing.com KOSPI Volatility(KSVKOSPI) 최신 거래일(${latest}) 기준입니다. 휴장일에는 직전 거래일 기준으로 표시합니다.`,
+        series: selected.rows
+      };
+    }
+    if (selected.source === 'snapshot') {
+      return {
+        unit: 'P',
+        note: `VKOSPI 현물 최신 거래일(${latest}) 기준입니다. 휴장일에는 직전 거래일 기준으로 표시합니다.`,
         series: selected.rows
       };
     }
