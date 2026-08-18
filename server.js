@@ -477,6 +477,8 @@ async function fetchInvestingVkospi(limit, start, end) {
   const chartUrl = `https://tvc6.investing.com/d8f62270e64f9eb6e4e6a07c3ffeab0b/1729428526/9/9/16/history?symbol=956761&resolution=D&from=${chartFrom}&to=${chartTo}`;
   const urls = [
     chartUrl,
+    `https://r.jina.ai/http://${chartUrl.replace(/^https?:\/\//, '')}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl)}`,
     apiUrl,
     pageUrl,
     `https://r.jina.ai/http://${apiUrl.replace(/^https?:\/\//, '')}`,
@@ -485,7 +487,11 @@ async function fetchInvestingVkospi(limit, start, end) {
     `https://api.allorigins.win/raw?url=${encodeURIComponent(pageUrl)}`
   ];
   const attempts = await Promise.allSettled(urls.map(async (url) => {
-    const r = await fetchWithTimeout(url, { headers }, 15000);
+    const chartRequest = url === chartUrl;
+    const requestHeaders = chartRequest
+      ? { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' }
+      : headers;
+    const r = await fetchWithTimeout(url, { headers: requestHeaders }, 15000);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return parseInvestingHistoricalPayload(await r.text());
   }));
