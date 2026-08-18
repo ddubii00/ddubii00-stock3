@@ -17,6 +17,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Install dependencies
+        run: npm ci
       - name: Fetch current VKOSPI spot history
         run: node scripts/update-vkospi.js
       - name: Commit updated data
