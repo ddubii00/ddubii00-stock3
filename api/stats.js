@@ -96,38 +96,49 @@ function decodeKorean(buffer) {
   }
 }
 
-async function fetchProgramTradingEok() {
-  try {
-    const response = await fetch('https://finance.naver.com/sise/sise_index.naver?code=KOSPI', {
+async function fetchProgramTradingDays(limit = 20) {
+  const safeLimit = Math.max(20, Math.min(200, Number(limit) || 20));
+  const rows = [];
+  const seen = new Set();
+  const bizdate = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10).replace(/-/g, '');
+  const maxPages = Math.ceil(safeLimit / 10) + 3;
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const url = `https://finance.naver.com/sise/programDealTrendDay.naver?bizdate=${bizdate}&sosok=&page=${page}`;
+    const response = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0',
-        'Accept': 'text/html,*/*',
-        'Referer': 'https://finance.naver.com/'
+        Accept: 'text/html,*/*',
+        Referer: 'https://finance.naver.com/sise/sise_program.naver'
       }
     });
+    if (!response.ok) throw new Error(`Naver program HTTP ${response.status}`);
+    const html = decodeKorean(await response.arrayBuffer());
+    const tableRows = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
+    let foundInPage = 0;
 
-    const buffer = await response.arrayBuffer();
-    const html = decodeKorean(buffer);
-
-    // Naver page usually contains:
-    // 전체<br><span class="...">+1,234<span>억
-    const patterns = [
-      /전체\s*<br>\s*<span[^>]*>\s*([+-]?[\d,]+)\s*<span>\s*억/i,
-      /프로그램[^+-\d]{0,80}([+-]?[\d,]+)\s*억/i,
-      /전체[^+-\d]{0,80}([+-]?[\d,]+)\s*억/i
-    ];
-
-    for (const pattern of patterns) {
-      const match = html.match(pattern);
-      if (match && match[1]) {
-        return parseInt(match[1].replace(/,/g, ''), 10) || 0;
-      }
+    for (const match of tableRows) {
+      const cells = [...match[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((cell) => String(cell[1] || '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim());
+      if (cells.length < 10 || !/^\d{2}\.\d{2}\.\d{2}$/.test(cells[0])) continue;
+      const net = Number(cells[9].replace(/,/g, ''));
+      if (!Number.isFinite(net)) continue;
+      const [yy, mm, dd] = cells[0].split('.');
+      const date = `20${yy}-${mm}-${dd}`;
+      if (seen.has(date)) continue;
+      seen.add(date);
+      rows.push({ date, net });
+      foundInPage += 1;
     }
-  } catch (_) {
-    // Keep dashboard alive even if Naver blocks or changes the page.
+
+    if (!foundInPage && page > 1) break;
+    if (rows.length >= safeLimit) break;
   }
 
-  return 0;
+  return rows.sort((a, b) => b.date.localeCompare(a.date)).slice(0, safeLimit);
 }
 
 module.exports = async function handler(req, res) {
@@ -136,10 +147,10 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const [kospiData, kosdaqData, programToday, futuresPayload] = await Promise.all([
+    const [kospiData, kosdaqData, programRows, futuresPayload] = await Promise.all([
       fetchDaumMarketDays('KOSPI', 20),
       fetchDaumMarketDays('KOSDAQ', 20),
-      fetchProgramTradingEok(),
+      fetchProgramTradingDays(20),
       fetchForeignFuturesSeries(20)
     ]);
 
@@ -155,15 +166,7 @@ module.exports = async function handler(req, res) {
     const recentFutures = (futuresPayload?.series || []).slice().reverse().map((row) => row.dailyForeign);
     const futuresArray = cumulative(recentFutures, days);
 
-    // Naver only gives today's program number here.
-    // Use the current ratio as an estimate for 3/5/10/20-day cumulative values.
-    let progsArray = [programToday, 0, 0, 0, 0];
-    if (futuresArray[0] !== 0 && programToday !== 0) {
-      const ratio = programToday / futuresArray[0];
-      progsArray = futuresArray.map((v, i) => (i === 0 ? programToday : Math.round(v * ratio)));
-    } else {
-      progsArray = days.map((d) => Math.round(programToday * d));
-    }
+    const progsArray = cumulative(programRows.map((row) => row.net), days);
 
     return sendJson(res, 200, {
       ok: true,
@@ -183,7 +186,8 @@ module.exports = async function handler(req, res) {
       source: {
         turnover: 'Daum Finance market_index/days',
         foreignFlow: 'Naver Finance futures investorDealTrendDay, sosok=03, contracts',
-        program: 'Naver Finance KOSPI page'
+        program: 'Naver Finance programDealTrendDay, actual daily total net purchases',
+        programAsOf: programRows[0]?.date || null
       }
     });
   } catch (error) {
