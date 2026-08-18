@@ -427,6 +427,14 @@ function parseInvestingHistoricalPayload(text) {
   };
   try {
     const json = JSON.parse(text);
+    if (Array.isArray(json?.t) && Array.isArray(json?.c)) {
+      for (let index = 0; index < json.t.length; index += 1) {
+        const timestamp = Number(json.t[index]);
+        const close = Number(json.c[index]);
+        if (!Number.isFinite(timestamp) || !Number.isFinite(close) || close <= 0) continue;
+        rows.push({ date: new Date(timestamp * 1000).toISOString().slice(0, 10), close });
+      }
+    }
     if (typeof json?.data === 'string') parseTableRows(json.data);
     const candidates = Array.isArray(json) ? json : (json?.data || json?.series || json?.historicalData || []);
     for (const row of Array.isArray(candidates) ? candidates : []) {
@@ -464,7 +472,11 @@ async function fetchInvestingVkospi(limit, start, end) {
   const endDate = end.toISOString().slice(0, 10);
   const apiUrl = `https://api.investing.com/api/financialdata/historical/956761?start-date=${startDate}&end-date=${endDate}&interval=P1D&time-frame=Daily`;
   const pageUrl = 'https://www.investing.com/indices/kospi-volatility-historical-data';
+  const chartFrom = Math.floor(start.getTime() / 1000);
+  const chartTo = Math.floor(end.getTime() / 1000) + 86400;
+  const chartUrl = `https://tvc6.investing.com/d8f62270e64f9eb6e4e6a07c3ffeab0b/1729428526/9/9/16/history?symbol=956761&resolution=D&from=${chartFrom}&to=${chartTo}`;
   const urls = [
+    chartUrl,
     apiUrl,
     pageUrl,
     `https://r.jina.ai/http://${apiUrl.replace(/^https?:\/\//, '')}`,
