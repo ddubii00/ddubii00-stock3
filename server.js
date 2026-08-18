@@ -357,6 +357,42 @@ async function fetchMarketTurnoverSeries(limit = 200) {
   };
 }
 
+async function fetchKofiaMarketFundsLatest() {
+  const html = await fetchTextWithRetries('https://freesis.kofia.or.kr/stat/main.do', {
+    headers: {
+      'User-Agent': 'Mozilla/5.0',
+      Referer: 'https://freesis.kofia.or.kr/'
+    }
+  }, 3, 'utf-8');
+
+  const extractMetric = (label) => {
+    const labelIndex = html.indexOf(`>${label}</a>`);
+    if (labelIndex < 0) return null;
+    const sectionStart = html.lastIndexOf('<dt', labelIndex);
+    if (sectionStart < 0) return null;
+    const section = html.slice(sectionStart, sectionStart + 1200);
+    const date = stripHtml(section.match(/<span[^>]*class=["']date["'][^>]*>([\s\S]*?)<\/span>/i)?.[1] || '');
+    const value = parseTrendNumber(stripHtml(section.match(/<span[^>]*class=["']num1["'][^>]*>([\s\S]*?)<\/span>/i)?.[1] || ''));
+    return date && Number.isFinite(value) ? { date, value } : null;
+  };
+
+  const deposit = extractMetric('투자자예탁금');
+  const credit = extractMetric('신용융자');
+  if (!deposit || !credit || deposit.date !== credit.date) return null;
+  const dateMatch = deposit.date.match(/^(\d{2})\/(\d{2})$/);
+  if (!dateMatch) return null;
+
+  const nowKst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const currentYear = nowKst.getUTCFullYear();
+  const currentMonth = nowKst.getUTCMonth() + 1;
+  const month = Number(dateMatch[1]);
+  const year = month > currentMonth + 1 ? currentYear - 1 : currentYear;
+  const date = `${year}-${dateMatch[1]}-${dateMatch[2]}`;
+
+  // FreeSIS main indicators are published in KRW millions; charts use KRW trillions.
+  return { date, deposit: deposit.value / 1000000, credit: credit.value / 1000000 };
+}
+
 async function fetchMarketFundsSeries(limit = 200) {
   const safeLimit = Math.max(20, Math.min(500, Number(limit) || 200));
   const rows = [];
@@ -374,8 +410,7 @@ async function fetchMarketFundsSeries(limit = 200) {
     for (const match of tableRows) {
       const cells = [...match[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((m) => stripHtml(m[1]));
       const dateCell = cells.find((cell) => /^\d{2}\.\d{2}\.\d{2}$/.test(cell));
-      if (!dateCell) continue;
-      if (cells.length < 4) continue;
+      if (!dateCell || cells.length < 4) continue;
       const deposit = parseTrendNumber(cells[1]);
       const credit = parseTrendNumber(cells[3]);
       if (!Number.isFinite(deposit) || !Number.isFinite(credit)) continue;
@@ -383,23 +418,32 @@ async function fetchMarketFundsSeries(limit = 200) {
       const date = `20${yy}-${mm}-${dd}`;
       if (seen.has(date)) continue;
       seen.add(date);
-      rows.push({
-        date,
-        deposit: deposit / 10000,
-        credit: credit / 10000
-      });
+      rows.push({ date, deposit: deposit / 10000, credit: credit / 10000 });
       foundInPage += 1;
     }
     if (!foundInPage && page > 1) break;
     if (rows.length >= safeLimit) break;
   }
+
+  try {
+    const officialLatest = await fetchKofiaMarketFundsLatest();
+    if (officialLatest) {
+      const existingIndex = rows.findIndex((row) => row.date === officialLatest.date);
+      if (existingIndex >= 0) rows[existingIndex] = officialLatest;
+      else rows.push(officialLatest);
+    }
+  } catch (error) {
+    console.error('Failed to fetch latest market funds from KOFIA', error.message);
+  }
+
   rows.sort((a, b) => a.date.localeCompare(b.date));
   if (!rows.length) return null;
-  const latest = rows[rows.length - 1]?.date || '';
+  const series = rows.slice(-safeLimit);
+  const latest = series[series.length - 1]?.date || '';
   return {
     unit: '조원',
-    note: `네이버 증시자금동향 최신일(${latest}) 기준, 단위: 조원. 금융투자협회 통계 기반 메뉴의 공개값입니다.`,
-    series: rows.slice(-safeLimit)
+    note: `금융투자협회 최신 공표일(${latest}) 기준, 단위: 조원. 공표 시차가 있어 당일보다 늦게 반영될 수 있습니다.`,
+    series
   };
 }
 
