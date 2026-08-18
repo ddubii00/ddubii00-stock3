@@ -416,10 +416,20 @@ function parseInvestingDate(value) {
 
 function parseInvestingHistoricalPayload(text) {
   const rows = [];
+  const parseTableRows = (markup) => {
+    for (const match of String(markup || '').matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
+      const cells = [...match[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((cell) => stripHtml(cell[1]));
+      if (cells.length < 2) continue;
+      const date = parseInvestingDate(cells[0]);
+      const close = parseTrendNumber(cells[1]);
+      if (date && Number.isFinite(close) && close > 0) rows.push({ date, close });
+    }
+  };
   try {
     const json = JSON.parse(text);
+    if (typeof json?.data === 'string') parseTableRows(json.data);
     const candidates = Array.isArray(json) ? json : (json?.data || json?.series || json?.historicalData || []);
-    for (const row of candidates) {
+    for (const row of Array.isArray(candidates) ? candidates : []) {
       const rawDate = row?.date || row?.rowDate || row?.rowDateRaw || row?.time || '';
       const date = parseInvestingDate(rawDate) || (/^\d{10,13}$/.test(String(rawDate))
         ? new Date(Number(rawDate) * (String(rawDate).length === 10 ? 1000 : 1)).toISOString().slice(0, 10)
@@ -428,6 +438,7 @@ function parseInvestingHistoricalPayload(text) {
       if (date && Number.isFinite(close) && close > 0) rows.push({ date, close });
     }
   } catch {
+    parseTableRows(text);
     for (const line of String(text || '').split('\n')) {
       const cells = line.split('|').map((cell) => cell.trim()).filter(Boolean);
       if (cells.length < 2) continue;
@@ -441,12 +452,21 @@ function parseInvestingHistoricalPayload(text) {
 }
 
 async function fetchInvestingVkospi(limit, start, end) {
-  const headers = { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json,text/plain,*/*' };
+  const headers = {
+    'User-Agent': 'Mozilla/5.0',
+    Accept: 'application/json,text/plain,*/*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Domain-Id': 'www',
+    Origin: 'https://www.investing.com',
+    Referer: 'https://www.investing.com/indices/kospi-volatility-historical-data'
+  };
   const startDate = start.toISOString().slice(0, 10);
   const endDate = end.toISOString().slice(0, 10);
   const apiUrl = `https://api.investing.com/api/financialdata/historical/956761?start-date=${startDate}&end-date=${endDate}&interval=P1D&time-frame=Daily`;
   const pageUrl = 'https://www.investing.com/indices/kospi-volatility-historical-data';
   const urls = [
+    apiUrl,
+    pageUrl,
     `https://r.jina.ai/http://${apiUrl.replace(/^https?:\/\//, '')}`,
     `https://r.jina.ai/http://${pageUrl.replace(/^https?:\/\//, '')}`,
     `https://api.allorigins.win/raw?url=${encodeURIComponent(apiUrl)}`,
@@ -533,6 +553,7 @@ async function fetchVkospiSeries(limit = 200) {
   const end = new Date();
   const start = new Date(end);
   start.setDate(start.getDate() - Math.max(300, safeLimit * 2));
+  let krxRows = [];
   try {
     const body = new URLSearchParams({
       bld: 'dbms/MDC/STAT/standard/MDCSTAT00301',
@@ -568,31 +589,47 @@ async function fetchVkospiSeries(limit = 200) {
     }).filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date) && Number.isFinite(row.close) && row.close > 0);
     rows.sort((a, b) => a.date.localeCompare(b.date));
     if (rows.length) {
+      krxRows = rows.slice(-safeLimit);
       const latest = rows[rows.length - 1]?.date || '';
-      return { unit: 'P', note: `KRX V-KOSPI 200 최신 거래일(${latest}) 기준입니다. 휴장일에는 직전 거래일 기준으로 표시합니다.`, series: rows.slice(-safeLimit) };
+      const todayKst = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      if (latest === todayKst) {
+        return { unit: 'P', note: `KRX V-KOSPI 200 최신 거래일(${latest}) 기준입니다. 휴장일에는 직전 거래일 기준으로 표시합니다.`, series: krxRows };
+      }
     }
   } catch (e) {
     console.error('Failed to fetch VKOSPI from KRX', e);
   }
-  const tradingViewResult = await fetchTradingViewVkospi(safeLimit);
-  if (tradingViewResult.rows.length) {
-    const latest = tradingViewResult.rows[tradingViewResult.rows.length - 1]?.date || '';
-    const isFutures = tradingViewResult.symbol === 'KRX:VKI1!';
+  const [investingRows, tradingViewResult] = await Promise.all([
+    fetchInvestingVkospi(safeLimit, start, end),
+    fetchTradingViewVkospi(safeLimit)
+  ]);
+  const sourceCandidates = [
+    { source: 'krx', priority: 3, rows: krxRows },
+    { source: 'investing', priority: 2, rows: investingRows },
+    { source: 'tradingview', priority: 1, rows: tradingViewResult.rows }
+  ].filter((candidate) => candidate.rows.length);
+  sourceCandidates.sort((a, b) => {
+    const dateA = a.rows[a.rows.length - 1]?.date || '';
+    const dateB = b.rows[b.rows.length - 1]?.date || '';
+    return dateB.localeCompare(dateA) || b.priority - a.priority;
+  });
+  const selected = sourceCandidates[0];
+  if (selected) {
+    const latest = selected.rows[selected.rows.length - 1]?.date || '';
+    if (selected.source === 'krx') {
+      return { unit: 'P', note: `KRX V-KOSPI 200 최신 거래일(${latest}) 기준입니다. 휴장일에는 직전 거래일 기준으로 표시합니다.`, series: selected.rows };
+    }
+    if (selected.source === 'investing') {
+      return {
+        unit: 'P',
+        note: `Investing.com KOSPI Volatility(KSVKOSPI) 최신 거래일(${latest}) 기준입니다. 휴장일에는 직전 거래일 기준으로 표시합니다.`,
+        series: selected.rows
+      };
+    }
     return {
       unit: 'P',
-      note: isFutures
-        ? `VKOSPI 현물 공개 원천 차단으로 KRX V-KOSPI 200 선물 연속계약(VKI1!) 실제 일봉을 표시합니다. 최신 거래일(${latest}) 기준입니다.`
-        : `TradingView VKOSPI 최신 거래일(${latest}) 기준입니다. 휴장일에는 직전 거래일 기준으로 표시합니다.`,
-      series: tradingViewResult.rows
-    };
-  }
-  const investingRows = await fetchInvestingVkospi(safeLimit, start, end);
-  if (investingRows.length) {
-    const latest = investingRows[investingRows.length - 1]?.date || '';
-    return {
-      unit: 'P',
-      note: `Investing.com KOSPI Volatility(KSVKOSPI) 최신 거래일(${latest}) 기준입니다. 휴장일에는 직전 거래일 기준으로 표시합니다.`,
-      series: investingRows
+      note: `VKOSPI 현물 공개 원천 차단으로 KRX V-KOSPI 200 선물 연속계약(VKI1!) 실제 일봉을 표시합니다. 최신 거래일(${latest}) 기준입니다.`,
+      series: selected.rows
     };
   }
   const candidates = ['%5EVKOSPI', 'VKOSPI.KS', 'VKOSPI'];
