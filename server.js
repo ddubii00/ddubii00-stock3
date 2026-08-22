@@ -2,6 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const WebSocketClient = require('ws');
+const { fetchUnifiedSeries, fetchBondYields } = require('./tradingview-data');
 
 const PORT = 8000;
 const ROOT = __dirname;
@@ -241,9 +242,18 @@ async function fetchNaverInvestorTimeRows(market = 'KOSPI') {
     return time >= '09:00' && time <= '15:30';
   });
   const series = regularRows.length >= 5 ? regularRows : rows;
+  const finalDaily = dayRows[dayRows.length - 1];
+  if (finalDaily && Number.isFinite(finalDaily.foreign) && Number.isFinite(finalDaily.institution)) {
+    const closeDate = `${latestDate} 15:30`;
+    const closeRow = { date: closeDate, foreign: finalDaily.foreign, institution: finalDaily.institution, final: true };
+    const existingIndex = series.findIndex((row) => row.date === closeDate);
+    if (existingIndex >= 0) series[existingIndex] = closeRow;
+    else series.push(closeRow);
+    series.sort((a, b) => a.date.localeCompare(b.date));
+  }
   return {
     unit: '조원',
-    note: `${safeMarket} 최신 거래일(${latestDate}) 시간별 누적 순매수, 단위: 조원. 휴장일에는 직전 거래일 기준입니다.`,
+    note: `${safeMarket} 최신 거래일(${latestDate}) 시간별 누적 순매수. 15:30은 확정 일봉 순매수 반영, 단위: 조원.`,
     series
   };
 }
@@ -849,6 +859,8 @@ async function fetchStooq(symbol) {
 }
 
 async function fetchChartSeries(key, interval = '1d') {
+  const unified = await fetchUnifiedSeries(key, interval).catch(() => null);
+  if (unified && unified.length) return unified;
   if (key === 'US10Y') {
     const rows = await supplementTreasuryYield(await fetchFredYieldSeries('DGS10', 0.2), 'BC_10YEAR');
     if (!rows.length) return null;
@@ -1013,6 +1025,16 @@ async function fetchChartSeries(key, interval = '1d') {
               dailyCloses[dDate] = dCloses[j];
            }
         }
+        const naverCode = key === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
+        const naverResponse = await fetch(`https://m.stock.naver.com/api/index/${naverCode}/price?pageSize=10&page=1`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const naverRows = await naverResponse.json();
+        if (Array.isArray(naverRows)) {
+          naverRows.forEach((row) => {
+            const naverDate = String(row.localTradedAt || row.localTradedDate || '').slice(0, 10);
+            const naverClose = Number(String(row.closePrice || '').replace(/,/g, ''));
+            if (naverDate && Number.isFinite(naverClose) && naverClose > 0) dailyCloses[naverDate] = naverClose;
+          });
+        }
         
         let appendedTs = [];
         let appendedOpens = [];
@@ -1110,6 +1132,14 @@ const server = http.createServer(async (req, res) => {
       const q = await fetchStooq(symbol);
       if (!q) return send(res, 404, JSON.stringify({ ok: false, error: 'no data' }), 'application/json');
       return send(res, 200, JSON.stringify({ ok: true, quote: q }), 'application/json');
+    } catch (e) {
+      return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');
+    }
+  }
+  if (u.pathname === '/api/bond-yields') {
+    try {
+      const rows = await fetchBondYields();
+      return send(res, 200, JSON.stringify({ ok: true, rows }), 'application/json');
     } catch (e) {
       return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');
     }

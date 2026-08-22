@@ -1,3 +1,4 @@
+const { fetchUnifiedSeries } = require('./tradingview-data');
 // utils.js - shared functions for Vercel API routes
 const quoteMap = {
   '^IXIC': '^ndq',
@@ -170,6 +171,8 @@ async function yahooSimpleSeries(encodedSym, range = '1y') {
 }
 
 async function fetchChartSeries(key, interval = '1d') {
+  const unified = await fetchUnifiedSeries(key, interval).catch(() => null);
+  if (unified && unified.length) return unified;
   // US10Y
   if (key === 'US10Y') {
     const rows = await yahooSimpleSeries('%5ETNX');
@@ -307,6 +310,38 @@ async function fetchChartSeries(key, interval = '1d') {
       }
     }
     if (currentCandle) rows.push(currentCandle);
+    if ((key === 'KOSPI' || key === 'KOSDAQ') && targetMin > 0 && rows.length) {
+      try {
+        const naverCode = key === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
+        const naverResponse = await fetch(`https://m.stock.naver.com/api/index/${naverCode}/price?pageSize=10&page=1`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const naverRows = await naverResponse.json();
+        const finalByDate = new Map((Array.isArray(naverRows) ? naverRows : []).map((row) => [
+          String(row.localTradedAt || row.localTradedDate || '').slice(0, 10),
+          Number(String(row.closePrice || '').replace(/,/g, ''))
+        ]));
+        const supplemented = [];
+        rows.forEach((row, index) => {
+          supplemented.push(row);
+          const displayDate = new Date(Number(row.date) * 1000).toISOString().slice(0, 10);
+          const nextDate = rows[index + 1] ? new Date(Number(rows[index + 1].date) * 1000).toISOString().slice(0, 10) : '';
+          const finalClose = finalByDate.get(displayDate);
+          const closeTimestamp = Date.parse(displayDate + 'T15:30:00Z') / 1000;
+          if (displayDate !== nextDate && Number.isFinite(finalClose) && Number(row.date) < closeTimestamp) {
+            supplemented.push({
+              date: closeTimestamp,
+              open: row.close,
+              high: Math.max(row.close, finalClose),
+              low: Math.min(row.close, finalClose),
+              close: finalClose
+            });
+          }
+        });
+        rows.length = 0;
+        rows.push(...supplemented);
+      } catch (_) {
+        // Keep the source minute rows when the verified final close is unavailable.
+      }
+    }
     if (!rows.length) return null;
     return rows.slice(-1500); // 넉넉하게 1500개 전달 (프론트에서 700개 등 사용)
   }

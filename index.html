@@ -73,6 +73,13 @@
       color: var(--text); font-size: 12px; line-height: 1.5; white-space: nowrap;
     }
 
+    .asset-legend { display:flex; gap:12px; margin:-2px 0 8px; font-size:12px; font-weight:800; flex-wrap:wrap; }
+    .bond-table td, .bond-table th { font-size:16px; }
+    .bond-name { font-size:18px; font-weight:850; }
+    .bond-flag { font-size:25px; margin-right:10px; vertical-align:middle; }
+    .bond-value { font-size:20px; font-weight:900; text-align:right; }
+    .bond-change { font-size:18px; font-weight:850; text-align:right; }
+    .bond-status { font-weight:800; text-align:right; white-space:nowrap; }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
     th, td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; }
     th { color: var(--muted); font-weight: 600; }
@@ -167,6 +174,51 @@
       <div class="card span-6">
         <div class="head-row"><div class="title">국제금값 (Gold)</div></div>
         <div class="chart" id="chart-gold"></div>
+      </div>
+
+      <div class="card span-12">
+        <div class="head-row"><div class="title">국채수익률</div><div class="asof" id="bondAsOf">1분마다 갱신</div></div>
+        <table class="bond-table">
+          <thead><tr><th>채권명</th><th style="text-align:right">현재가</th><th style="text-align:right">전일대비</th><th style="text-align:right">기준 시간</th></tr></thead>
+          <tbody id="bondYieldBody"><tr><td colspan="4">데이터 불러오는 중...</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="card span-6">
+        <div class="head-row"><div class="title">KOSPI 선물 추세</div></div>
+        <div class="chart-note">KOSPI200 선물 연속계약 1분봉, 1분마다 갱신</div>
+        <div class="asset-legend"><span style="color:#d92c2c">5분</span><span style="color:#1f5bd8">10분</span><span style="color:#0a9d58">20분</span><span style="color:#e4a11b">60분</span></div>
+        <div class="chart lw-chart" id="lwchart-KOSPI_FUTURES"></div>
+      </div>
+      <div class="card span-6">
+        <div class="head-row"><div class="title">나스닥 선물</div></div>
+        <div class="chart-note">CME E-mini Nasdaq-100 선물 1분봉, 1분마다 갱신</div>
+        <div class="asset-legend"><span style="color:#d92c2c">5분</span><span style="color:#1f5bd8">10분</span><span style="color:#0a9d58">20분</span><span style="color:#e4a11b">60분</span></div>
+        <div class="chart lw-chart" id="lwchart-NASDAQ_FUTURES"></div>
+      </div>
+      <div class="card span-6">
+        <div class="head-row"><div class="title">KOSPI200 야간선물</div></div>
+        <div class="chart-note">실제 야간선물 원천만 표시하며 낮 선물로 대체하지 않습니다.</div>
+        <div class="asset-legend"><span style="color:#d92c2c">5분</span><span style="color:#1f5bd8">10분</span><span style="color:#0a9d58">20분</span><span style="color:#e4a11b">60분</span></div>
+        <div class="chart lw-chart" id="lwchart-KOSPI_NIGHT_FUTURES"></div>
+      </div>
+      <div class="card span-6">
+        <div class="head-row"><div class="title">원/달러 분봉 (KRW/USD)</div></div>
+        <div class="chart-note">원/달러 실제 환율 1분봉, 1분마다 갱신</div>
+        <div class="asset-legend"><span style="color:#d92c2c">5분</span><span style="color:#1f5bd8">10분</span><span style="color:#0a9d58">20분</span><span style="color:#e4a11b">60분</span></div>
+        <div class="chart lw-chart" id="lwchart-USDKRW_MINUTE"></div>
+      </div>
+      <div class="card span-6">
+        <div class="head-row"><div class="title">비트코인 일봉 (BTC/USD)</div></div>
+        <div class="chart-note">최근 200일 캔들 및 이동평균선</div>
+        <div class="asset-legend"><span style="color:#d92c2c">5일</span><span style="color:#1f5bd8">10일</span><span style="color:#0a9d58">20일</span><span style="color:#e4a11b">60일</span><span style="color:#8040a0">120일</span></div>
+        <div class="chart lw-chart" id="lwchart-BTC"></div>
+      </div>
+      <div class="card span-6">
+        <div class="head-row"><div class="title">분봉 데이터 안내</div></div>
+        <div class="memo">KOSPI·KOSDAQ 투자자 분봉은 09:00~15:30을 표시합니다.
+15:30 값은 해당 거래일의 확정 외국인·기관 순매수액입니다.
+장중에는 모든 분봉 차트를 1분마다 다시 조회합니다.</div>
       </div>
 
       <div class="card span-6">
@@ -366,7 +418,7 @@
         const ema12 = calculateEMA(chartData, 12);
         const ema26 = calculateEMA(chartData, 26);
         
-        const chartContainer = document.getElementById('lwchart-' + key);
+        const chartContainer = document.getElementById(inst.containerId || ('lwchart-' + key));
         chartContainer.style.position = 'relative';
         chartContainer.style.backgroundColor = '#ffffff';
         let bgCanvas = chartContainer.querySelector('.bg-canvas');
@@ -597,10 +649,17 @@
         }
       } catch (e) {
         console.error(e);
+        const target = document.getElementById(inst.containerId || ('lwchart-' + key));
+        if (target) {
+          let warning = target.querySelector('.chart-load-warning');
+          if (!warning) { warning = document.createElement('div'); warning.className = 'chart-load-warning'; target.appendChild(warning); }
+          warning.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(249,251,255,.9);color:#5f6b85;font-weight:800;z-index:60;padding:20px;text-align:center;';
+          warning.textContent = '실제 분봉 원천 데이터 미제공';
+        }
       }
     }
 
-    function initLwChart(key, containerId) {
+    function initLwChart(key, containerId, initialInterval = '1d', visibleCount = 120) {
       const el = document.getElementById(containerId);
       const chart = LightweightCharts.createChart(el, {
         width: el.clientWidth,
@@ -642,7 +701,7 @@
         });
       });
 
-      lwChartInstances[key] = { chart, candleSeries, maSeries, interval: '1d', visibleCount: 120, toggles: { candle: true, 5: true, 10: true, 20: true, 60: true, 120: true, 240: true } };
+      lwChartInstances[key] = { chart, candleSeries, maSeries, containerId, interval: initialInterval, visibleCount, toggles: { candle: true, 5: true, 10: true, 20: true, 60: true, 120: true, 240: true } };
       loadLwChart(key);
     }
 
@@ -819,79 +878,91 @@
       throw lastError || new Error('no data');
     }
 
+    async function renderBondYields() {
+      const body = document.getElementById('bondYieldBody');
+      if (!body) return;
+      try {
+        const json = await fetchJsonWithRetry('/api/bond-yields', 1);
+        const rows = Array.isArray(json.rows) ? json.rows : [];
+        body.innerHTML = rows.map((row) => {
+          if (row.unavailable) return `<tr><td class="bond-name"><span class="bond-flag">${row.flag}</span>${row.name}</td><td colspan="3" style="text-align:right;color:#5f6b85">원천 미제공</td></tr>`;
+          const direction = row.change > 0 ? '#d92c2c' : row.change < 0 ? '#1f5bd8' : '#5f6b85';
+          const sign = row.change > 0 ? '▲' : row.change < 0 ? '▼' : '•';
+          const signed = row.change > 0 ? '+' : '';
+          return `<tr>
+            <td class="bond-name"><span class="bond-flag">${row.flag}</span>${row.name}</td>
+            <td class="bond-value">${Number(row.value).toFixed(4)}</td>
+            <td class="bond-change" style="color:${direction}">${sign} ${signed}${Number(row.change).toFixed(4)} (${signed}${Number(row.changePercent).toFixed(2)}%)</td>
+            <td class="bond-status" style="color:${row.realtime ? '#0a9d58' : '#8b94a7'}">● ${row.realtime ? '실시간' : '장마감'}<div style="font-size:11px;color:#8b94a7">${row.asOf || ''}</div></td>
+          </tr>`;
+        }).join('');
+        document.getElementById('bondAsOf').textContent = '업데이트: ' + new Date().toLocaleString('ko-KR');
+      } catch (error) {
+        body.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#5f6b85">국채수익률 원천 데이터 확인 중</td></tr>';
+      }
+    }
+
     async function renderMiniChart(containerId, key) {
       const el = document.getElementById(containerId);
       if (!el) return;
       try {
         const json = await fetchJsonWithRetry(`/api/chart?key=${encodeURIComponent(key)}`);
-        if (!json?.ok || !Array.isArray(json.series) || !json.series.length) throw new Error('no data');
-        const series = json.series;
-        const values = series.map(x => Number(x.close));
-        const w = el.clientWidth || 900;
-        const h = el.clientHeight || 260;
-        const padL = 52;
-        const padR = 14;
-        const padT = 24;
-        const padB = 26;
-        const min = Math.min(...values);
-        const max = Math.max(...values);
-        const span = (max - min) || 1;
-        const points = values.map((v, i) => {
-          const x = padL + (i * (w - padL - padR)) / (values.length - 1);
-          const y = h - padB - ((v - min) / span) * (h - padT - padB);
-          return `${x},${y}`;
-        }).join(' ');
-        const last = values[values.length - 1];
-        const yStep = key === 'USDKRW' ? 20 : (key === 'GOLD' ? 200 : (key === 'VIX' ? 5 : (key === 'SOX' ? 1000 : (key === 'WTI' ? 10 : (key === 'DXY' ? 2 : 0.2)))));
-        const yStart = Math.floor(min / yStep) * yStep;
-        const yEnd = Math.ceil(max / yStep) * yStep;
-        const yTicks = [];
-        for (let v = yStart; v <= yEnd + 1e-9; v += yStep) yTicks.push(Number(v.toFixed(2)));
-        const yTickSvg = yTicks.map((v) => {
-          const y = h - padB - ((v - min) / span) * (h - padT - padB);
-          const label = (key === 'USDKRW' || key === 'GOLD')
-            ? Math.round(v).toLocaleString()
-            : (key === 'VIX' || key === 'SOX' ? Math.round(v).toLocaleString() : v.toFixed(2));
-          return `<text x="6" y="${y + 4}" fill="#5f6b85" font-size="11">${label}</text>
-                  <line x1="${padL}" y1="${y}" x2="${w - padR}" y2="${y}" stroke="#e6ecf7" stroke-width="1" />`;
+        if (!json?.ok || !Array.isArray(json.series) || json.series.length < 20) throw new Error('no data');
+        const series = json.series.slice(-180).map((row) => {
+          const close = Number(row.close);
+          return {
+            date: row.date,
+            open: Number.isFinite(Number(row.open)) ? Number(row.open) : close,
+            high: Number.isFinite(Number(row.high)) ? Number(row.high) : close,
+            low: Number.isFinite(Number(row.low)) ? Number(row.low) : close,
+            close
+          };
+        }).filter((row) => [row.open,row.high,row.low,row.close].every(Number.isFinite));
+        const w = el.clientWidth || 900, h = el.clientHeight || 270;
+        const padL = 54, padR = 14, padT = 30, padB = 28;
+        const lows = series.map((row) => row.low), highs = series.map((row) => row.high);
+        const rawMin = Math.min(...lows), rawMax = Math.max(...highs);
+        const margin = (rawMax - rawMin || 1) * .05;
+        const min = rawMin - margin, max = rawMax + margin, span = max - min || 1;
+        const xFor = (i) => padL + i * (w-padL-padR) / Math.max(1,series.length-1);
+        const yFor = (v) => h-padB-(v-min)/span*(h-padT-padB);
+        const candleWidth = Math.max(1.2,Math.min(5,(w-padL-padR)/series.length*.68));
+        const candles = series.map((row,i) => {
+          const x=xFor(i), up=row.close>=row.open, color=up?'#d92c2c':'#1f5bd8';
+          const yo=yFor(row.open), yc=yFor(row.close), yh=yFor(row.high), yl=yFor(row.low);
+          return `<line x1="${x}" y1="${yh}" x2="${x}" y2="${yl}" stroke="${color}" stroke-width="1"/><rect x="${x-candleWidth/2}" y="${Math.min(yo,yc)}" width="${candleWidth}" height="${Math.max(1,Math.abs(yc-yo))}" fill="${color}"/>`;
         }).join('');
-        const monthTicks = [];
-        let prevYm = '';
-        for (let i = 0; i < series.length; i += 1) {
-          const d = series[i]?.date || '';
-          if (!d) continue;
-          const ym = d.slice(0, 7);
-          if (ym !== prevYm) {
-            monthTicks.push({ i, d });
-            prevYm = ym;
+        const maColors={5:'#d92c2c',20:'#0a9d58',60:'#e4a11b'};
+        const maSvg=Object.entries(maColors).map(([period,color]) => {
+          const p=Number(period), points=[];
+          for(let i=p-1;i<series.length;i+=1){
+            const avg=series.slice(i-p+1,i+1).reduce((sum,row)=>sum+row.close,0)/p;
+            points.push(`${xFor(i)},${yFor(avg)}`);
           }
-        }
-        const xTickSvg = monthTicks.map((t) => {
-          const x = padL + (t.i * (w - padL - padR)) / (values.length - 1);
-          const label = `${t.d.slice(0,4)}.${t.d.slice(5,7)}.`;
-          return `<text x="${x - 20}" y="${h - 6}" fill="#5f6b85" font-size="11">${label}</text>`;
+          return `<polyline fill="none" stroke="${color}" stroke-width="1.7" points="${points.join(' ')}"/>`;
         }).join('');
-        const y45 = h - padB - ((4.5 - min) / span) * (h - padT - padB);
-        const y45Line = (key === 'US10Y' && 4.5 >= min && 4.5 <= max)
-          ? `<line x1="${padL}" y1="${y45}" x2="${w - padR}" y2="${y45}" stroke="#d92c2c" stroke-width="1.5" stroke-dasharray="5 4" />
-             <text x="${w - padR - 40}" y="${y45 - 4}" fill="#d92c2c" font-size="11">4.5</text>`
-          : '';
-        const lastDate = series[series.length - 1]?.date || '';
-        el.innerHTML = `<svg width="100%" height="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
-          <rect x="0" y="0" width="${w}" height="${h}" fill="#f9fbff"/>
-          ${yTickSvg}
-          ${y45Line}
-          <polyline fill="none" stroke="#0f6fff" stroke-width="2.4" points="${points}" />
-          <text x="${padL}" y="${padT - 8}" fill="#5f6b85" font-size="13" font-weight="800">최근 ${values.length}일</text>
-          <text x="${w - padR}" y="${padT - 8}" fill="#111" font-size="13" font-weight="800" text-anchor="end">
-            ${lastDate}  Last:  <tspan fill="#d92c2c">${last.toLocaleString()}</tspan>
-          </text>
-          ${xTickSvg}
-          <g id="${containerId}-hover"></g>
-        </svg>`;
-        attachChartHover(el, series, values, min, span, { w, h, padL, padR, padT, padB });
-      } catch (e) {
-        el.innerHTML = '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:#5f6b85;font-size:13px;">차트 데이터 없음</div>';
+        const yTicks=Array.from({length:5},(_,i)=>min+span*i/4).map((value)=>{
+          const y=yFor(value);
+          const label=Math.abs(value)>=100?Math.round(value).toLocaleString():value.toFixed(2);
+          return `<line x1="${padL}" y1="${y}" x2="${w-padR}" y2="${y}" stroke="#e6ecf7"/><text x="5" y="${y+4}" fill="#5f6b85" font-size="10">${label}</text>`;
+        }).join('');
+        let previousMonth='';
+        const xTicks=series.map((row,i)=>{
+          const ym=String(row.date).slice(0,7);
+          if(!ym||ym===previousMonth) return '';
+          previousMonth=ym;
+          return `<text x="${xFor(i)-19}" y="${h-6}" fill="#5f6b85" font-size="10">${ym.replace('-','.')}.</text>`;
+        }).join('');
+        const last=series[series.length-1];
+        const threshold=key==='US10Y'&&min<=4.5&&max>=4.5?`<line x1="${padL}" y1="${yFor(4.5)}" x2="${w-padR}" y2="${yFor(4.5)}" stroke="#d92c2c" stroke-dasharray="5 4"/><text x="${w-padR-24}" y="${yFor(4.5)-4}" fill="#d92c2c" font-size="10">4.5</text>`:'';
+        el.innerHTML=`<svg width="100%" height="100%" viewBox="0 0 ${w} ${h}">
+          <rect width="${w}" height="${h}" fill="#f9fbff"/>${yTicks}${threshold}${candles}${maSvg}
+          <text x="${padL}" y="18" fill="#5f6b85" font-size="12" font-weight="800">최근 ${series.length}거래일 · <tspan fill="#d92c2c">MA5</tspan> <tspan fill="#0a9d58">MA20</tspan> <tspan fill="#e4a11b">MA60</tspan></text>
+          <text x="${w-padR}" y="18" text-anchor="end" fill="#111" font-size="12" font-weight="800">${last.date} Last:  <tspan fill="#d92c2c">${last.close.toLocaleString()}</tspan></text>
+          ${xTicks}<g id="${containerId}-hover"></g></svg>`;
+        attachChartHover(el,series,series.map(row=>row.close),min,span,{w,h,padL,padR,padT,padB});
+      } catch (error) {
+        el.innerHTML='<div style="height:100%;display:flex;align-items:center;justify-content:center;color:#5f6b85;font-weight:800">차트 데이터 없음</div>';
       }
     }
 
@@ -925,7 +996,7 @@
         const h = el.clientHeight || 260;
         const padL = 66;
         const padR = options.dualAxis ? 66 : 16;
-        const padT = 28;
+        const padT = options.showLastValues ? 46 : 28;
         const padB = 28;
         const xFor = (i) => padL + (i * (w - padL - padR)) / Math.max(1, series.length - 1);
 
@@ -1049,7 +1120,11 @@
             : `${t.d.slice(0, 4)}.${t.d.slice(5, 7)}.`;
           return `<text x="${xFor(t.i) - 20}" y="${h - 6}" fill="#5f6b85" font-size="11">${label}</text>`;
         }).join('');
-        const lastDate = series[series.length - 1]?.date || '';
+        const lastRow = series[series.length - 1] || {};
+        const lastDate = lastRow.date || '';
+        const currentValues = options.showLastValues
+          ? fields.filter((field) => field.type !== 'bar').map((field) => `${field.label} ${formatChartValue(lastRow[field.key])}${json.unit || ''}`).join('   ')
+          : '';
         el.innerHTML = `<svg width="100%" height="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
           <rect x="0" y="0" width="${w}" height="${h}" fill="#f9fbff"/>
           ${leftTickSvg}
@@ -1059,7 +1134,8 @@
           ${bars}
           ${lines}
           ${legend}
-          <text x="${w - padR}" y="${padT - 9}" fill="#111" font-size="13" font-weight="800" text-anchor="end">${lastDate}</text>
+          <text x="${w - padR}" y="18" fill="#111" font-size="13" font-weight="900" text-anchor="end">${currentValues || lastDate}</text>
+          ${currentValues ? `<text x="${w - padR}" y="35" fill="#5f6b85" font-size="11" font-weight="800" text-anchor="end">${lastDate}</text>` : ''}
           ${xTickSvg}
           <g id="${containerId}-extra-hover"></g>
         </svg>`;
@@ -1297,6 +1373,12 @@
     renderMiniChart('chart-wti', 'WTI');
     renderMiniChart('chart-dxy', 'DXY');
     renderMiniChart('chart-gold', 'GOLD');
+    initLwChart('KOSPI_FUTURES', 'lwchart-KOSPI_FUTURES', '1m', 390);
+    initLwChart('NASDAQ_FUTURES', 'lwchart-NASDAQ_FUTURES', '1m', 390);
+    initLwChart('KOSPI_NIGHT_FUTURES', 'lwchart-KOSPI_NIGHT_FUTURES', '1m', 390);
+    initLwChart('USDKRW', 'lwchart-USDKRW_MINUTE', '1m', 390);
+    initLwChart('BTC', 'lwchart-BTC', '1d', 200);
+    renderBondYields();
     const investorFields = [
       { key: 'foreign', label: '외국인', color: '#d92c2c' },
       { key: 'institution', label: '기관', color: '#0f6fff' }
@@ -1324,7 +1406,7 @@
       'note-kospi-investor-minute',
       'kospi-investor-minute',
       investorFields,
-      { zeroLine: true, intraday: true, tooltip: true, cumulative: true }
+      { zeroLine: true, intraday: true, tooltip: true, cumulative: true, showLastValues: true }
     );
     const renderKosdaqInvestorDaily = () => renderExtraChart(
       'chart-kosdaq-investor-daily',
@@ -1338,7 +1420,7 @@
       'note-kosdaq-investor-minute',
       'kosdaq-investor-minute',
       investorFields,
-      { zeroLine: true, intraday: true, tooltip: true, cumulative: true }
+      { zeroLine: true, intraday: true, tooltip: true, cumulative: true, showLastValues: true }
     );
     const renderMarketFunds = () => renderExtraChart('chart-market-funds', 'note-market-funds', 'market-funds', [
       { key: 'credit', label: '신용잔고 (좌)', tooltipLabel: '신용잔고', color: '#f59e0b', axis: 'left' },
@@ -1396,11 +1478,15 @@
       if (!isKoreaMarketHours()) return;
       renderKospiInvestorMinute();
       renderKosdaqInvestorMinute();
-    }, 5 * 60 * 1000);
+    }, 60 * 1000);
     refreshFlowTable();
     renderTurnoverTable();
     updateSummaryNumbers();
     setInterval(updateSummaryNumbers, 60000);
+    setInterval(() => {
+      ['KOSPI_FUTURES', 'NASDAQ_FUTURES', 'KOSPI_NIGHT_FUTURES', 'USDKRW'].forEach(loadLwChart);
+      renderBondYields();
+    }, 60000);
   </script>
 </body>
 </html>
