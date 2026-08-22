@@ -294,17 +294,6 @@
 
       <div class="card span-6">
         <div class="head-row">
-          <div class="title">시장 거래대금 일봉</div>
-          <label class="chart-control">거래일
-            <input id="days-market-turnover" type="number" min="20" max="500" value="200" />
-          </label>
-        </div>
-        <div class="chart-note" id="note-market-turnover"></div>
-        <div class="chart" id="chart-market-turnover"></div>
-      </div>
-
-      <div class="card span-6">
-        <div class="head-row">
           <div>
             <div class="title">외국인 선물 수급</div>
           </div>
@@ -319,6 +308,30 @@
           <thead><tr><th>항목</th><th>당일</th><th>3일</th><th>5일</th><th>10일</th><th>20일</th></tr></thead>
           <tbody id="flowTableBody"></tbody>
         </table>
+      </div>
+
+      <div class="card span-6 night-card">
+        <div class="head-row"><div class="title">KOSPI200 야간선물</div><div class="market-state" id="state-kospi-night">장상태 확인 중</div></div>
+        <div class="chart-note">KOSPI200 선물 최근 1분봉 · 장 종료 시 최근 거래일 표시</div>
+        <div class="asset-legend"><span style="color:#d92c2c">5분</span><span style="color:#1f5bd8">10분</span><span style="color:#0a9d58">20분</span><span style="color:#e4a11b">60분</span></div>
+        <div class="chart lw-chart plain-chart" id="lwchart-KOSPI_NIGHT_FUTURES"></div>
+      </div>
+      <div class="card span-6 night-card">
+        <div class="head-row"><div class="title">나스닥100 야간선물</div><div class="market-state" id="state-nasdaq-night">장상태 확인 중</div></div>
+        <div class="chart-note">CME E-mini Nasdaq-100 최근 1분봉 · 장 종료 시 최근 거래일 표시</div>
+        <div class="asset-legend"><span style="color:#d92c2c">5분</span><span style="color:#1f5bd8">10분</span><span style="color:#0a9d58">20분</span><span style="color:#e4a11b">60분</span></div>
+        <div class="chart lw-chart plain-chart" id="lwchart-NASDAQ_FUTURES"></div>
+      </div>
+
+      <div class="card span-6">
+        <div class="head-row">
+          <div class="title">시장 거래대금 일봉</div>
+          <label class="chart-control">거래일
+            <input id="days-market-turnover" type="number" min="20" max="500" value="200" />
+          </label>
+        </div>
+        <div class="chart-note" id="note-market-turnover"></div>
+        <div class="chart" id="chart-market-turnover"></div>
       </div>
 
       <div class="card span-6">
@@ -338,19 +351,6 @@
           <thead><tr><th>시장</th><th>거래대금</th><th>전일대비</th></tr></thead>
           <tbody id="turnoverTableBody"></tbody>
         </table>
-      </div>
-
-      <div class="card span-6 night-card">
-        <div class="head-row"><div class="title">KOSPI200 야간선물</div><div class="market-state" id="state-kospi-night">장상태 확인 중</div></div>
-        <div class="chart-note">KOSPI200 선물 최근 1분봉 · 장 종료 시 최근 거래일 표시</div>
-        <div class="asset-legend"><span style="color:#d92c2c">5분</span><span style="color:#1f5bd8">10분</span><span style="color:#0a9d58">20분</span><span style="color:#e4a11b">60분</span></div>
-        <div class="chart lw-chart plain-chart" id="lwchart-KOSPI_NIGHT_FUTURES"></div>
-      </div>
-      <div class="card span-6 night-card">
-        <div class="head-row"><div class="title">나스닥100 야간선물</div><div class="market-state" id="state-nasdaq-night">장상태 확인 중</div></div>
-        <div class="chart-note">CME E-mini Nasdaq-100 최근 1분봉 · 장 종료 시 최근 거래일 표시</div>
-        <div class="asset-legend"><span style="color:#d92c2c">5분</span><span style="color:#1f5bd8">10분</span><span style="color:#0a9d58">20분</span><span style="color:#e4a11b">60분</span></div>
-        <div class="chart lw-chart plain-chart" id="lwchart-NASDAQ_FUTURES"></div>
       </div>
     </div>
   </div>
@@ -873,7 +873,7 @@
       });
     }
 
-    function attachChartHover(el, series, values, min, span, dims) {
+    function attachChartHover(el, series, values, min, span, dims, options = {}) {
       const { w, h, padL, padR, padT, padB } = dims;
       if (!el) return;
       el.onmousemove = (ev) => {
@@ -887,6 +887,35 @@
         const d = series[idx]?.date || '';
         const hover = document.getElementById(`${el.id}-hover`);
         if (!hover) return;
+        if (options.ohlc) {
+          const row = series[idx] || {};
+          const open = Number(row.open);
+          const high = Number(row.high);
+          const low = Number(row.low);
+          const close = Number(row.close);
+          const rate = Number.isFinite(open) && open !== 0 ? ((close - open) / open) * 100 : 0;
+          const rateColor = rate > 0 ? '#ff6b6b' : rate < 0 ? '#68a0ff' : '#d9deea';
+          const sign = rate > 0 ? '+' : '';
+          const formatPrice = (value) => Number(value).toLocaleString('ko-KR', { maximumFractionDigits: 2 });
+          const boxWidth = 184;
+          const boxHeight = 112;
+          const boxX = x > w - padR - boxWidth - 18 ? x - boxWidth - 10 : x + 10;
+          const boxY = Math.max(padT + 4, Math.min(h - padB - boxHeight - 4, y - boxHeight / 2));
+          hover.innerHTML = `
+            <line x1="${x}" y1="${padT}" x2="${x}" y2="${h - padB}" stroke="#222" stroke-width="1.2" stroke-dasharray="4 4" />
+            <line x1="${padL}" y1="${y}" x2="${w - padR}" y2="${y}" stroke="#222" stroke-width="1.2" stroke-dasharray="4 4" />
+            <rect x="${padL - 48}" y="${y - 10}" width="44" height="18" fill="#111" rx="4" />
+            <text x="${padL - 44}" y="${y + 3}" fill="#fff" font-size="10">${formatPrice(v)}</text>
+            <rect x="${boxX}" y="${boxY}" width="${boxWidth}" height="${boxHeight}" fill="rgba(17,24,39,.96)" rx="8" />
+            <text x="${boxX + 12}" y="${boxY + 18}" fill="#fff" font-size="11" font-weight="800">${d}</text>
+            <text x="${boxX + 12}" y="${boxY + 38}" fill="#d9deea" font-size="11">시가  ${formatPrice(open)}</text>
+            <text x="${boxX + 12}" y="${boxY + 55}" fill="#d9deea" font-size="11">고가  ${formatPrice(high)}</text>
+            <text x="${boxX + 12}" y="${boxY + 72}" fill="#d9deea" font-size="11">저가  ${formatPrice(low)}</text>
+            <text x="${boxX + 98}" y="${boxY + 38}" fill="#fff" font-size="11">종가  ${formatPrice(close)}</text>
+            <text x="${boxX + 98}" y="${boxY + 58}" fill="${rateColor}" font-size="11" font-weight="800">증가율  ${sign}${rate.toFixed(2)}%</text>
+          `;
+          return;
+        }
         hover.innerHTML = `
           <line x1="${x}" y1="${padT}" x2="${x}" y2="${h - padB}" stroke="#222" stroke-width="1.2" stroke-dasharray="4 4" />
           <line x1="${padL}" y1="${y}" x2="${w - padR}" y2="${y}" stroke="#222" stroke-width="1.2" stroke-dasharray="4 4" />
@@ -1051,7 +1080,7 @@
           <text x="${padL}" y="18" fill="#5f6b85" font-size="12" font-weight="800">최근 ${series.length}거래일</text>
           <text x="${w-padR}" y="18" text-anchor="end" fill="#111" font-size="12" font-weight="800">${last.date} Last:  <tspan fill="#d92c2c">${last.close.toLocaleString()}</tspan></text>
           ${xTicks}<g id="${containerId}-hover"></g></svg>`;
-        attachChartHover(el,series,series.map(row=>row.close),min,span,{w,h,padL,padR,padT,padB});
+        attachChartHover(el,series,series.map(row=>row.close),min,span,{w,h,padL,padR,padT,padB},{ ohlc: key === 'BTC' });
       } catch (error) {
         el.innerHTML='<div style="height:100%;display:flex;align-items:center;justify-content:center;color:#5f6b85;font-weight:800">차트 데이터 없음</div>';
       }
