@@ -74,11 +74,17 @@
     }
 
     .asset-legend { display:flex; gap:12px; margin:-2px 0 8px; font-size:12px; font-weight:800; flex-wrap:wrap; }
-    .bond-table td, .bond-table th { font-size:16px; }
-    .bond-name { font-size:18px; font-weight:850; }
+    .asset-ma-toggle { border:0; background:transparent; padding:2px 3px; cursor:pointer; font:inherit; opacity:1; }
+    .asset-ma-toggle.off { opacity:.28; text-decoration:line-through; }
+    .market-state { font-size:13px; font-weight:900; color:#5f6b85; white-space:nowrap; }
+    .market-state.open { color:#0a9d58; }
+    .plain-chart { background:#fff; }
+    .bond-table { table-layout:fixed; }
+    .bond-table td, .bond-table th { font-size:13px; padding:8px 5px; }
+    .bond-name { font-size:15px; font-weight:850; }
     .bond-flag { font-size:25px; margin-right:10px; vertical-align:middle; }
-    .bond-value { font-size:20px; font-weight:900; text-align:right; }
-    .bond-change { font-size:18px; font-weight:850; text-align:right; }
+    .bond-value { font-size:16px; font-weight:900; text-align:right; }
+    .bond-change { font-size:14px; font-weight:850; text-align:right; }
     .bond-status { font-weight:800; text-align:right; white-space:nowrap; }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
     th, td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; }
@@ -176,7 +182,7 @@
         <div class="chart" id="chart-gold"></div>
       </div>
 
-      <div class="card span-12">
+      <div class="card span-6">
         <div class="head-row"><div class="title">국채수익률</div><div class="asof" id="bondAsOf">1분마다 갱신</div></div>
         <table class="bond-table">
           <thead><tr><th>채권명</th><th style="text-align:right">현재가</th><th style="text-align:right">전일대비</th><th style="text-align:right">기준 시간</th></tr></thead>
@@ -191,18 +197,6 @@
         <div class="chart lw-chart" id="lwchart-KOSPI_FUTURES"></div>
       </div>
       <div class="card span-6">
-        <div class="head-row"><div class="title">나스닥 선물</div></div>
-        <div class="chart-note">CME E-mini Nasdaq-100 선물 1분봉, 1분마다 갱신</div>
-        <div class="asset-legend"><span style="color:#d92c2c">5분</span><span style="color:#1f5bd8">10분</span><span style="color:#0a9d58">20분</span><span style="color:#e4a11b">60분</span></div>
-        <div class="chart lw-chart" id="lwchart-NASDAQ_FUTURES"></div>
-      </div>
-      <div class="card span-6">
-        <div class="head-row"><div class="title">KOSPI200 야간선물</div></div>
-        <div class="chart-note">실제 야간선물 원천만 표시하며 낮 선물로 대체하지 않습니다.</div>
-        <div class="asset-legend"><span style="color:#d92c2c">5분</span><span style="color:#1f5bd8">10분</span><span style="color:#0a9d58">20분</span><span style="color:#e4a11b">60분</span></div>
-        <div class="chart lw-chart" id="lwchart-KOSPI_NIGHT_FUTURES"></div>
-      </div>
-      <div class="card span-6">
         <div class="head-row"><div class="title">원/달러 분봉 (KRW/USD)</div></div>
         <div class="chart-note">원/달러 실제 환율 1분봉, 1분마다 갱신</div>
         <div class="asset-legend"><span style="color:#d92c2c">5분</span><span style="color:#1f5bd8">10분</span><span style="color:#0a9d58">20분</span><span style="color:#e4a11b">60분</span></div>
@@ -210,15 +204,7 @@
       </div>
       <div class="card span-6">
         <div class="head-row"><div class="title">비트코인 일봉 (BTC/USD)</div></div>
-        <div class="chart-note">최근 200일 캔들 및 이동평균선</div>
-        <div class="asset-legend"><span style="color:#d92c2c">5일</span><span style="color:#1f5bd8">10일</span><span style="color:#0a9d58">20일</span><span style="color:#e4a11b">60일</span><span style="color:#8040a0">120일</span></div>
-        <div class="chart lw-chart" id="lwchart-BTC"></div>
-      </div>
-      <div class="card span-6">
-        <div class="head-row"><div class="title">분봉 데이터 안내</div></div>
-        <div class="memo">KOSPI·KOSDAQ 투자자 분봉은 09:00~15:30을 표시합니다.
-15:30 값은 해당 거래일의 확정 외국인·기관 순매수액입니다.
-장중에는 모든 분봉 차트를 1분마다 다시 조회합니다.</div>
+        <div class="chart" id="chart-btc"></div>
       </div>
 
       <div class="card span-6">
@@ -339,6 +325,19 @@
           <tbody id="turnoverTableBody"></tbody>
         </table>
       </div>
+
+      <div class="card span-6 night-card">
+        <div class="head-row"><div class="title">KOSPI200 야간선물</div><div class="market-state" id="state-kospi-night">장상태 확인 중</div></div>
+        <div class="chart-note">KOSPI200 선물 최근 1분봉 · 장 종료 시 최근 거래일 표시</div>
+        <div class="asset-legend"><span style="color:#d92c2c">5분</span><span style="color:#1f5bd8">10분</span><span style="color:#0a9d58">20분</span><span style="color:#e4a11b">60분</span></div>
+        <div class="chart lw-chart plain-chart" id="lwchart-KOSPI_NIGHT_FUTURES"></div>
+      </div>
+      <div class="card span-6 night-card">
+        <div class="head-row"><div class="title">나스닥100 야간선물</div><div class="market-state" id="state-nasdaq-night">장상태 확인 중</div></div>
+        <div class="chart-note">CME E-mini Nasdaq-100 최근 1분봉 · 장 종료 시 최근 거래일 표시</div>
+        <div class="asset-legend"><span style="color:#d92c2c">5분</span><span style="color:#1f5bd8">10분</span><span style="color:#0a9d58">20분</span><span style="color:#e4a11b">60분</span></div>
+        <div class="chart lw-chart plain-chart" id="lwchart-NASDAQ_FUTURES"></div>
+      </div>
     </div>
   </div>
 
@@ -415,12 +414,39 @@
         }));
 
         inst.candleSeries.setData(chartData);
+        if (inst.options?.statusId && chartData.length) {
+          const statusEl = document.getElementById(inst.options.statusId);
+          if (statusEl) {
+            const parts = new Intl.DateTimeFormat('en-US', {
+              timeZone: 'Asia/Seoul', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false
+            }).formatToParts(new Date());
+            const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+            const weekday = values.weekday;
+            const minutes = Number(values.hour) * 60 + Number(values.minute);
+            let open = false;
+            if (key === 'KOSPI_NIGHT_FUTURES') {
+              open = ((['Mon','Tue','Wed','Thu','Fri'].includes(weekday) && minutes >= 18 * 60) ||
+                (['Tue','Wed','Thu','Fri','Sat'].includes(weekday) && minutes < 6 * 60));
+            } else {
+              open = (weekday === 'Mon' && minutes >= 7 * 60) ||
+                ['Tue','Wed','Thu','Fri'].includes(weekday) ||
+                (weekday === 'Sat' && minutes < 6 * 60);
+            }
+            const latest = chartData[chartData.length - 1].time;
+            const latestLabel = typeof latest === 'number'
+              ? new Date(latest * 1000).toISOString().slice(0, 16).replace('T', ' ')
+              : String(latest);
+            statusEl.textContent = open ? '거래중' : `장종료 · 최근 ${latestLabel}`;
+            statusEl.classList.toggle('open', open);
+          }
+        }
         const ema12 = calculateEMA(chartData, 12);
         const ema26 = calculateEMA(chartData, 26);
         
         const chartContainer = document.getElementById(inst.containerId || ('lwchart-' + key));
         chartContainer.style.position = 'relative';
         chartContainer.style.backgroundColor = '#ffffff';
+        if (!inst.options?.plain) {
         let bgCanvas = chartContainer.querySelector('.bg-canvas');
         if (!bgCanvas) {
           bgCanvas = document.createElement('canvas');
@@ -514,6 +540,7 @@
         inst.chart.timeScale().subscribeVisibleLogicalRangeChange(drawBg);
         inst.chart.timeScale().subscribeSizeChange(drawBg);
         drawBg();
+        }
 
         // --- Tooltip: open→close % change ---
         let tooltipEl = chartContainer.querySelector('.lw-tooltip');
@@ -637,7 +664,7 @@
           checkCross(ma5, ma60, '5/60');
           checkCross(ma20, ma60, '20/60');
         }
-        inst.candleSeries.setMarkers(markers);
+        inst.candleSeries.setMarkers(inst.options?.noMarkers ? [] : markers);
 
         if (chartData.length > 0) {
           const to = chartData.length - 1;
@@ -659,7 +686,7 @@
       }
     }
 
-    function initLwChart(key, containerId, initialInterval = '1d', visibleCount = 120) {
+    function initLwChart(key, containerId, initialInterval = '1d', visibleCount = 120, options = {}) {
       const el = document.getElementById(containerId);
       const chart = LightweightCharts.createChart(el, {
         width: el.clientWidth,
@@ -701,7 +728,7 @@
         });
       });
 
-      lwChartInstances[key] = { chart, candleSeries, maSeries, containerId, interval: initialInterval, visibleCount, toggles: { candle: true, 5: true, 10: true, 20: true, 60: true, 120: true, 240: true } };
+      lwChartInstances[key] = { chart, candleSeries, maSeries, containerId, interval: initialInterval, visibleCount, options, toggles: { candle: true, 5: true, 10: true, 20: true, 60: true, 120: true, 240: true } };
       loadLwChart(key);
     }
 
@@ -902,13 +929,57 @@
       }
     }
 
+    const assetChartState = {};
+
+    function ensureAssetChartControls(containerId, key) {
+      const el = document.getElementById(containerId);
+      if (!el) return null;
+      const state = assetChartState[key] || (assetChartState[key] = { days: 120, ma: { 5: true, 20: true, 60: true } });
+      const card = el.closest('.card');
+      const head = card?.querySelector('.head-row');
+      if (head && !head.querySelector('[data-asset-days]')) {
+        const label = document.createElement('label');
+        label.className = 'chart-control';
+        label.innerHTML = `조회기간 <input data-asset-days="${key}" type="number" min="20" max="260" value="120" />일`;
+        head.appendChild(label);
+        const input = label.querySelector('input');
+        const applyDays = () => {
+          state.days = Math.max(20, Math.min(260, Number(input.value) || 120));
+          input.value = String(state.days);
+          renderMiniChart(containerId, key);
+        };
+        input.addEventListener('change', applyDays);
+        input.addEventListener('keydown', (event) => { if (event.key === 'Enter') applyDays(); });
+      }
+      if (card && !card.querySelector('[data-asset-legend]')) {
+        const legend = document.createElement('div');
+        legend.className = 'asset-legend';
+        legend.dataset.assetLegend = key;
+        legend.innerHTML = `
+          <button class="asset-ma-toggle" data-period="5" style="color:#d92c2c">MA5</button>
+          <button class="asset-ma-toggle" data-period="20" style="color:#0a9d58">MA20</button>
+          <button class="asset-ma-toggle" data-period="60" style="color:#e4a11b">MA60</button>`;
+        card.insertBefore(legend, el);
+        legend.addEventListener('click', (event) => {
+          const button = event.target.closest('[data-period]');
+          if (!button) return;
+          const period = Number(button.dataset.period);
+          state.ma[period] = !state.ma[period];
+          button.classList.toggle('off', !state.ma[period]);
+          renderMiniChart(containerId, key);
+        });
+      }
+      return state;
+    }
+
     async function renderMiniChart(containerId, key) {
       const el = document.getElementById(containerId);
       if (!el) return;
+      const state = ensureAssetChartControls(containerId, key);
       try {
         const json = await fetchJsonWithRetry(`/api/chart?key=${encodeURIComponent(key)}`);
         if (!json?.ok || !Array.isArray(json.series) || json.series.length < 20) throw new Error('no data');
-        const series = json.series.slice(-180).map((row) => {
+        const fullSeries = json.series.map((row) => {
           const close = Number(row.close);
           return {
             date: row.date,
@@ -918,28 +989,34 @@
             close
           };
         }).filter((row) => [row.open,row.high,row.low,row.close].every(Number.isFinite));
+        const visibleStart = Math.max(0, fullSeries.length - state.days);
+        const series = fullSeries.slice(visibleStart);
         const w = el.clientWidth || 900, h = el.clientHeight || 270;
         const padL = 54, padR = 14, padT = 30, padB = 28;
-        const lows = series.map((row) => row.low), highs = series.map((row) => row.high);
-        const rawMin = Math.min(...lows), rawMax = Math.max(...highs);
+        const rawMin = Math.min(...series.map((row) => row.low));
+        const rawMax = Math.max(...series.map((row) => row.high));
         const margin = (rawMax - rawMin || 1) * .05;
         const min = rawMin - margin, max = rawMax + margin, span = max - min || 1;
         const xFor = (i) => padL + i * (w-padL-padR) / Math.max(1,series.length-1);
-        const yFor = (v) => h-padB-(v-min)/span*(h-padT-padB);
-        const candleWidth = Math.max(1.2,Math.min(5,(w-padL-padR)/series.length*.68));
+        const yFor = (value) => h-padB-(value-min)/span*(h-padT-padB);
+        const candleWidth = Math.max(1.2,Math.min(6,(w-padL-padR)/series.length*.68));
         const candles = series.map((row,i) => {
-          const x=xFor(i), up=row.close>=row.open, color=up?'#d92c2c':'#1f5bd8';
+          const x=xFor(i), color=row.close>=row.open?'#d92c2c':'#1f5bd8';
           const yo=yFor(row.open), yc=yFor(row.close), yh=yFor(row.high), yl=yFor(row.low);
           return `<line x1="${x}" y1="${yh}" x2="${x}" y2="${yl}" stroke="${color}" stroke-width="1"/><rect x="${x-candleWidth/2}" y="${Math.min(yo,yc)}" width="${candleWidth}" height="${Math.max(1,Math.abs(yc-yo))}" fill="${color}"/>`;
         }).join('');
         const maColors={5:'#d92c2c',20:'#0a9d58',60:'#e4a11b'};
-        const maSvg=Object.entries(maColors).map(([period,color]) => {
-          const p=Number(period), points=[];
-          for(let i=p-1;i<series.length;i+=1){
-            const avg=series.slice(i-p+1,i+1).reduce((sum,row)=>sum+row.close,0)/p;
-            points.push(`${xFor(i)},${yFor(avg)}`);
+        const maSvg=Object.entries(maColors).map(([periodText,color]) => {
+          const period=Number(periodText);
+          if (!state.ma[period]) return '';
+          const points=[];
+          for(let fullIndex=visibleStart;fullIndex<fullSeries.length;fullIndex+=1){
+            if(fullIndex<period-1) continue;
+            let sum=0;
+            for(let offset=0;offset<period;offset+=1) sum+=fullSeries[fullIndex-offset].close;
+            points.push(`${xFor(fullIndex-visibleStart)},${yFor(sum/period)}`);
           }
-          return `<polyline fill="none" stroke="${color}" stroke-width="1.7" points="${points.join(' ')}"/>`;
+          return `<polyline fill="none" stroke="${color}" stroke-width="1.8" points="${points.join(' ')}"/>`;
         }).join('');
         const yTicks=Array.from({length:5},(_,i)=>min+span*i/4).map((value)=>{
           const y=yFor(value);
@@ -957,7 +1034,7 @@
         const threshold=key==='US10Y'&&min<=4.5&&max>=4.5?`<line x1="${padL}" y1="${yFor(4.5)}" x2="${w-padR}" y2="${yFor(4.5)}" stroke="#d92c2c" stroke-dasharray="5 4"/><text x="${w-padR-24}" y="${yFor(4.5)-4}" fill="#d92c2c" font-size="10">4.5</text>`:'';
         el.innerHTML=`<svg width="100%" height="100%" viewBox="0 0 ${w} ${h}">
           <rect width="${w}" height="${h}" fill="#f9fbff"/>${yTicks}${threshold}${candles}${maSvg}
-          <text x="${padL}" y="18" fill="#5f6b85" font-size="12" font-weight="800">최근 ${series.length}거래일 · <tspan fill="#d92c2c">MA5</tspan> <tspan fill="#0a9d58">MA20</tspan> <tspan fill="#e4a11b">MA60</tspan></text>
+          <text x="${padL}" y="18" fill="#5f6b85" font-size="12" font-weight="800">최근 ${series.length}거래일</text>
           <text x="${w-padR}" y="18" text-anchor="end" fill="#111" font-size="12" font-weight="800">${last.date} Last:  <tspan fill="#d92c2c">${last.close.toLocaleString()}</tspan></text>
           ${xTicks}<g id="${containerId}-hover"></g></svg>`;
         attachChartHover(el,series,series.map(row=>row.close),min,span,{w,h,padL,padR,padT,padB});
@@ -1123,7 +1200,7 @@
         const lastRow = series[series.length - 1] || {};
         const lastDate = lastRow.date || '';
         const currentValues = options.showLastValues
-          ? fields.filter((field) => field.type !== 'bar').map((field) => `${field.label} ${formatChartValue(lastRow[field.key])}${json.unit || ''}`).join('   ')
+          ? fields.filter((field) => field.type !== 'bar').map((field) => `${field.label}${options.cumulative ? ' 누적' : ''} ${formatChartValue(lastRow[field.key])}${json.unit || ''}`).join('   ')
           : '';
         el.innerHTML = `<svg width="100%" height="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
           <rect x="0" y="0" width="${w}" height="${h}" fill="#f9fbff"/>
@@ -1374,10 +1451,10 @@
     renderMiniChart('chart-dxy', 'DXY');
     renderMiniChart('chart-gold', 'GOLD');
     initLwChart('KOSPI_FUTURES', 'lwchart-KOSPI_FUTURES', '1m', 390);
-    initLwChart('NASDAQ_FUTURES', 'lwchart-NASDAQ_FUTURES', '1m', 390);
-    initLwChart('KOSPI_NIGHT_FUTURES', 'lwchart-KOSPI_NIGHT_FUTURES', '1m', 390);
+    initLwChart('NASDAQ_FUTURES', 'lwchart-NASDAQ_FUTURES', '1m', 390, { plain: true, noMarkers: true, statusId: 'state-nasdaq-night' });
+    initLwChart('KOSPI_NIGHT_FUTURES', 'lwchart-KOSPI_NIGHT_FUTURES', '1m', 390, { plain: true, noMarkers: true, statusId: 'state-kospi-night' });
     initLwChart('USDKRW', 'lwchart-USDKRW_MINUTE', '1m', 390);
-    initLwChart('BTC', 'lwchart-BTC', '1d', 200);
+    renderMiniChart('chart-btc', 'BTC');
     renderBondYields();
     const investorFields = [
       { key: 'foreign', label: '외국인', color: '#d92c2c' },
@@ -1399,7 +1476,7 @@
       'note-kospi-investor-daily',
       'kospi-investor-daily',
       kospiInvestorDailyFields,
-      { zeroLine: true, dualAxis: true, daysInputId: 'days-kospi-investor-daily', tooltip: true, cumulative: true }
+      { zeroLine: true, dualAxis: true, daysInputId: 'days-kospi-investor-daily', tooltip: true, cumulative: true, showLastValues: true }
     );
     const renderKospiInvestorMinute = () => renderExtraChart(
       'chart-kospi-investor-minute',

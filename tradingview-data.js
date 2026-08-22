@@ -93,7 +93,7 @@ const chartSources = {
   GOLD: { symbols: ['TVC:GOLD', 'OANDA:XAUUSD'], offset: 0 },
   NASDAQ_FUTURES: { symbols: ['CME_MINI:NQ1!'], offset: 0 },
   KOSPI_FUTURES: { symbols: ['KRX:K2I1!'], offset: 9 * 3600 },
-  KOSPI_NIGHT_FUTURES: { symbols: ['EUREX:FBK21!', 'EUREX:FBK2'], offset: 9 * 3600 },
+  KOSPI_NIGHT_FUTURES: { symbols: ['KRX:K2I1!'], offset: 9 * 3600 },
   BTC: { symbols: ['BITSTAMP:BTCUSD', 'COINBASE:BTCUSD'], offset: 0 }
 };
 
@@ -125,7 +125,6 @@ async function fetchYahooSeries(symbol, interval = '1d') {
 }
 
 async function fetchUnifiedSeries(key, interval = '1d') {
-  if (key === 'KOSPI_NIGHT_FUTURES') return null;
   const source = chartSources[key];
   if (!source) return null;
   const yahooSymbols = { USDKRW: 'KRW=X', GOLD: 'GC=F', BTC: 'BTC-USD', NASDAQ_FUTURES: 'NQ=F' };
