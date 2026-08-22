@@ -55,13 +55,20 @@
       cursor: pointer; font-weight: 600;
     }
     .btn.outline { background: #e9f1ff; color: #134db5; }
-    .summary-time-controls { display:flex; flex-direction:column; align-items:flex-end; gap:6px; min-width:365px; }
-    .timeframe-row { display:flex; flex-wrap:nowrap; gap:4px; align-items:center; overflow-x:auto; max-width:100%; }
-    .timeframe-row .tf-btn { flex:0 0 auto; min-width:44px; padding:7px 9px; white-space:nowrap; word-break:keep-all; }
+    .summary-heading-line { display:flex; align-items:center; gap:8px; width:100%; min-width:0; margin-bottom:4px; }
+    .summary-heading-line .title { flex:0 0 auto; margin:0; font-size:24px; }
+    .summary-time-controls { display:flex; flex:1 1 auto; min-width:0; align-items:center; gap:6px; overflow-x:auto; padding-bottom:2px; }
+    .timeframe-row, .summary-range-row { display:flex; flex:0 0 auto; flex-wrap:nowrap; gap:3px; align-items:center; white-space:nowrap; }
+    .timeframe-row select { width:45px; margin:0; padding:2px; font-size:11px; }
+    .timeframe-row .tf-btn { flex:0 0 auto; min-width:34px; padding:4px 6px; border-radius:7px; font-size:11px; white-space:nowrap; word-break:keep-all; }
+    .summary-range-row { gap:5px; color:var(--muted); font-size:10px; }
+    .summary-range-row input { width:46px; padding:2px 3px; text-align:right; border:1px solid var(--line); border-radius:4px; font-size:10px; }
+    .summary-range-row .period-input { width:38px; }
+    .summary-value-row { display:flex; gap:12px; align-items:baseline; }
     .head-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
     .asof { color: var(--muted); font-size: 12px; margin: -2px 0 8px; }
     .memo { color: #4d5b78; font-size: 12px; line-height: 1.35; margin: -2px 0 8px; white-space: pre-line; }
-    .warning-memo { padding:9px 11px; border:1px solid #ffd6a0; border-radius:10px; background:#fff7ea; color:#7a4600; font-weight:750; }
+    .warning-memo { padding:0; border:0; border-radius:0; background:transparent; color:#4d5b78; font-weight:750; }
     .chart-note { color: var(--muted); font-size: 12px; margin: -4px 0 8px; min-height: 16px; }
     .chart-control { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 800; white-space: nowrap; }
     .chart-control input { width: 72px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font-weight: 800; color: var(--text); }
@@ -77,9 +84,8 @@
       color: var(--text); font-size: 12px; line-height: 1.5; white-space: nowrap;
     }
     @media (max-width: 760px) {
-      #summaryCards .head-row { align-items:flex-start; flex-wrap:wrap; }
-      .summary-time-controls { width:100%; min-width:0; align-items:flex-start; }
-      .timeframe-row { width:100%; }
+      .summary-heading-line .title { font-size:21px; }
+      .summary-time-controls { overflow-x:auto; }
     }
 
     .asset-legend { display:flex; gap:12px; margin:-2px 0 8px; font-size:12px; font-weight:800; flex-wrap:wrap; }
@@ -210,7 +216,7 @@
       </div>
 
       <div class="card span-6">
-        <div class="head-row"><div class="title">KOSPI 선물 추세</div></div>
+        <div class="head-row"><div class="title">KOSPI 선물 하루 외국인 시세</div></div>
         <div class="chart-note" id="note-kospi-futures-minute"></div>
         <div class="chart" id="chart-kospi-futures-minute"></div>
       </div>
@@ -277,7 +283,7 @@
         <div class="head-row">
           <div class="title">VKOSPI 지수 일봉</div>
           <label class="chart-control">거래일
-            <input id="days-vkospi" type="number" min="20" max="500" value="200" />
+            <input id="days-vkospi" type="number" min="20" max="500" value="120" />
           </label>
         </div>
         <div class="chart-note" id="note-vkospi"></div>
@@ -426,6 +432,8 @@
         const res = await fetch(`/api/chart?key=${encodeURIComponent(key)}&interval=${inst.interval}`);
         const json = await res.json();
         if (!json?.ok || !json.series) throw new Error('no data');
+        const oldWarning = document.getElementById(inst.containerId || ('lwchart-' + key))?.querySelector('.chart-load-warning');
+        if (oldWarning) oldWarning.remove();
         let series = json.series;
         const requiredLength = inst.visibleCount + 250;
         if (series.length > Math.max(1000, requiredLength)) series = series.slice(-Math.max(1000, requiredLength));
@@ -703,10 +711,35 @@
         console.error(e);
         const target = document.getElementById(inst.containerId || ('lwchart-' + key));
         if (target) {
-          let warning = target.querySelector('.chart-load-warning');
-          if (!warning) { warning = document.createElement('div'); warning.className = 'chart-load-warning'; target.appendChild(warning); }
-          warning.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(249,251,255,.9);color:#5f6b85;font-weight:800;z-index:60;padding:20px;text-align:center;';
-          warning.textContent = '실제 분봉 원천 데이터 미제공';
+          try {
+            const fallback = await fetchJsonWithRetry(`/api/chart?key=${encodeURIComponent(key)}&interval=1d`, 2);
+            const daily = (fallback.series || []).map((row) => {
+              const close = Number(row.close);
+              return {
+                time: row.date,
+                open: Number.isFinite(Number(row.open)) ? Number(row.open) : close,
+                high: Number.isFinite(Number(row.high)) ? Number(row.high) : close,
+                low: Number.isFinite(Number(row.low)) ? Number(row.low) : close,
+                close
+              };
+            }).filter((row) => [row.open, row.high, row.low, row.close].every(Number.isFinite));
+            if (!daily.length) throw new Error('no fallback');
+            inst.candleSeries.setData(daily);
+            [5, 10, 20, 60, 120, 240].forEach((period) => inst.maSeries[period].setData(calculateSMA(daily, period)));
+            inst.chart.timeScale().fitContent();
+            const warning = target.querySelector('.chart-load-warning');
+            if (warning) warning.remove();
+            const statusEl = inst.options?.statusId ? document.getElementById(inst.options.statusId) : null;
+            if (statusEl) {
+              statusEl.textContent = `장종료 · 최근 ${daily[daily.length - 1].time}`;
+              statusEl.classList.remove('open');
+            }
+          } catch (_) {
+            let warning = target.querySelector('.chart-load-warning');
+            if (!warning) { warning = document.createElement('div'); warning.className = 'chart-load-warning'; target.appendChild(warning); }
+            warning.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(249,251,255,.9);color:#5f6b85;font-weight:800;z-index:60;padding:20px;text-align:center;';
+            warning.textContent = '최근 거래일 데이터 확인 중';
+          }
         }
       }
     }
@@ -764,17 +797,11 @@
         const div = document.createElement('div');
         div.className = 'card span-6';
         div.innerHTML = `
-          <div class="head-row">
-            <div>
-              <div class="title">${item.name}</div>
-              <div style="display:flex;gap:12px;align-items:baseline;">
-                <div class="value flat" id="v-${item.symbol}">-</div>
-                <div class="delta flat" id="d-${item.symbol}">-</div>
-              </div>
-            </div>
+          <div class="summary-heading-line">
+            <div class="title">${item.name}</div>
             <div class="summary-time-controls">
               <div class="timeframe-row">
-                <select id="min-${item.popupKey}" disabled style="border:1px solid var(--line);border-radius:4px;padding:2px 4px;margin-right:8px;font-size:13px;">
+                <select id="min-${item.popupKey}" disabled style="border:1px solid var(--line);border-radius:4px;">
                   <option value="1">1분</option>
                   <option value="3">3분</option>
                   <option value="5">5분</option>
@@ -788,12 +815,16 @@
                 <button class="btn outline tf-btn" data-key="${item.popupKey}" data-tf="1wk">주봉</button>
                 <button class="btn outline tf-btn" data-key="${item.popupKey}" data-tf="1mo">월봉</button>
               </div>
-              <div style="display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted);">
-                <span>조회기간: <input type="number" id="period-${item.popupKey}" value="120" style="width:50px;text-align:right;border:1px solid var(--line);border-radius:4px;padding:2px 4px;" /></span>
-                <span>최대: <input type="number" id="ymax-${item.popupKey}" placeholder="자동" style="width:60px;text-align:right;border:1px solid var(--line);border-radius:4px;padding:2px 4px;" /></span>
-                <span>최소: <input type="number" id="ymin-${item.popupKey}" placeholder="자동" style="width:60px;text-align:right;border:1px solid var(--line);border-radius:4px;padding:2px 4px;" /></span>
+              <div class="summary-range-row">
+                <span>조회기간: <input class="period-input" type="number" id="period-${item.popupKey}" value="120" /></span>
+                <span>최대: <input type="number" id="ymax-${item.popupKey}" placeholder="자동" /></span>
+                <span>최소: <input type="number" id="ymin-${item.popupKey}" placeholder="자동" /></span>
               </div>
             </div>
+          </div>
+          <div class="summary-value-row">
+            <div class="value flat" id="v-${item.symbol}">-</div>
+            <div class="delta flat" id="d-${item.symbol}">-</div>
           </div>
           <div class="legend-row" id="legend-${item.popupKey}" style="margin-top:6px;margin-bottom:6px;font-size:13px;display:flex;gap:12px;cursor:pointer;user-select:none;">
             <span class="lg-item" data-key="${item.popupKey}" data-series="candle" style="font-weight:bold;color:#111;">■ 캔들</span>
@@ -1026,13 +1057,17 @@
       return state;
     }
 
-    async function renderMiniChart(containerId, key) {
+    async function renderMiniChart(containerId, key, config = {}) {
       const el = document.getElementById(containerId);
       if (!el) return;
-      const state = ensureAssetChartControls(containerId, key);
+      const state = config.state || ensureAssetChartControls(containerId, key);
       try {
-        const json = await fetchJsonWithRetry(`/api/chart?key=${encodeURIComponent(key)}`);
+        const json = await fetchJsonWithRetry(config.url || `/api/chart?key=${encodeURIComponent(key)}`);
         if (!json?.ok || !Array.isArray(json.series) || json.series.length < 20) throw new Error('no data');
+        if (config.noteId) {
+          const note = document.getElementById(config.noteId);
+          if (note) note.textContent = json.note || '';
+        }
         const fullSeries = json.series.map((row) => {
           const close = Number(row.close);
           return {
@@ -1091,7 +1126,7 @@
           <text x="${padL}" y="18" fill="#5f6b85" font-size="12" font-weight="800">최근 ${series.length}거래일</text>
           <text x="${w-padR}" y="18" text-anchor="end" fill="#111" font-size="12" font-weight="800">${last.date} Last:  <tspan fill="#d92c2c">${last.close.toLocaleString()}</tspan></text>
           ${xTicks}<g id="${containerId}-hover"></g></svg>`;
-        attachChartHover(el,series,series.map(row=>row.close),min,span,{w,h,padL,padR,padT,padB},{ ohlc: key === 'BTC' });
+        attachChartHover(el,series,series.map(row=>row.close),min,span,{w,h,padL,padR,padT,padB},{ ohlc: key === 'BTC' || config.ohlc });
       } catch (error) {
         el.innerHTML='<div style="height:100%;display:flex;align-items:center;justify-content:center;color:#5f6b85;font-weight:800">차트 데이터 없음</div>';
       }
@@ -1555,9 +1590,17 @@
       { key: 'credit', label: '신용잔고 (좌)', tooltipLabel: '신용잔고', color: '#f59e0b', axis: 'left' },
       { key: 'deposit', label: '예탁금 (우)', tooltipLabel: '예탁금', color: '#10b981', axis: 'right' }
     ], { zeroLine: true, dualAxis: true, daysInputId: 'days-market-funds', tooltip: true });
-    const renderVkospi = () => renderExtraChart('chart-vkospi', 'note-vkospi', 'vkospi', [
-      { key: 'close', label: 'VKOSPI', color: '#7c3aed' }
-    ], { daysInputId: 'days-vkospi', tooltip: true });
+    const renderVkospi = () => {
+      const input = document.getElementById('days-vkospi');
+      const days = Math.max(20, Math.min(500, Number(input?.value) || 120));
+      if (input) input.value = String(days);
+      return renderMiniChart('chart-vkospi', 'VKOSPI', {
+        url: `/api/extra-chart?kind=vkospi&days=${days}`,
+        noteId: 'note-vkospi',
+        ohlc: true,
+        state: { days, ma: { 5: false, 20: false, 60: false } }
+      });
+    };
     const foreignFuturesFields = [
       { key: 'foreign', label: '외국인 누적', color: '#d92c2c' },
       {

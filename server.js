@@ -605,7 +605,13 @@ function readVkospiSnapshot(limit) {
     const file = path.join(ROOT, 'data', 'vkospi.json');
     const payload = JSON.parse(fs.readFileSync(file, 'utf8'));
     const rows = (Array.isArray(payload?.series) ? payload.series : [])
-      .map((row) => ({ date: String(row?.date || ''), close: Number(row?.close) }))
+      .map((row) => ({
+        date: String(row?.date || ''),
+        open: Number(row?.open),
+        high: Number(row?.high),
+        low: Number(row?.low),
+        close: Number(row?.close)
+      }))
       .filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date) && Number.isFinite(row.close) && row.close > 0)
       .sort((a, b) => a.date.localeCompare(b.date));
     return rows.slice(-limit);
@@ -703,9 +709,12 @@ async function fetchTradingViewVkospi(limit) {
             const values = point?.v || [];
             return {
               date: Number.isFinite(Number(values[0])) ? new Date(Number(values[0]) * 1000 + 9 * 60 * 60 * 1000).toISOString().slice(0, 10) : '',
+              open: Number(values[1]),
+              high: Number(values[2]),
+              low: Number(values[3]),
               close: Number(values[4])
             };
-          }).filter((row) => row.date && Number.isFinite(row.close) && row.close > 0);
+          }).filter((row) => row.date && [row.open, row.high, row.low, row.close].every(Number.isFinite) && row.close > 0);
           const uniqueRows = [...new Map(rows.map((row) => [row.date, row])).values()];
           if (uniqueRows.length) return finish({ rows: uniqueRows.slice(-limit), symbol: candidates[index] });
         }
@@ -722,8 +731,8 @@ async function fetchTradingViewVkospi(limit) {
   });
 }
 
-async function fetchVkospiSeries(limit = 200) {
-  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 200));
+async function fetchVkospiSeries(limit = 120) {
+  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 120));
   const end = new Date();
   const start = new Date(end);
   start.setDate(start.getDate() - Math.max(300, safeLimit * 2));
@@ -731,14 +740,6 @@ async function fetchVkospiSeries(limit = 200) {
   const snapshotLatest = snapshotRows[snapshotRows.length - 1]?.date || '';
   const todayKst = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-  // Avoid waiting on blocked remote requests when today's verified spot data is bundled.
-  if (snapshotLatest === todayKst) {
-    return {
-      unit: 'P',
-      note: `VKOSPI 현물 최신 거래일(${snapshotLatest}) 기준입니다. 평일 장 마감 후 자동 갱신합니다.`,
-      series: snapshotRows
-    };
-  }
   let krxRows = [];
   try {
     const body = new URLSearchParams({
@@ -768,11 +769,17 @@ async function fetchVkospiSeries(limit = 200) {
     const rawRows = Array.isArray(json?.output) ? json.output : Array.isArray(json?.OutBlock_1) ? json.OutBlock_1 : [];
     const rows = rawRows.map((row) => {
       const rawDate = row.TRD_DD || row.trdDd || row.일자 || row.basDd || row.BAS_DD || '';
+      const rawOpen = row.OPNPRC_IDX || row.OPN_IDX || row.open || row.시가 || row.OPNPRC || '';
+      const rawHigh = row.HGPRC_IDX || row.HIG_IDX || row.high || row.고가 || row.HGPRC || '';
+      const rawLow = row.LWPRC_IDX || row.LOW_IDX || row.low || row.저가 || row.LWPRC || '';
       const rawClose = row.CLSPRC_IDX || row.CLS_IDX || row.close || row.종가 || row.CLSPRC || row.clsprcIdx || '';
       const date = String(rawDate).replace(/\./g, '-').replace(/\//g, '-').replace(/\s+/g, '');
+      const open = parseTrendNumber(rawOpen);
+      const high = parseTrendNumber(rawHigh);
+      const low = parseTrendNumber(rawLow);
       const close = parseTrendNumber(rawClose);
-      return { date, close };
-    }).filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date) && Number.isFinite(row.close) && row.close > 0);
+      return { date, open, high, low, close };
+    }).filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date) && [row.open, row.high, row.low, row.close].every(Number.isFinite) && row.close > 0);
     rows.sort((a, b) => a.date.localeCompare(b.date));
     if (rows.length) {
       krxRows = rows.slice(-safeLimit);
@@ -794,7 +801,10 @@ async function fetchVkospiSeries(limit = 200) {
     { source: 'investing', priority: 2, rows: investingRows },
     { source: 'tradingview', priority: 1, rows: tradingViewResult.rows }
   ].filter((candidate) => candidate.rows.length);
+  const hasOhlc = (candidate) => candidate.rows.some((row) => [row.open, row.high, row.low, row.close].every(Number.isFinite));
   sourceCandidates.sort((a, b) => {
+    const ohlcDifference = Number(hasOhlc(b)) - Number(hasOhlc(a));
+    if (ohlcDifference) return ohlcDifference;
     const dateA = a.rows[a.rows.length - 1]?.date || '';
     const dateB = b.rows[b.rows.length - 1]?.date || '';
     return dateB.localeCompare(dateA) || b.priority - a.priority;
@@ -815,7 +825,9 @@ async function fetchVkospiSeries(limit = 200) {
     if (selected.source === 'snapshot') {
       return {
         unit: 'P',
-        note: `VKOSPI 현물 최신 거래일(${latest}) 기준입니다. 휴장일에는 직전 거래일 기준으로 표시합니다.`,
+        note: hasOhlc(selected)
+          ? `KRX V-KOSPI 200 선물 연속계약(VKI1!) 실제 일봉 스냅샷입니다. 최신 거래일(${latest}) 기준입니다.`
+          : `VKOSPI 현물 최신 거래일(${latest}) 기준입니다. 휴장일에는 직전 거래일 기준으로 표시합니다.`,
         series: selected.rows
       };
     }
@@ -834,11 +846,15 @@ async function fetchVkospiSeries(limit = 200) {
       const result = json?.chart?.result?.[0];
       const ts = result?.timestamp || [];
       const closes = result?.indicators?.quote?.[0]?.close || [];
+      const quotes = result?.indicators?.quote?.[0] || {};
       const rows = [];
       for (let i = 0; i < ts.length; i += 1) {
+        const open = Number(quotes.open?.[i]);
+        const high = Number(quotes.high?.[i]);
+        const low = Number(quotes.low?.[i]);
         const close = Number(closes[i]);
-        if (!Number.isFinite(close) || close <= 0) continue;
-        rows.push({ date: new Date(ts[i] * 1000).toISOString().slice(0, 10), close });
+        if (![open, high, low, close].every(Number.isFinite) || close <= 0) continue;
+        rows.push({ date: new Date(ts[i] * 1000).toISOString().slice(0, 10), open, high, low, close });
       }
       if (rows.length) {
         const latest = rows[rows.length - 1]?.date || '';

@@ -127,7 +127,14 @@ async function fetchYahooSeries(symbol, interval = '1d') {
 async function fetchNaverIndexClosingMinutes(key, date, targetMin = 1) {
   if (!['KOSPI', 'KOSDAQ'].includes(key) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
   const compactDate = date.replace(/-/g, '');
-  const times = ['1501', '1505', '1510', '1515', '1520', '1525', '1529', '1530'];
+  const step = Math.max(1, Number(targetMin) || 1);
+  const times = [];
+  for (let minute = 15 * 60; minute <= 15 * 60 + 20; minute += step) {
+    times.push(`${String(Math.floor(minute / 60)).padStart(2, '0')}${String(minute % 60).padStart(2, '0')}`);
+  }
+  if (!times.includes('1520')) times.push('1520');
+  // Check 15:30-15:32 because the official closing value can arrive a little late.
+  times.push('1530', '1531', '1532');
   const snapshots = await Promise.all(times.map(async (hhmm) => {
     try {
       const url = `https://stock.naver.com/api/domestic/indexSise/time?koreaIndexType=${key}&thistime=${compactDate}${hhmm}00&startIdx=0&pageSize=20`;
@@ -137,14 +144,13 @@ async function fetchNaverIndexClosingMinutes(key, date, targetMin = 1) {
       const row = Array.isArray(payload) ? payload[0] : null;
       const close = Number(row?.nowVal);
       if (!row || !Number.isFinite(close) || close <= 0) return null;
-      const rawTimestamp = Date.parse(`${date}T${hhmm.slice(0, 2)}:${hhmm.slice(2)}:00Z`) / 1000;
-      const intervalSeconds = Math.max(1, Number(targetMin) || 1) * 60;
-      const timestamp = Math.floor(rawTimestamp / intervalSeconds) * intervalSeconds;
+      const displayTime = hhmm >= '1530' ? '1530' : hhmm;
+      const rawTimestamp = Date.parse(`${date}T${displayTime.slice(0, 2)}:${displayTime.slice(2)}:00Z`) / 1000;
       const open = Number(row.openVal);
       const high = Number(row.highVal);
       const low = Number(row.lowVal);
       return {
-        date: timestamp,
+        date: rawTimestamp,
         open: Number.isFinite(open) ? open : close,
         high: Number.isFinite(high) ? high : close,
         low: Number.isFinite(low) ? low : close,
@@ -162,7 +168,7 @@ async function fetchNaverIndexClosingMinutes(key, date, targetMin = 1) {
 async function fetchUnifiedSeries(key, interval = '1d') {
   const source = chartSources[key];
   if (!source) return null;
-  const yahooSymbols = { USDKRW: 'KRW=X', GOLD: 'GC=F', BTC: 'BTC-USD', NASDAQ_FUTURES: 'NQ=F' };
+  const yahooSymbols = { USDKRW: 'KRW=X', GOLD: 'GC=F', DXY: 'DX-Y.NYB', BTC: 'BTC-USD', NASDAQ_FUTURES: 'NQ=F' };
   if (yahooSymbols[key]) {
     const yahooRows = await fetchYahooSeries(yahooSymbols[key], interval).catch(() => null);
     if (yahooRows?.length) return yahooRows.slice(interval.endsWith('m') ? -900 : -260);
@@ -178,12 +184,41 @@ async function fetchUnifiedSeries(key, interval = '1d') {
 
 async function fetchBondYields() {
   const bonds = [
-    { key: 'US', name: '미국 국채 10년', flag: '🇺🇸', symbols: ['TVC:US10Y'], realtime: true },
-    { key: 'KR', name: '한국 국채 10년', flag: '🇰🇷', symbols: ['TVC:KR10Y'], realtime: false },
-    { key: 'JP', name: '일본 국채 10년', flag: '🇯🇵', symbols: ['TVC:JP10Y'], realtime: false },
-    { key: 'DE', name: '독일 국채 10년', flag: '🇩🇪', symbols: ['TVC:DE10Y'], realtime: false },
-    { key: 'CN', name: '중국 국채 10년', flag: '🇨🇳', symbols: ['TVC:CN10Y'], realtime: false }
+    { key: 'US', code: 'US10YT=RR', name: '미국 국채 10년', flag: '🇺🇸', symbols: ['TVC:US10Y'] },
+    { key: 'KR', code: 'KR10YT=RR', name: '한국 국채 10년', flag: '🇰🇷', symbols: ['TVC:KR10Y'] },
+    { key: 'JP', code: 'JP10YT=RR', name: '일본 국채 10년', flag: '🇯🇵', symbols: ['TVC:JP10Y'] },
+    { key: 'DE', code: 'DE10YT=RR', name: '독일 국채 10년', flag: '🇩🇪', symbols: ['TVC:DE10Y'] },
+    { key: 'CN', code: 'CN10YT=RR', name: '중국 국채 10년', flag: '🇨🇳', symbols: ['TVC:CN10Y'] }
   ];
+  try {
+    const response = await fetch('https://stock.naver.com/api/securityService/marketindex/majors/bond', {
+      headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://stock.naver.com/' }
+    });
+    if (response.ok) {
+      const payload = await response.json();
+      if (Array.isArray(payload)) {
+        const naverRows = bonds.map((bond) => {
+          const item = payload.find((row) => row?.reutersCode === bond.code);
+          const value = Number(item?.closePrice);
+          const change = Number(item?.fluctuations);
+          const changePercent = Number(item?.fluctuationsRatio);
+          if (!item || ![value, change, changePercent].every(Number.isFinite)) return null;
+          return {
+            ...bond,
+            value,
+            change,
+            changePercent,
+            asOf: item.localTradedAt || item.tradedAt || '',
+            realtime: Number(item.delayTime) === 0 || item.delayTimeName === '실시간',
+            source: 'Naver/Refinitiv'
+          };
+        });
+        if (naverRows.every(Boolean)) return naverRows;
+      }
+    }
+  } catch (_) {
+    // TradingView remains the fallback when Naver is temporarily unavailable.
+  }
   const rows = [];
   for (const bond of bonds) {
     let result = await fetchTradingViewSeriesQueued(bond.symbols, '1d', 3, 0);
@@ -197,7 +232,7 @@ async function fetchBondYields() {
     const previous = series[series.length - 2];
     const change = previous ? last.close - previous.close : 0;
     const changePercent = previous?.close ? change / previous.close * 100 : 0;
-    rows.push({ ...bond, value: last.close, change, changePercent, asOf: last.date, source: result.symbol });
+    rows.push({ ...bond, value: last.close, change, changePercent, asOf: last.date, realtime: bond.key === 'US', source: result.symbol });
     await new Promise((resolve) => setTimeout(resolve, 120));
   }
   return rows;
