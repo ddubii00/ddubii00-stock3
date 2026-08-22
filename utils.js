@@ -1,4 +1,4 @@
-const { fetchUnifiedSeries } = require('./tradingview-data');
+const { fetchUnifiedSeries, fetchNaverIndexClosingMinutes } = require('./tradingview-data');
 // utils.js - shared functions for Vercel API routes
 const quoteMap = {
   '^IXIC': '^ndq',
@@ -340,6 +340,16 @@ async function fetchChartSeries(key, interval = '1d') {
         rows.push(...supplemented);
       } catch (_) {
         // Keep the source minute rows when the verified final close is unavailable.
+      }
+    }
+    if ((key === 'KOSPI' || key === 'KOSDAQ') && targetMin > 0 && rows.length) {
+      const latestDate = new Date(Number(rows[rows.length - 1].date) * 1000).toISOString().slice(0, 10);
+      const closingRows = await fetchNaverIndexClosingMinutes(key, latestDate, targetMin).catch(() => []);
+      if (closingRows.length) {
+        const merged = new Map(rows.map((row) => [Number(row.date), row]));
+        closingRows.forEach((row) => merged.set(Number(row.date), row));
+        rows.length = 0;
+        rows.push(...[...merged.values()].sort((a, b) => Number(a.date) - Number(b.date)));
       }
     }
     if (!rows.length) return null;

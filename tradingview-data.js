@@ -124,6 +124,41 @@ async function fetchYahooSeries(symbol, interval = '1d') {
   return rows.length ? rows : null;
 }
 
+async function fetchNaverIndexClosingMinutes(key, date, targetMin = 1) {
+  if (!['KOSPI', 'KOSDAQ'].includes(key) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
+  const compactDate = date.replace(/-/g, '');
+  const times = ['1501', '1505', '1510', '1515', '1520', '1525', '1529', '1530'];
+  const snapshots = await Promise.all(times.map(async (hhmm) => {
+    try {
+      const url = `https://stock.naver.com/api/domestic/indexSise/time?koreaIndexType=${key}&thistime=${compactDate}${hhmm}00&startIdx=0&pageSize=20`;
+      const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://stock.naver.com/' } });
+      if (!response.ok) return null;
+      const payload = await response.json();
+      const row = Array.isArray(payload) ? payload[0] : null;
+      const close = Number(row?.nowVal);
+      if (!row || !Number.isFinite(close) || close <= 0) return null;
+      const rawTimestamp = Date.parse(`${date}T${hhmm.slice(0, 2)}:${hhmm.slice(2)}:00Z`) / 1000;
+      const intervalSeconds = Math.max(1, Number(targetMin) || 1) * 60;
+      const timestamp = Math.floor(rawTimestamp / intervalSeconds) * intervalSeconds;
+      const open = Number(row.openVal);
+      const high = Number(row.highVal);
+      const low = Number(row.lowVal);
+      return {
+        date: timestamp,
+        open: Number.isFinite(open) ? open : close,
+        high: Number.isFinite(high) ? high : close,
+        low: Number.isFinite(low) ? low : close,
+        close
+      };
+    } catch (_) {
+      return null;
+    }
+  }));
+  const byTimestamp = new Map();
+  snapshots.filter(Boolean).forEach((row) => byTimestamp.set(row.date, row));
+  return [...byTimestamp.values()].sort((a, b) => a.date - b.date);
+}
+
 async function fetchUnifiedSeries(key, interval = '1d') {
   const source = chartSources[key];
   if (!source) return null;
@@ -132,7 +167,7 @@ async function fetchUnifiedSeries(key, interval = '1d') {
     const yahooRows = await fetchYahooSeries(yahooSymbols[key], interval).catch(() => null);
     if (yahooRows?.length) return yahooRows.slice(interval.endsWith('m') ? -900 : -260);
   }
-  const limit = interval.endsWith('m') ? 900 : 260;
+  const limit = interval.endsWith('m') ? (key === 'KOSPI_FUTURES' ? 1800 : 900) : 260;
   let result = await fetchTradingViewSeriesQueued(source.symbols, interval, limit, source.offset);
   if (!result?.rows?.length) {
     await new Promise((resolve) => setTimeout(resolve, 350 + key.length * 45));
@@ -168,4 +203,4 @@ async function fetchBondYields() {
   return rows;
 }
 
-module.exports = { fetchTradingViewSeries, fetchUnifiedSeries, fetchBondYields };
+module.exports = { fetchTradingViewSeries, fetchUnifiedSeries, fetchBondYields, fetchNaverIndexClosingMinutes };

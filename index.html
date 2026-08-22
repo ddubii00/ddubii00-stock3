@@ -55,6 +55,9 @@
       cursor: pointer; font-weight: 600;
     }
     .btn.outline { background: #e9f1ff; color: #134db5; }
+    .summary-time-controls { display:flex; flex-direction:column; align-items:flex-end; gap:6px; min-width:365px; }
+    .timeframe-row { display:flex; flex-wrap:nowrap; gap:4px; align-items:center; overflow-x:auto; max-width:100%; }
+    .timeframe-row .tf-btn { flex:0 0 auto; min-width:44px; padding:7px 9px; white-space:nowrap; word-break:keep-all; }
     .head-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
     .asof { color: var(--muted); font-size: 12px; margin: -2px 0 8px; }
     .memo { color: #4d5b78; font-size: 12px; line-height: 1.35; margin: -2px 0 8px; white-space: pre-line; }
@@ -71,6 +74,11 @@
       padding: 9px 11px; border: 1px solid rgba(23, 32, 51, 0.14); border-radius: 9px;
       background: rgba(255, 255, 255, 0.96); box-shadow: 0 8px 22px rgba(16, 35, 70, 0.16);
       color: var(--text); font-size: 12px; line-height: 1.5; white-space: nowrap;
+    }
+    @media (max-width: 760px) {
+      #summaryCards .head-row { align-items:flex-start; flex-wrap:wrap; }
+      .summary-time-controls { width:100%; min-width:0; align-items:flex-start; }
+      .timeframe-row { width:100%; }
     }
 
     .asset-legend { display:flex; gap:12px; margin:-2px 0 8px; font-size:12px; font-weight:800; flex-wrap:wrap; }
@@ -192,15 +200,13 @@
 
       <div class="card span-6">
         <div class="head-row"><div class="title">KOSPI 선물 추세</div></div>
-        <div class="chart-note">KOSPI200 선물 연속계약 1분봉, 1분마다 갱신</div>
-        <div class="asset-legend"><span style="color:#d92c2c">5분</span><span style="color:#1f5bd8">10분</span><span style="color:#0a9d58">20분</span><span style="color:#e4a11b">60분</span></div>
-        <div class="chart lw-chart" id="lwchart-KOSPI_FUTURES"></div>
+        <div class="chart-note" id="note-kospi-futures-minute"></div>
+        <div class="chart" id="chart-kospi-futures-minute"></div>
       </div>
       <div class="card span-6">
         <div class="head-row"><div class="title">원/달러 분봉 (KRW/USD)</div></div>
-        <div class="chart-note">원/달러 실제 환율 1분봉, 1분마다 갱신</div>
-        <div class="asset-legend"><span style="color:#d92c2c">5분</span><span style="color:#1f5bd8">10분</span><span style="color:#0a9d58">20분</span><span style="color:#e4a11b">60분</span></div>
-        <div class="chart lw-chart" id="lwchart-USDKRW_MINUTE"></div>
+        <div class="chart-note" id="note-usdkrw-minute"></div>
+        <div class="chart" id="chart-usdkrw-minute"></div>
       </div>
       <div class="card span-6">
         <div class="head-row"><div class="title">비트코인 일봉 (BTC/USD)</div></div>
@@ -276,6 +282,14 @@
         </div>
         <div class="chart-note" id="note-foreign-futures"></div>
         <div class="chart" id="chart-foreign-futures"></div>
+      </div>
+
+      <div class="card span-6">
+        <div class="head-row">
+          <div class="title">외국인 선물 수급 분봉</div>
+        </div>
+        <div class="chart-note" id="note-foreign-futures-minute"></div>
+        <div class="chart" id="chart-foreign-futures-minute"></div>
       </div>
 
       <div class="card span-6">
@@ -747,8 +761,8 @@
                 <div class="delta flat" id="d-${item.symbol}">-</div>
               </div>
             </div>
-            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
-              <div style="display:flex;gap:4px;align-items:center;">
+            <div class="summary-time-controls">
+              <div class="timeframe-row">
                 <select id="min-${item.popupKey}" disabled style="border:1px solid var(--line);border-radius:4px;padding:2px 4px;margin-right:8px;font-size:13px;">
                   <option value="1">1분</option>
                   <option value="3">3분</option>
@@ -1450,10 +1464,8 @@
     renderMiniChart('chart-wti', 'WTI');
     renderMiniChart('chart-dxy', 'DXY');
     renderMiniChart('chart-gold', 'GOLD');
-    initLwChart('KOSPI_FUTURES', 'lwchart-KOSPI_FUTURES', '1m', 390);
     initLwChart('NASDAQ_FUTURES', 'lwchart-NASDAQ_FUTURES', '1m', 390, { plain: true, noMarkers: true, statusId: 'state-nasdaq-night' });
     initLwChart('KOSPI_NIGHT_FUTURES', 'lwchart-KOSPI_NIGHT_FUTURES', '1m', 390, { plain: true, noMarkers: true, statusId: 'state-kospi-night' });
-    initLwChart('USDKRW', 'lwchart-USDKRW_MINUTE', '1m', 390);
     renderMiniChart('chart-btc', 'BTC');
     renderBondYields();
     const investorFields = [
@@ -1524,6 +1536,27 @@
       foreignFuturesFields,
       { zeroLine: true, dualAxis: true, daysInputId: 'days-foreign-futures', tooltip: true, cumulative: true }
     );
+    const renderForeignFuturesMinute = () => renderExtraChart(
+      'chart-foreign-futures-minute',
+      'note-foreign-futures-minute',
+      'foreign-futures-minute',
+      [{ key: 'foreign', label: '외국인', color: '#d92c2c' }],
+      { zeroLine: true, intraday: true, tooltip: true, cumulative: true, showLastValues: true }
+    );
+    const renderKospiFuturesMinute = () => renderExtraChart(
+      'chart-kospi-futures-minute',
+      'note-kospi-futures-minute',
+      'kospi-futures-minute',
+      [{ key: 'close', label: 'KOSPI200 선물', color: '#d92c2c' }],
+      { intraday: true, tooltip: true, showLastValues: true }
+    );
+    const renderUsdkrwMinute = () => renderExtraChart(
+      'chart-usdkrw-minute',
+      'note-usdkrw-minute',
+      'usdkrw-minute',
+      [{ key: 'close', label: '원/달러', color: '#d92c2c' }],
+      { intraday: true, tooltip: true, showLastValues: true }
+    );
     const renderMarketTurnover = () => renderExtraChart('chart-market-turnover', 'note-market-turnover', 'market-turnover-daily', [
       { key: 'kospi', label: 'KOSPI', color: '#d92c2c' },
       { key: 'kosdaq', label: 'KOSDAQ', color: '#0f6fff' }
@@ -1535,6 +1568,9 @@
     renderMarketFunds();
     renderVkospi();
     renderForeignFutures();
+    renderForeignFuturesMinute();
+    renderKospiFuturesMinute();
+    renderUsdkrwMinute();
     renderMarketTurnover();
     bindInvestorDaysInput('days-kospi-investor-daily', renderKospiInvestorDaily);
     bindInvestorDaysInput('days-kosdaq-investor-daily', renderKosdaqInvestorDaily);
@@ -1551,17 +1587,32 @@
       const minutes = Number(values.hour) * 60 + Number(values.minute);
       return minutes >= 9 * 60 && minutes <= 15 * 60 + 30;
     };
+    const isKoreaFuturesHours = () => {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Seoul', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false
+      }).formatToParts(new Date());
+      const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+      if (values.weekday === 'Sat' || values.weekday === 'Sun') return false;
+      const minutes = Number(values.hour) * 60 + Number(values.minute);
+      return minutes >= 8 * 60 + 45 && minutes <= 15 * 60 + 45;
+    };
     setInterval(() => {
-      if (!isKoreaMarketHours()) return;
-      renderKospiInvestorMinute();
-      renderKosdaqInvestorMinute();
+      if (isKoreaMarketHours()) {
+        renderKospiInvestorMinute();
+        renderKosdaqInvestorMinute();
+      }
+      if (isKoreaFuturesHours()) {
+        renderForeignFuturesMinute();
+        renderKospiFuturesMinute();
+      }
+      renderUsdkrwMinute();
     }, 60 * 1000);
     refreshFlowTable();
     renderTurnoverTable();
     updateSummaryNumbers();
     setInterval(updateSummaryNumbers, 60000);
     setInterval(() => {
-      ['KOSPI_FUTURES', 'NASDAQ_FUTURES', 'KOSPI_NIGHT_FUTURES', 'USDKRW'].forEach(loadLwChart);
+      ['NASDAQ_FUTURES', 'KOSPI_NIGHT_FUTURES'].forEach(loadLwChart);
       renderBondYields();
     }, 60000);
   </script>

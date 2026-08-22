@@ -2,7 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const WebSocketClient = require('ws');
-const { fetchUnifiedSeries, fetchBondYields } = require('./tradingview-data');
+const { fetchUnifiedSeries, fetchBondYields, fetchNaverIndexClosingMinutes } = require('./tradingview-data');
 
 const PORT = 8000;
 const ROOT = __dirname;
@@ -329,6 +329,93 @@ async function fetchForeignFuturesSeries(limit = 200) {
     unit: '계약',
     note: `네이버 선물 일자별 순매수 ${series.length}거래일 누적, 최신 거래일(${latest}), 단위: 계약.`,
     series
+  };
+}
+
+async function fetchForeignFuturesMinuteSeries() {
+  const dailyPayload = await fetchForeignFuturesSeries(20);
+  const latestDaily = dailyPayload?.series?.[dailyPayload.series.length - 1];
+  if (!latestDaily?.date) return null;
+  const latestDate = latestDaily.date;
+  const bizdate = latestDate.replace(/-/g, '');
+  const rows = [];
+  const seen = new Set();
+
+  let emptyPages = 0;
+  for (let page = 1; page <= 40; page += 1) {
+    const url = `https://finance.naver.com/sise/investorDealTrendTime.naver?bizdate=${bizdate}&sosok=03&page=${page}`;
+    const html = await fetchTextWithRetries(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        Referer: 'https://finance.naver.com/sise/'
+      }
+    }, 3, 'euc-kr');
+    const tableRows = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
+    let foundInPage = 0;
+    for (const match of tableRows) {
+      const cells = [...match[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((m) => stripHtml(m[1]));
+      const time = cells[0]?.match(/^\d{2}:\d{2}$/)?.[0];
+      const foreign = parseTrendNumber(cells[2]);
+      if (!time || !Number.isFinite(foreign) || time < '09:00' || time > '15:45') continue;
+      const date = `${latestDate} ${time}`;
+      if (seen.has(date)) continue;
+      seen.add(date);
+      rows.push({ date, foreign });
+      foundInPage += 1;
+    }
+    if (!foundInPage) {
+      emptyPages += 1;
+      if (emptyPages >= 8) break;
+    } else {
+      emptyPages = 0;
+    }
+  }
+
+  rows.sort((a, b) => a.date.localeCompare(b.date));
+  if (!rows.length) return null;
+  if (Number.isFinite(Number(latestDaily.dailyForeign))) {
+    const closeDate = `${latestDate} 15:45`;
+    const closeRow = { date: closeDate, foreign: Number(latestDaily.dailyForeign), final: true };
+    const closeIndex = rows.findIndex((row) => row.date === closeDate);
+    if (closeIndex >= 0) rows[closeIndex] = closeRow;
+    else rows.push(closeRow);
+    rows.sort((a, b) => a.date.localeCompare(b.date));
+  }
+  return {
+    unit: '계약',
+    note: `네이버 선물 최신 거래일(${latestDate}) 시간별 외국인 누적 순매수. 15:45은 확정 일봉 반영, 단위: 계약.`,
+    series: rows
+  };
+}
+
+async function fetchPriceMinuteSeries(key, label, unit) {
+  let rows = null;
+  for (let attempt = 1; attempt <= 3 && !rows?.length; attempt += 1) {
+    rows = await fetchChartSeries(key, '1m').catch(() => null);
+    if (!rows?.length && attempt < 3) await new Promise((resolve) => setTimeout(resolve, 450 * attempt));
+  }
+  if (!Array.isArray(rows) || !rows.length) return null;
+  let series = rows.slice(key === 'KOSPI_FUTURES' ? -1800 : -900).map((row) => {
+    const timestamp = Number(row.date);
+    const close = Number(row.close);
+    if (!Number.isFinite(timestamp) || !Number.isFinite(close)) return null;
+    const date = new Date(timestamp * 1000).toISOString().slice(0, 16).replace('T', ' ');
+    return { date, close };
+  }).filter(Boolean);
+  if (key === 'KOSPI_FUTURES') {
+    const regularSession = series.filter((row) => {
+      const time = row.date.slice(11, 16);
+      return time >= '08:45' && time <= '15:45';
+    });
+    if (regularSession.length) series = regularSession;
+  }
+  if (!series.length) return null;
+  const latestDate = series[series.length - 1].date.slice(0, 10);
+  const latestSeries = series.filter((row) => row.date.startsWith(latestDate));
+  return {
+    unit,
+    note: `${label} 최신 거래일(${latestDate}) 1분봉, 1분마다 갱신.`,
+    series: latestSeries.length ? latestSeries : series
   };
 }
 
@@ -1104,6 +1191,16 @@ async function fetchChartSeries(key, interval = '1d') {
       }
     }
     if (currentCandle) rows.push(currentCandle);
+    if ((key === 'KOSPI' || key === 'KOSDAQ') && targetMin > 0 && rows.length) {
+      const latestDate = new Date(Number(rows[rows.length - 1].date) * 1000).toISOString().slice(0, 10);
+      const closingRows = await fetchNaverIndexClosingMinutes(key, latestDate, targetMin).catch(() => []);
+      if (closingRows.length) {
+        const merged = new Map(rows.map((row) => [Number(row.date), row]));
+        closingRows.forEach((row) => merged.set(Number(row.date), row));
+        rows.length = 0;
+        rows.push(...[...merged.values()].sort((a, b) => Number(a.date) - Number(b.date)));
+      }
+    }
     if (!rows.length) return null;
     return rows.slice(-1500); // 넉넉하게 1500개 전달 (프론트에서 700개 등 사용)
   }
@@ -1167,6 +1264,9 @@ const server = http.createServer(async (req, res) => {
       if (kind === 'market-funds') payload = await fetchMarketFundsSeries(days);
       if (kind === 'vkospi') payload = await fetchVkospiSeries(days);
       if (kind === 'foreign-futures-daily') payload = await fetchForeignFuturesSeries(days);
+      if (kind === 'foreign-futures-minute') payload = await fetchForeignFuturesMinuteSeries();
+      if (kind === 'kospi-futures-minute') payload = await fetchPriceMinuteSeries('KOSPI_FUTURES', 'KOSPI200 선물', 'P');
+      if (kind === 'usdkrw-minute') payload = await fetchPriceMinuteSeries('USDKRW', '원/달러', '원');
       if (kind === 'market-turnover-daily') payload = await fetchMarketTurnoverSeries(days);
       if (!payload) return send(res, 404, JSON.stringify({ ok: false, error: 'no data' }), 'application/json');
       if (payload.unavailable) return send(res, 404, JSON.stringify({ ok: false, error: payload.error }), 'application/json');
@@ -1266,5 +1366,7 @@ module.exports = {
   fetchMarketFundsSeries,
   fetchVkospiSeries,
   fetchForeignFuturesSeries,
+  fetchForeignFuturesMinuteSeries,
+  fetchPriceMinuteSeries,
   fetchMarketTurnoverSeries
 };
