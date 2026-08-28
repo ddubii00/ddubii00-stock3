@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const WebSocketClient = require('ws');
 const { fetchUnifiedSeries, fetchBondYields, fetchNaverIndexClosingMinutes } = require('./tradingview-data');
+const { fetchHighBreakouts } = require('./breakout-data');
 
 const PORT = 8000;
 const ROOT = __dirname;
@@ -1296,6 +1297,14 @@ const server = http.createServer(async (req, res) => {
     try {
       const rows = await fetchBondYields();
       return send(res, 200, JSON.stringify({ ok: true, rows }), 'application/json');
+    } catch (e) {
+      return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');
+    }
+  }
+  if (u.pathname === '/api/high-breakouts') {
+    try {
+      const payload = await fetchHighBreakouts();
+      return send(res, 200, JSON.stringify({ ok: true, ...payload }), 'application/json');
     } catch (e) {
       return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');
     }

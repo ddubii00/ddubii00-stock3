@@ -101,6 +101,30 @@
     .bond-value { font-size:16px; font-weight:900; text-align:right; }
     .bond-change { font-size:14px; font-weight:850; text-align:right; }
     .bond-status { font-weight:800; text-align:right; white-space:nowrap; }
+    .breakout-summary { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .breakout-filters { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin:10px 0; }
+    .breakout-filter-group { display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
+    .breakout-filter-label { color:var(--muted); font-size:12px; font-weight:850; margin-right:3px; }
+    .breakout-filter-btn { border:1px solid var(--line); background:#fff; color:#536078; padding:7px 11px; border-radius:9px; cursor:pointer; font-size:12px; font-weight:850; white-space:nowrap; }
+    .breakout-filter-btn.active { border-color:#0f6fff; background:#0f6fff; color:#fff; box-shadow:0 5px 12px rgba(15,111,255,.18); }
+    .breakout-count { padding:5px 9px; border-radius:999px; background:#eef4ff; color:#24466f; font-size:12px; font-weight:850; }
+    .breakout-table-wrap { max-height:619px; overflow:auto; border:1px solid var(--line); border-radius:12px; }
+    .breakout-table { min-width:920px; }
+    .breakout-table th { position:sticky; top:0; z-index:2; background:#f7f9fd; white-space:nowrap; }
+    .breakout-table tbody tr { height:52px; }
+    .breakout-table td { white-space:nowrap; font-variant-numeric:tabular-nums; }
+    .breakout-stock { color:var(--text); font-weight:900; text-decoration:none; }
+    .breakout-stock:hover { color:var(--accent); text-decoration:underline; }
+    .breakout-market { font-weight:850; color:#42506c; }
+    .breakout-badges { display:flex; gap:5px; align-items:center; }
+    .breakout-badge { display:inline-flex; align-items:center; padding:4px 7px; border-radius:7px; font-size:11px; font-weight:900; }
+    .breakout-badge.week26 { color:#075985; background:#e0f2fe; }
+    .breakout-badge.week52 { color:#9b3e00; background:#fff1df; }
+    .breakout-badge.alltime { color:#b4232a; background:#ffe9eb; }
+    .breakout-badge.low26 { color:#075985; background:#e0f2fe; }
+    .breakout-badge.low52 { color:#1e40af; background:#dbeafe; }
+    .breakout-badge.lowall { color:#4338ca; background:#e0e7ff; }
+    .breakout-loading { padding:28px 14px; text-align:center; color:var(--muted); font-weight:800; }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
     th, td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; }
     th { color: var(--muted); font-weight: 600; }
@@ -381,6 +405,75 @@
         <div class="chart lw-chart plain-chart" id="lwchart-NASDAQ_FUTURES"></div>
       </div>
 
+    </div>
+
+    <div class="grid" style="margin-top: 14px;">
+      <section class="card span-12">
+        <div class="head-row">
+          <div>
+            <div class="title">KOSPI·KOSDAQ 신고가 종목</div>
+            <div class="chart-note" id="breakoutNote">실제 KRX 시세로 기간별 신고가를 확인합니다.</div>
+          </div>
+          <button class="btn" id="refreshBreakouts">새로고침</button>
+        </div>
+        <div class="breakout-filters">
+          <div class="breakout-filter-group" id="breakoutMarketFilters">
+            <span class="breakout-filter-label">시장</span>
+            <button class="breakout-filter-btn active" data-breakout-market="ALL">전체</button>
+            <button class="breakout-filter-btn" data-breakout-market="KOSPI">KOSPI</button>
+            <button class="breakout-filter-btn" data-breakout-market="KOSDAQ">KOSDAQ</button>
+          </div>
+          <div class="breakout-filter-group" id="breakoutPeriodFilters">
+            <span class="breakout-filter-label">기간</span>
+            <button class="breakout-filter-btn" data-breakout-period="26">26주 신고가</button>
+            <button class="breakout-filter-btn active" data-breakout-period="52">52주 신고가</button>
+            <button class="breakout-filter-btn" data-breakout-period="ALL">역대 신고가</button>
+          </div>
+        </div>
+        <div class="breakout-summary" id="breakoutSummary"></div>
+        <div class="asof" id="breakoutAsOf">기준시각: -</div>
+        <div class="breakout-table-wrap">
+          <table class="breakout-table">
+            <thead>
+              <tr><th>시장</th><th>종목</th><th>현재가</th><th>등락률</th><th>최근 거래일 고가</th><th>26주 최고</th><th>52주 최고</th><th>역대 최고</th><th>돌파 구분</th></tr>
+            </thead>
+            <tbody id="breakoutTableBody"><tr><td colspan="9" class="breakout-loading">신고가 종목 확인 중...</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="card span-12">
+        <div class="head-row">
+          <div>
+            <div class="title">KOSPI·KOSDAQ 신저가 종목</div>
+            <div class="chart-note" id="lowBreakoutNote">실제 KRX 시세로 기간별 신저가를 확인합니다.</div>
+          </div>
+          <button class="btn" id="refreshLowBreakouts">새로고침</button>
+        </div>
+        <div class="breakout-filters">
+          <div class="breakout-filter-group" id="lowBreakoutMarketFilters">
+            <span class="breakout-filter-label">시장</span>
+            <button class="breakout-filter-btn active" data-low-market="ALL">전체</button>
+            <button class="breakout-filter-btn" data-low-market="KOSPI">KOSPI</button>
+            <button class="breakout-filter-btn" data-low-market="KOSDAQ">KOSDAQ</button>
+          </div>
+          <div class="breakout-filter-group" id="lowBreakoutPeriodFilters">
+            <span class="breakout-filter-label">기간</span>
+            <button class="breakout-filter-btn" data-low-period="26">26주 신저가</button>
+            <button class="breakout-filter-btn active" data-low-period="52">52주 신저가</button>
+            <button class="breakout-filter-btn" data-low-period="ALL">역대 신저가</button>
+          </div>
+        </div>
+        <div class="breakout-summary" id="lowBreakoutSummary"></div>
+        <div class="asof" id="lowBreakoutAsOf">기준시각: -</div>
+        <div class="breakout-table-wrap">
+          <table class="breakout-table">
+            <thead>
+              <tr><th>시장</th><th>종목</th><th>현재가</th><th>등락률</th><th>최근 거래일 저가</th><th>26주 최저</th><th>52주 최저</th><th>역대 최저</th><th>돌파 구분</th></tr>
+            </thead>
+            <tbody id="lowBreakoutTableBody"><tr><td colspan="9" class="breakout-loading">신저가 종목 확인 중...</td></tr></tbody>
+          </table>
+        </div>
+      </section>
     </div>
   </div>
 
@@ -1589,6 +1682,157 @@
       fetchStatsAndUpdateTables();
     }
 
+    let breakoutRows = [];
+    let breakoutMarket = 'ALL';
+    let breakoutPeriod = '52';
+    let lowBreakoutRows = [];
+    let lowBreakoutMarket = 'ALL';
+    let lowBreakoutPeriod = '52';
+
+    function renderHighBreakoutRows() {
+      const body = document.getElementById('breakoutTableBody');
+      const summary = document.getElementById('breakoutSummary');
+      if (!body) return;
+      const periodKey = breakoutPeriod === '26' ? 'week26Breakout' : breakoutPeriod === '52' ? 'week52Breakout' : 'allTimeBreakout';
+      const periodLabel = breakoutPeriod === '26' ? '26주 신고가' : breakoutPeriod === '52' ? '52주 신고가' : '역대 신고가';
+      const periodRows = breakoutRows.filter((row) => row[periodKey]);
+      const rows = periodRows.filter((row) => breakoutMarket === 'ALL' || row.market === breakoutMarket);
+      const kospiCount = periodRows.filter((row) => row.market === 'KOSPI').length;
+      const kosdaqCount = periodRows.filter((row) => row.market === 'KOSDAQ').length;
+      summary.innerHTML = `<span class="breakout-count">${periodLabel} ${rows.length}종목</span><span class="breakout-count">KOSPI ${kospiCount}종목</span><span class="breakout-count">KOSDAQ ${kosdaqCount}종목</span>`;
+      if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="9" class="breakout-loading">현재 선택 조건을 충족한 종목이 없습니다.</td></tr>';
+        return;
+      }
+      const formatPrice = (value) => Number.isFinite(Number(value)) ? `${Number(value).toLocaleString('ko-KR')}원` : '-';
+      body.innerHTML = rows.map((row) => {
+        const rate = Number(row.changeRate) || 0;
+        const rateClass = rate > 0 ? 'up' : rate < 0 ? 'down' : 'flat';
+        const badges = [
+          row.week26Breakout ? '<span class="breakout-badge week26">26주 신고가</span>' : '',
+          row.week52Breakout ? '<span class="breakout-badge week52">52주 신고가</span>' : '',
+          row.allTimeBreakout ? '<span class="breakout-badge alltime">역대 신고가</span>' : ''
+        ].join('');
+        return `<tr>
+          <td class="breakout-market">${row.market}</td>
+          <td><a class="breakout-stock" href="https://finance.naver.com/item/main.naver?code=${encodeURIComponent(row.code)}" target="_blank" rel="noopener">${row.name}</a><div class="kicker">${row.code}</div></td>
+          <td>${formatPrice(row.currentPrice)}</td>
+          <td class="${rateClass}">${rate > 0 ? '+' : ''}${rate.toFixed(2)}%</td>
+          <td>${formatPrice(row.todayHigh)}</td>
+          <td>${formatPrice(row.week26High)}</td>
+          <td>${formatPrice(row.week52High)}</td>
+          <td>${formatPrice(row.allTimeHigh)}</td>
+          <td><div class="breakout-badges">${badges}</div></td>
+        </tr>`;
+      }).join('');
+    }
+
+    function renderLowBreakoutRows() {
+      const body = document.getElementById('lowBreakoutTableBody');
+      const summary = document.getElementById('lowBreakoutSummary');
+      if (!body) return;
+      const periodKey = lowBreakoutPeriod === '26' ? 'week26LowBreakout' : lowBreakoutPeriod === '52' ? 'week52LowBreakout' : 'allTimeLowBreakout';
+      const periodLabel = lowBreakoutPeriod === '26' ? '26주 신저가' : lowBreakoutPeriod === '52' ? '52주 신저가' : '역대 신저가';
+      const periodRows = lowBreakoutRows.filter((row) => row[periodKey]);
+      const rows = periodRows.filter((row) => lowBreakoutMarket === 'ALL' || row.market === lowBreakoutMarket);
+      const kospiCount = periodRows.filter((row) => row.market === 'KOSPI').length;
+      const kosdaqCount = periodRows.filter((row) => row.market === 'KOSDAQ').length;
+      summary.innerHTML = `<span class="breakout-count">${periodLabel} ${rows.length}종목</span><span class="breakout-count">KOSPI ${kospiCount}종목</span><span class="breakout-count">KOSDAQ ${kosdaqCount}종목</span>`;
+      if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="9" class="breakout-loading">현재 선택 조건을 충족한 종목이 없습니다.</td></tr>';
+        return;
+      }
+      const formatPrice = (value) => Number.isFinite(Number(value)) ? `${Number(value).toLocaleString('ko-KR')}원` : '-';
+      body.innerHTML = rows.map((row) => {
+        const rate = Number(row.changeRate) || 0;
+        const rateClass = rate > 0 ? 'up' : rate < 0 ? 'down' : 'flat';
+        const badges = [
+          row.week26LowBreakout ? '<span class="breakout-badge low26">26주 신저가</span>' : '',
+          row.week52LowBreakout ? '<span class="breakout-badge low52">52주 신저가</span>' : '',
+          row.allTimeLowBreakout ? '<span class="breakout-badge lowall">역대 신저가</span>' : ''
+        ].join('');
+        return `<tr>
+          <td class="breakout-market">${row.market}</td>
+          <td><a class="breakout-stock" href="https://finance.naver.com/item/main.naver?code=${encodeURIComponent(row.code)}" target="_blank" rel="noopener">${row.name}</a><div class="kicker">${row.code}</div></td>
+          <td>${formatPrice(row.currentPrice)}</td>
+          <td class="${rateClass}">${rate > 0 ? '+' : ''}${rate.toFixed(2)}%</td>
+          <td>${formatPrice(row.todayLow)}</td>
+          <td>${formatPrice(row.week26Low)}</td>
+          <td>${formatPrice(row.week52Low)}</td>
+          <td>${formatPrice(row.allTimeLow)}</td>
+          <td><div class="breakout-badges">${badges}</div></td>
+        </tr>`;
+      }).join('');
+    }
+
+    async function renderHighBreakouts() {
+      const body = document.getElementById('breakoutTableBody');
+      const summary = document.getElementById('breakoutSummary');
+      const note = document.getElementById('breakoutNote');
+      const asOf = document.getElementById('breakoutAsOf');
+      const button = document.getElementById('refreshBreakouts');
+      const lowBody = document.getElementById('lowBreakoutTableBody');
+      const lowSummary = document.getElementById('lowBreakoutSummary');
+      const lowNote = document.getElementById('lowBreakoutNote');
+      const lowAsOf = document.getElementById('lowBreakoutAsOf');
+      const lowButton = document.getElementById('refreshLowBreakouts');
+      if (!body) return;
+      button.disabled = true;
+      button.textContent = '확인 중...';
+      lowButton.disabled = true;
+      lowButton.textContent = '확인 중...';
+      try {
+        const json = await fetchJsonWithRetry('/api/high-breakouts', 1);
+        if (!json?.ok || !Array.isArray(json.rows) || !Array.isArray(json.lowRows)) throw new Error(json?.error || '신고가·신저가 데이터 없음');
+        breakoutRows = json.rows;
+        lowBreakoutRows = json.lowRows;
+        note.textContent = json.criteria || '최근 거래일 고가 기준 신고가 돌파 종목입니다.';
+        lowNote.textContent = json.lowCriteria || '최근 거래일 저가 기준 신저가 돌파 종목입니다.';
+        const fetchedAt = json.asOf ? new Date(json.asOf).toLocaleString('ko-KR') : '-';
+        asOf.textContent = `최근 거래일: ${json.latestTradeDate || '-'} · 조회: ${fetchedAt} · 3분 캐시`;
+        lowAsOf.textContent = `최근 거래일: ${json.latestTradeDate || '-'} · 조회: ${fetchedAt} · 3분 캐시`;
+        renderHighBreakoutRows();
+        renderLowBreakoutRows();
+      } catch (error) {
+        breakoutRows = [];
+        lowBreakoutRows = [];
+        summary.innerHTML = '';
+        lowSummary.innerHTML = '';
+        asOf.textContent = '기준시각: -';
+        lowAsOf.textContent = '기준시각: -';
+        const message = error.message || '신고가·신저가 데이터를 불러오지 못했습니다.';
+        body.innerHTML = `<tr><td colspan="9" class="breakout-loading">${message}</td></tr>`;
+        lowBody.innerHTML = `<tr><td colspan="9" class="breakout-loading">${message}</td></tr>`;
+      } finally {
+        button.disabled = false;
+        button.textContent = '새로고침';
+        lowButton.disabled = false;
+        lowButton.textContent = '새로고침';
+      }
+    }
+
+    document.querySelectorAll('[data-breakout-market]').forEach((button) => button.addEventListener('click', () => {
+      breakoutMarket = button.dataset.breakoutMarket;
+      document.querySelectorAll('[data-breakout-market]').forEach((item) => item.classList.toggle('active', item === button));
+      renderHighBreakoutRows();
+    }));
+    document.querySelectorAll('[data-breakout-period]').forEach((button) => button.addEventListener('click', () => {
+      breakoutPeriod = button.dataset.breakoutPeriod;
+      document.querySelectorAll('[data-breakout-period]').forEach((item) => item.classList.toggle('active', item === button));
+      renderHighBreakoutRows();
+    }));
+    document.querySelectorAll('[data-low-market]').forEach((button) => button.addEventListener('click', () => {
+      lowBreakoutMarket = button.dataset.lowMarket;
+      document.querySelectorAll('[data-low-market]').forEach((item) => item.classList.toggle('active', item === button));
+      renderLowBreakoutRows();
+    }));
+    document.querySelectorAll('[data-low-period]').forEach((button) => button.addEventListener('click', () => {
+      lowBreakoutPeriod = button.dataset.lowPeriod;
+      document.querySelectorAll('[data-low-period]').forEach((item) => item.classList.toggle('active', item === button));
+      renderLowBreakoutRows();
+    }));
+    document.getElementById('refreshBreakouts').addEventListener('click', renderHighBreakouts);
+    document.getElementById('refreshLowBreakouts').addEventListener('click', renderHighBreakouts);
             document.getElementById('refreshFlow').addEventListener('click', refreshFlowTable);
     document.getElementById('refreshTurnover').addEventListener('click', renderTurnoverTable);
 
@@ -1782,8 +2026,10 @@
     }, 60 * 1000);
     refreshFlowTable();
     renderTurnoverTable();
+    renderHighBreakouts();
     updateSummaryNumbers();
     setInterval(updateSummaryNumbers, 60000);
+    setInterval(renderHighBreakouts, 5 * 60 * 1000);
     setInterval(() => {
       ['NASDAQ_FUTURES', 'KOSPI_NIGHT_FUTURES'].forEach(loadLwChart);
       renderBondYields();
