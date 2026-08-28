@@ -270,13 +270,24 @@
 
       <div class="card span-6">
         <div class="head-row">
-          <div class="title">신용잔고/예탁금 잔고 일봉</div>
+          <div class="title">신용잔고 일봉</div>
           <label class="chart-control">거래일
-            <input id="days-market-funds" type="number" min="20" max="500" value="200" />
+            <input id="days-credit-balance" type="number" min="20" max="500" value="200" />
           </label>
         </div>
-        <div class="chart-note" id="note-market-funds"></div>
-        <div class="chart" id="chart-market-funds"></div>
+        <div class="chart-note" id="note-credit-balance"></div>
+        <div class="chart" id="chart-credit-balance"></div>
+      </div>
+
+      <div class="card span-6">
+        <div class="head-row">
+          <div class="title">예탁금 일봉</div>
+          <label class="chart-control">거래일
+            <input id="days-deposit-balance" type="number" min="20" max="500" value="200" />
+          </label>
+        </div>
+        <div class="chart-note" id="note-deposit-balance"></div>
+        <div class="chart" id="chart-deposit-balance"></div>
       </div>
 
       <div class="card span-6">
@@ -338,19 +349,6 @@
         <div class="chart" id="chart-market-turnover"></div>
       </div>
 
-      <div class="card span-6 night-card">
-        <div class="head-row"><div class="title">KOSPI200 야간선물</div><div class="market-state" id="state-kospi-night">장상태 확인 중</div></div>
-        <div class="chart-note">KOSPI200 선물 최근 1분봉 · 장 종료 시 최근 거래일 표시</div>
-        <div class="asset-legend"><span style="color:#d92c2c">5분</span><span style="color:#1f5bd8">10분</span><span style="color:#0a9d58">20분</span><span style="color:#e4a11b">60분</span></div>
-        <div class="chart lw-chart plain-chart" id="lwchart-KOSPI_NIGHT_FUTURES"></div>
-      </div>
-      <div class="card span-6 night-card">
-        <div class="head-row"><div class="title">나스닥100 야간선물</div><div class="market-state" id="state-nasdaq-night">장상태 확인 중</div></div>
-        <div class="chart-note">CME E-mini Nasdaq-100 최근 1분봉 · 장 종료 시 최근 거래일 표시</div>
-        <div class="asset-legend"><span style="color:#d92c2c">5분</span><span style="color:#1f5bd8">10분</span><span style="color:#0a9d58">20분</span><span style="color:#e4a11b">60분</span></div>
-        <div class="chart lw-chart plain-chart" id="lwchart-NASDAQ_FUTURES"></div>
-      </div>
-
       <div class="card span-6">
         <div class="head-row">
           <div>
@@ -369,6 +367,20 @@
           <tbody id="turnoverTableBody"></tbody>
         </table>
       </div>
+
+      <div class="card span-6 night-card">
+        <div class="head-row"><div class="title">KOSPI200 야간선물</div><div class="market-state" id="state-kospi-night">장상태 확인 중</div></div>
+        <div class="chart-note">KOSPI200 선물 최근 1분봉 · 장 종료 시 최근 거래일 표시</div>
+        <div class="asset-legend"><span style="color:#d92c2c">5분</span><span style="color:#1f5bd8">10분</span><span style="color:#0a9d58">20분</span><span style="color:#e4a11b">60분</span></div>
+        <div class="chart lw-chart plain-chart" id="lwchart-KOSPI_NIGHT_FUTURES"></div>
+      </div>
+      <div class="card span-6 night-card">
+        <div class="head-row"><div class="title">나스닥100 야간선물</div><div class="market-state" id="state-nasdaq-night">장상태 확인 중</div></div>
+        <div class="chart-note">CME E-mini Nasdaq-100 최근 1분봉 · 장 종료 시 최근 거래일 표시</div>
+        <div class="asset-legend"><span style="color:#d92c2c">5분</span><span style="color:#1f5bd8">10분</span><span style="color:#0a9d58">20분</span><span style="color:#e4a11b">60분</span></div>
+        <div class="chart lw-chart plain-chart" id="lwchart-NASDAQ_FUTURES"></div>
+      </div>
+
     </div>
   </div>
 
@@ -1120,11 +1132,19 @@
           return `<text x="${xFor(i)-19}" y="${h-6}" fill="#5f6b85" font-size="10">${ym.replace('-','.')}.</text>`;
         }).join('');
         const last=series[series.length-1];
+        const previous=fullSeries[fullSeries.length-2];
+        const change=previous?last.close-previous.close:0;
+        const changePercent=previous?.close?change/previous.close*100:0;
+        const changeColor=change>0?'#d92c2c':change<0?'#1f5bd8':'#5f6b85';
+        const changeSign=change>0?'+':'';
+        const priceDigits=Math.abs(last.close)>=100?2:4;
+        const currentLabel=last.close.toLocaleString('ko-KR',{maximumFractionDigits:priceDigits});
+        const changeLabel=`${changeSign}${change.toLocaleString('ko-KR',{maximumFractionDigits:priceDigits})} (${changeSign}${changePercent.toFixed(2)}%)`;
         const threshold=key==='US10Y'&&min<=4.5&&max>=4.5?`<line x1="${padL}" y1="${yFor(4.5)}" x2="${w-padR}" y2="${yFor(4.5)}" stroke="#d92c2c" stroke-dasharray="5 4"/><text x="${w-padR-24}" y="${yFor(4.5)-4}" fill="#d92c2c" font-size="10">4.5</text>`:'';
         el.innerHTML=`<svg width="100%" height="100%" viewBox="0 0 ${w} ${h}">
           <rect width="${w}" height="${h}" fill="#f9fbff"/>${yTicks}${threshold}${candles}${maSvg}
           <text x="${padL}" y="18" fill="#5f6b85" font-size="12" font-weight="800">최근 ${series.length}거래일</text>
-          <text x="${w-padR}" y="18" text-anchor="end" fill="#111" font-size="12" font-weight="800">${last.date} Last:  <tspan fill="#d92c2c">${last.close.toLocaleString()}</tspan></text>
+          <text x="${w-padR}" y="18" text-anchor="end" fill="#111" font-size="11" font-weight="800">${last.date} 현재 <tspan fill="#d92c2c">${currentLabel}</tspan> <tspan fill="${changeColor}">${changeLabel}</tspan></text>
           ${xTicks}<g id="${containerId}-hover"></g></svg>`;
         attachChartHover(el,series,series.map(row=>row.close),min,span,{w,h,padL,padR,padT,padB},{ ohlc: key === 'BTC' || config.ohlc });
       } catch (error) {
@@ -1144,8 +1164,22 @@
           params.set('days', String(safeDays));
         }
         const json = await fetchJsonWithRetry(`/api/extra-chart?${params.toString()}`);
-        const series = json?.series || [];
+        let series = json?.series || [];
         if (!json?.ok || !Array.isArray(series) || !series.length) throw new Error(json?.error || 'no data');
+        const minuteOfDay = (row) => {
+          const time = String(row?.date || '').split(' ')[1] || '';
+          const match = time.match(/^(\d{2}):(\d{2})/);
+          return match ? Number(match[1]) * 60 + Number(match[2]) : NaN;
+        };
+        const sessionStart = options.sessionAxis?.start ?? 9 * 60;
+        const sessionEnd = options.sessionAxis?.end ?? 15 * 60 + 30;
+        if (options.sessionAxis) {
+          const sessionRows = series.filter((row) => {
+            const minute = minuteOfDay(row);
+            return Number.isFinite(minute) && minute >= sessionStart && minute <= sessionEnd;
+          });
+          if (sessionRows.length) series = sessionRows;
+        }
         if (noteEl) noteEl.textContent = json.note || `단위: ${json.unit || '-'}`;
         const formatChartValue = (value) => {
           const numeric = Number(value);
@@ -1164,7 +1198,14 @@
         const padR = options.dualAxis ? 66 : 16;
         const padT = options.showLastValues ? 46 : 28;
         const padB = 28;
-        const xFor = (i) => padL + (i * (w - padL - padR)) / Math.max(1, series.length - 1);
+        const xFor = (i) => {
+          if (options.sessionAxis) {
+            const minute = minuteOfDay(series[i]);
+            const ratio = (minute - sessionStart) / Math.max(1, sessionEnd - sessionStart);
+            return padL + Math.max(0, Math.min(1, ratio)) * (w - padL - padR);
+          }
+          return padL + (i * (w - padL - padR)) / Math.max(1, series.length - 1);
+        };
 
         const valuesForFields = (selectedFields) => {
           const values = [];
@@ -1194,12 +1235,17 @@
             yFor: (value) => h - padB - ((value - min) / span) * (h - padT - padB)
           };
         };
-        const leftFields = options.dualAxis ? fields.filter((field) => field.axis !== 'right') : fields;
+        const leftFields = options.dualAxis ? fields.filter((field) => field.axis !== 'right' && field.axis !== 'change') : fields;
         const rightFields = options.dualAxis ? fields.filter((field) => field.axis === 'right') : [];
+        const changeFields = fields.filter((field) => field.axis === 'change');
         const leftScale = makeScale(valuesForFields(leftFields), options.zeroLine);
-        const rightScale = options.dualAxis ? makeScale(valuesForFields(rightFields), options.zeroLine) : leftScale;
+        const rightScale = options.dualAxis ? makeScale(valuesForFields(rightFields), options.rightZeroLine ?? options.zeroLine) : leftScale;
+        const changeScale = changeFields.length ? makeScale(valuesForFields(changeFields), true) : null;
         if (!leftScale || !rightScale) throw new Error('no numeric data');
-        const scaleForField = (field) => options.dualAxis && field.axis === 'right' ? rightScale : leftScale;
+        const scaleForField = (field) => {
+          if (field.axis === 'change' && changeScale) return changeScale;
+          return options.dualAxis && field.axis === 'right' ? rightScale : leftScale;
+        };
         const yForField = (field, value) => scaleForField(field).yFor(value);
         const colorForField = (field, value = 0) => {
           if (field.type === 'bar') return value >= 0 ? field.positiveColor : field.negativeColor;
@@ -1229,8 +1275,11 @@
           ? `<line x1="${padL}" y1="${leftScale.yFor(0)}" x2="${w - padR}" y2="${leftScale.yFor(0)}" stroke="#111827" stroke-width="1.4" stroke-dasharray="5 4" />
              <text x="${padL + 4}" y="${leftScale.yFor(0) - 5}" fill="#111827" font-size="11" font-weight="800">0</text>`
           : '';
-        const rightZeroLineSvg = options.dualAxis && rightScale.min <= 0 && rightScale.max >= 0
+        const rightZeroLineSvg = options.dualAxis && (options.rightZeroLine ?? options.zeroLine) && rightScale.min <= 0 && rightScale.max >= 0
           ? `<line x1="${padL}" y1="${rightScale.yFor(0)}" x2="${w - padR}" y2="${rightScale.yFor(0)}" stroke="#94a0b8" stroke-width="1" stroke-dasharray="3 4" />`
+          : '';
+        const changeZeroLineSvg = options.changeZeroLine && changeScale && changeScale.min <= 0 && changeScale.max >= 0
+          ? `<line x1="${padL}" y1="${changeScale.yFor(0)}" x2="${w - padR}" y2="${changeScale.yFor(0)}" stroke="#94a0b8" stroke-width="1" stroke-dasharray="3 4" />`
           : '';
         const plotWidth = w - padL - padR;
         const barWidth = Math.max(1.5, Math.min(10, (plotWidth / Math.max(1, series.length)) * 0.72));
@@ -1256,7 +1305,7 @@
             if (!Number.isFinite(v)) return null;
             return `${xFor(i)},${yForField(field, v)}`;
           }).filter(Boolean).join(' ');
-          return `<polyline fill="none" stroke="${field.color}" stroke-width="2.2" points="${points}" />`;
+          return `<polyline fill="none" stroke="${field.color}" stroke-width="2.2" ${field.dasharray ? `stroke-dasharray="${field.dasharray}"` : ''} points="${points}" />`;
         }).join('');
         const legend = fields.map((field, i) => {
           const x = padL + i * 125;
@@ -1264,7 +1313,15 @@
           return `<text x="${x}" y="${padT - 9}" fill="${legendColor}" font-size="12" font-weight="800">${field.label}</text>`;
         }).join('');
         const xTicks = [];
-        if (options.intraday) {
+        if (options.sessionAxis) {
+          const tickMinutes = [];
+          for (let minute = sessionStart; minute <= sessionEnd; minute += 60) tickMinutes.push(minute);
+          if (tickMinutes[tickMinutes.length - 1] !== sessionEnd) tickMinutes.push(sessionEnd);
+          tickMinutes.forEach((minute) => xTicks.push({
+            x: padL + ((minute - sessionStart) / Math.max(1, sessionEnd - sessionStart)) * (w - padL - padR),
+            label: `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`
+          }));
+        } else if (options.intraday) {
           const step = Math.max(1, Math.ceil(series.length / 6));
           series.forEach((row, i) => {
             if (i % step === 0 || i === series.length - 1) xTicks.push({ i, d: String(row.date || '') });
@@ -1281,26 +1338,37 @@
           });
         }
         const xTickSvg = xTicks.map((t) => {
-          const label = options.intraday
+          const label = t.label || (options.intraday
             ? (t.d.split(' ')[1] || t.d).slice(0, 5)
-            : `${t.d.slice(0, 4)}.${t.d.slice(5, 7)}.`;
-          return `<text x="${xFor(t.i) - 20}" y="${h - 6}" fill="#5f6b85" font-size="11">${label}</text>`;
+            : `${t.d.slice(0, 4)}.${t.d.slice(5, 7)}.`);
+          return `<text x="${(Number.isFinite(t.x) ? t.x : xFor(t.i)) - 20}" y="${h - 6}" fill="#5f6b85" font-size="11">${label}</text>`;
         }).join('');
         const lastRow = series[series.length - 1] || {};
         const lastDate = lastRow.date || '';
-        const currentValues = options.showLastValues
+        let currentValues = options.showLastValues
           ? fields.filter((field) => field.type !== 'bar').map((field) => `${field.label}${options.cumulative ? ' 누적' : ''} ${formatChartValue(lastRow[field.key])}${json.unit || ''}`).join('   ')
           : '';
+        let currentValuesMarkup = currentValues;
+        if (options.latestSummary) {
+          const summary = options.latestSummary;
+          const change = Number(lastRow[summary.changeKey]);
+          const rate = Number(lastRow[summary.percentKey]);
+          const sign = change > 0 ? '+' : '';
+          currentValues = `${summary.label} ${formatChartValue(lastRow[summary.key])}${json.unit || ''}   전일 ${sign}${formatChartValue(change)}${json.unit || ''} (${sign}${Number.isFinite(rate) ? rate.toFixed(2) : '-'}%)`;
+          const changeColor = change > 0 ? '#d92c2c' : change < 0 ? '#1f5bd8' : '#5f6b85';
+          currentValuesMarkup = `<tspan fill="${summary.color || '#111827'}">${summary.label} ${formatChartValue(lastRow[summary.key])}${json.unit || ''}</tspan><tspan fill="${changeColor}">   전일 ${sign}${formatChartValue(change)}${json.unit || ''} (${sign}${Number.isFinite(rate) ? rate.toFixed(2) : '-'}%)</tspan>`;
+        }
         el.innerHTML = `<svg width="100%" height="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
           <rect x="0" y="0" width="${w}" height="${h}" fill="#f9fbff"/>
           ${leftTickSvg}
           ${rightTickSvg}
           ${zeroLineSvg}
           ${rightZeroLineSvg}
+          ${changeZeroLineSvg}
           ${bars}
           ${lines}
           ${legend}
-          <text x="${w - padR}" y="18" fill="#111" font-size="13" font-weight="900" text-anchor="end">${currentValues || lastDate}</text>
+          <text x="${w - padR}" y="18" fill="#111" font-size="13" font-weight="900" text-anchor="end">${currentValuesMarkup || lastDate}</text>
           ${currentValues ? `<text x="${w - padR}" y="35" fill="#5f6b85" font-size="11" font-weight="800" text-anchor="end">${lastDate}</text>` : ''}
           ${xTickSvg}
           <g id="${containerId}-extra-hover"></g>
@@ -1319,7 +1387,15 @@
             const plotWidth = rect.width * (w - padL - padR) / w;
             const plotLeft = rect.width * padL / w;
             const ratio = Math.max(0, Math.min(1, (mouseX - plotLeft) / Math.max(1, plotWidth)));
-            const index = Math.round(ratio * Math.max(0, series.length - 1));
+            let index = Math.round(ratio * Math.max(0, series.length - 1));
+            if (options.sessionAxis) {
+              const targetMinute = sessionStart + ratio * (sessionEnd - sessionStart);
+              let bestDistance = Infinity;
+              series.forEach((row, rowIndex) => {
+                const distance = Math.abs(minuteOfDay(row) - targetMinute);
+                if (distance < bestDistance) { bestDistance = distance; index = rowIndex; }
+              });
+            }
             const row = series[index];
             if (!row) return;
             const x = xFor(index);
@@ -1570,26 +1646,38 @@
       'note-kospi-investor-minute',
       'kospi-investor-minute',
       investorFields,
-      { zeroLine: true, intraday: true, tooltip: true, cumulative: true, showLastValues: true }
+      { zeroLine: true, intraday: true, sessionAxis: { start: 540, end: 930 }, tooltip: true, cumulative: true, showLastValues: true }
     );
     const renderKosdaqInvestorDaily = () => renderExtraChart(
       'chart-kosdaq-investor-daily',
       'note-kosdaq-investor-daily',
       'kosdaq-investor-daily',
-      investorFields,
-      { zeroLine: true, daysInputId: 'days-kosdaq-investor-daily', tooltip: true, cumulative: true }
+      kospiInvestorDailyFields,
+      { zeroLine: true, dualAxis: true, daysInputId: 'days-kosdaq-investor-daily', tooltip: true, cumulative: true, showLastValues: true }
     );
     const renderKosdaqInvestorMinute = () => renderExtraChart(
       'chart-kosdaq-investor-minute',
       'note-kosdaq-investor-minute',
       'kosdaq-investor-minute',
       investorFields,
-      { zeroLine: true, intraday: true, tooltip: true, cumulative: true, showLastValues: true }
+      { zeroLine: true, intraday: true, sessionAxis: { start: 540, end: 930 }, tooltip: true, cumulative: true, showLastValues: true }
     );
-    const renderMarketFunds = () => renderExtraChart('chart-market-funds', 'note-market-funds', 'market-funds', [
-      { key: 'credit', label: '신용잔고 (좌)', tooltipLabel: '신용잔고', color: '#f59e0b', axis: 'left' },
-      { key: 'deposit', label: '예탁금 (우)', tooltipLabel: '예탁금', color: '#10b981', axis: 'right' }
-    ], { zeroLine: true, dualAxis: true, daysInputId: 'days-market-funds', tooltip: true });
+    const renderCreditBalance = () => renderExtraChart('chart-credit-balance', 'note-credit-balance', 'market-funds', [
+      { key: 'credit', label: '신용잔고', color: '#f59e0b', axis: 'left' },
+      { key: 'creditChange', label: '일별 증감', type: 'bar', axis: 'change', positiveColor: 'rgba(217,44,44,.34)', negativeColor: 'rgba(31,91,216,.34)' },
+      { key: 'kospi', label: 'KOSPI(우)', color: '#475569', axis: 'right', dasharray: '6 5' }
+    ], {
+      dualAxis: true, changeZeroLine: true, daysInputId: 'days-credit-balance', tooltip: true, showLastValues: true,
+      latestSummary: { label: '신용잔고', key: 'credit', changeKey: 'creditChange', percentKey: 'creditChangePercent', color: '#d97706' }
+    });
+    const renderDepositBalance = () => renderExtraChart('chart-deposit-balance', 'note-deposit-balance', 'market-funds', [
+      { key: 'deposit', label: '예탁금', color: '#10b981', axis: 'left' },
+      { key: 'depositChange', label: '일별 증감', type: 'bar', axis: 'change', positiveColor: 'rgba(217,44,44,.34)', negativeColor: 'rgba(31,91,216,.34)' },
+      { key: 'kospi', label: 'KOSPI(우)', color: '#475569', axis: 'right', dasharray: '6 5' }
+    ], {
+      dualAxis: true, changeZeroLine: true, daysInputId: 'days-deposit-balance', tooltip: true, showLastValues: true,
+      latestSummary: { label: '예탁금', key: 'deposit', changeKey: 'depositChange', percentKey: 'depositChangePercent', color: '#059669' }
+    });
     const renderVkospi = () => {
       const input = document.getElementById('days-vkospi');
       const days = Math.max(20, Math.min(500, Number(input?.value) || 120));
@@ -1624,14 +1712,14 @@
       'note-foreign-futures-minute',
       'foreign-futures-minute',
       [{ key: 'foreign', label: '외국인', color: '#d92c2c' }],
-      { zeroLine: true, intraday: true, tooltip: true, cumulative: true, showLastValues: true }
+      { zeroLine: true, intraday: true, sessionAxis: { start: 540, end: 930 }, tooltip: true, cumulative: true, showLastValues: true }
     );
     const renderKospiFuturesMinute = () => renderExtraChart(
       'chart-kospi-futures-minute',
       'note-kospi-futures-minute',
       'kospi-futures-minute',
       [{ key: 'close', label: 'KOSPI200 선물', color: '#d92c2c' }],
-      { intraday: true, tooltip: true, showLastValues: true }
+      { intraday: true, sessionAxis: { start: 540, end: 930 }, tooltip: true, showLastValues: true }
     );
     const renderUsdkrwMinute = () => renderExtraChart(
       'chart-usdkrw-minute',
@@ -1648,7 +1736,8 @@
     renderKospiInvestorMinute();
     renderKosdaqInvestorDaily();
     renderKosdaqInvestorMinute();
-    renderMarketFunds();
+    renderCreditBalance();
+    renderDepositBalance();
     renderVkospi();
     renderForeignFutures();
     renderForeignFuturesMinute();
@@ -1657,7 +1746,8 @@
     renderMarketTurnover();
     bindInvestorDaysInput('days-kospi-investor-daily', renderKospiInvestorDaily);
     bindInvestorDaysInput('days-kosdaq-investor-daily', renderKosdaqInvestorDaily);
-    bindInvestorDaysInput('days-market-funds', renderMarketFunds);
+    bindInvestorDaysInput('days-credit-balance', renderCreditBalance);
+    bindInvestorDaysInput('days-deposit-balance', renderDepositBalance);
     bindInvestorDaysInput('days-vkospi', renderVkospi);
     bindInvestorDaysInput('days-foreign-futures', renderForeignFutures);
     bindInvestorDaysInput('days-market-turnover', renderMarketTurnover);

@@ -28,6 +28,8 @@ const chartMap = {
   GOLD: 'GC=F'
 };
 const quoteCache = new Map();
+const marketFundsCache = new Map();
+const marketFundsInFlight = new Map();
 const summaryItems = [
   { name: '코스피', symbol: '^KS11', popup: true, popupKey: 'KOSPI' },
   { name: '코스닥', symbol: '^KQ11', popup: true, popupKey: 'KOSDAQ' },
@@ -490,7 +492,7 @@ async function fetchKofiaMarketFundsLatest() {
   return { date, deposit: deposit.value / 1000000, credit: credit.value / 1000000 };
 }
 
-async function fetchMarketFundsSeries(limit = 200) {
+async function fetchMarketFundsSeriesFresh(limit = 200) {
   const safeLimit = Math.max(20, Math.min(500, Number(limit) || 200));
   const rows = [];
   const seen = new Set();
@@ -535,13 +537,54 @@ async function fetchMarketFundsSeries(limit = 200) {
 
   rows.sort((a, b) => a.date.localeCompare(b.date));
   if (!rows.length) return null;
-  const series = rows.slice(-safeLimit);
+  const selectedRows = rows.slice(-safeLimit);
+  let kospiRows = [];
+  try {
+    kospiRows = (await fetchChartSeries('KOSPI', '1d') || [])
+      .filter((row) => row?.date && Number.isFinite(Number(row.close)))
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  } catch (error) {
+    console.error('Failed to fetch KOSPI comparison series for market funds', error.message);
+  }
+  let kospiIndex = 0;
+  let latestKospi = null;
+  const series = selectedRows.map((row, index) => {
+    const previous = selectedRows[index - 1];
+    const creditChange = previous ? row.credit - previous.credit : null;
+    const depositChange = previous ? row.deposit - previous.deposit : null;
+    while (kospiIndex < kospiRows.length && String(kospiRows[kospiIndex].date).slice(0, 10) <= row.date) {
+      latestKospi = Number(kospiRows[kospiIndex].close);
+      kospiIndex += 1;
+    }
+    return {
+      ...row,
+      kospi: latestKospi,
+      creditChange,
+      creditChangePercent: previous?.credit ? creditChange / previous.credit * 100 : null,
+      depositChange,
+      depositChangePercent: previous?.deposit ? depositChange / previous.deposit * 100 : null
+    };
+  });
   const latest = series[series.length - 1]?.date || '';
   return {
     unit: '조원',
-    note: `금융투자협회 최신 공표일(${latest}) 기준, 단위: 조원. 공표 시차가 있어 당일보다 늦게 반영될 수 있습니다.`,
+    note: `금융투자협회 최신 공표일(${latest}) 기준, 단위: 조원. KOSPI는 같은 날짜의 종가이며 점선으로 표시합니다.`,
     series
   };
+}
+
+async function fetchMarketFundsSeries(limit = 200) {
+  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 200));
+  const cached = marketFundsCache.get(safeLimit);
+  if (cached && cached.expiresAt > Date.now()) return cached.payload;
+  if (marketFundsInFlight.has(safeLimit)) return marketFundsInFlight.get(safeLimit);
+
+  const request = fetchMarketFundsSeriesFresh(safeLimit).then((payload) => {
+    if (payload) marketFundsCache.set(safeLimit, { payload, expiresAt: Date.now() + 5 * 60 * 1000 });
+    return payload;
+  }).finally(() => marketFundsInFlight.delete(safeLimit));
+  marketFundsInFlight.set(safeLimit, request);
+  return request;
 }
 
 function parseInvestingDate(value) {
