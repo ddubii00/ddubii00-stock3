@@ -85,7 +85,10 @@ function fetchTradingViewSeriesQueued(...args) {
 const chartSources = {
   US10Y: { symbols: ['TVC:US10Y'], offset: 0 },
   US2Y: { symbols: ['TVC:US02Y'], offset: 0 },
+  KR3Y: { symbols: ['TVC:KR03Y'], offset: 9 * 3600 },
+  JP30Y: { symbols: ['TVC:JP30Y'], offset: 9 * 3600 },
   USDKRW: { symbols: ['FX_IDC:USDKRW', 'OANDA:USDKRW'], offset: 9 * 3600 },
+  USDJPY: { symbols: ['FX_IDC:USDJPY', 'OANDA:USDJPY'], offset: 9 * 3600 },
   VIX: { symbols: ['CBOE:VIX'], offset: 0 },
   SOX: { symbols: ['NASDAQ:SOX'], offset: 0 },
   WTI: { symbols: ['NYMEX:CL1!'], offset: 0 },
@@ -94,7 +97,9 @@ const chartSources = {
   NASDAQ_FUTURES: { symbols: ['CME_MINI:NQ1!'], offset: 0 },
   KOSPI_FUTURES: { symbols: ['KRX:K2I1!'], offset: 9 * 3600 },
   KOSPI_NIGHT_FUTURES: { symbols: ['KRX:K2I1!'], offset: 9 * 3600 },
-  BTC: { symbols: ['BITSTAMP:BTCUSD', 'COINBASE:BTCUSD'], offset: 0 }
+  BTC: { symbols: ['BITSTAMP:BTCUSD', 'COINBASE:BTCUSD'], offset: 0 },
+  SAMSUNG: { symbols: ['KRX:005930'], offset: 9 * 3600 },
+  SKHYNIX: { symbols: ['KRX:000660'], offset: 9 * 3600 }
 };
 
 async function fetchYahooSeries(symbol, interval = '1d') {
@@ -168,7 +173,10 @@ async function fetchNaverIndexClosingMinutes(key, date, targetMin = 1) {
 async function fetchUnifiedSeries(key, interval = '1d') {
   const source = chartSources[key];
   if (!source) return null;
-  const yahooSymbols = { USDKRW: 'KRW=X', GOLD: 'GC=F', DXY: 'DX-Y.NYB', BTC: 'BTC-USD', NASDAQ_FUTURES: 'NQ=F' };
+  const yahooSymbols = {
+    USDKRW: 'KRW=X', USDJPY: 'JPY=X', GOLD: 'GC=F', DXY: 'DX-Y.NYB', BTC: 'BTC-USD',
+    NASDAQ_FUTURES: 'NQ=F', SAMSUNG: '005930.KS', SKHYNIX: '000660.KS'
+  };
   if (yahooSymbols[key]) {
     const yahooRows = await fetchYahooSeries(yahooSymbols[key], interval).catch(() => null);
     if (yahooRows?.length) return yahooRows.slice(interval.endsWith('m') ? -900 : -260);

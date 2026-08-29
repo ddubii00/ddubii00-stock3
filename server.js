@@ -4,6 +4,7 @@ const path = require('path');
 const WebSocketClient = require('ws');
 const { fetchUnifiedSeries, fetchBondYields, fetchNaverIndexClosingMinutes } = require('./tradingview-data');
 const { fetchHighBreakouts } = require('./breakout-data');
+const { fetchDashboardPanels } = require('./dashboard-data');
 
 const PORT = 8000;
 const ROOT = __dirname;
@@ -454,6 +455,121 @@ async function fetchMarketTurnoverSeries(limit = 200) {
     unit: '조원',
     note: `Daum Finance 시장별 일일 거래대금 최신 거래일(${latest}) 기준, 단위: 조원.`,
     series
+  };
+}
+
+async function fetchFredCsvRows(seriesId) {
+  const response = await fetchWithTimeout(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${encodeURIComponent(seriesId)}`, {
+    headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://fred.stlouisfed.org/' }
+  }, 10000);
+  if (!response.ok) throw new Error(`FRED ${seriesId} HTTP ${response.status}`);
+  const csv = await response.text();
+  return csv.trim().split('\n').slice(1).map((line) => {
+    const [date, value] = line.split(',');
+    const numeric = parseTrendNumber(value);
+    return { date, value: numeric };
+  }).filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date) && Number.isFinite(row.value));
+}
+
+function filterLastYears(rows, years = 10) {
+  const latest = rows[rows.length - 1]?.date;
+  if (!latest) return rows;
+  const cutoff = new Date(`${latest}T00:00:00Z`);
+  cutoff.setUTCFullYear(cutoff.getUTCFullYear() - years);
+  return rows.filter((row) => new Date(`${row.date}T00:00:00Z`) >= cutoff);
+}
+
+function monthlyLast(rows) {
+  const byMonth = new Map();
+  rows.forEach((row) => byMonth.set(row.date.slice(0, 7), row));
+  return [...byMonth.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function addYearOverYear(rows, valueKey = 'value', outputKey = 'yoy') {
+  const byMonth = new Map(rows.map((row) => [row.date.slice(0, 7), row]));
+  return rows.map((row) => {
+    const previousYear = `${Number(row.date.slice(0, 4)) - 1}${row.date.slice(4, 7)}`;
+    const previous = byMonth.get(previousYear);
+    const currentValue = Number(row[valueKey]);
+    const previousValue = Number(previous?.[valueKey]);
+    const yoy = Number.isFinite(currentValue) && Number.isFinite(previousValue) && previousValue !== 0
+      ? ((currentValue - previousValue) / previousValue) * 100
+      : null;
+    return { ...row, [outputKey]: yoy };
+  });
+}
+
+async function fetchM2TrendSeries() {
+  const rows = addYearOverYear(monthlyLast(await fetchFredCsvRows('M2SL')).map((row) => ({
+    date: row.date,
+    m2: row.value / 1000
+  })), 'm2', 'm2Yoy');
+  return {
+    unit: '조달러/%',
+    note: 'FRED M2SL 미국 M2 통화량. 값은 조달러, YoY는 전년동월 대비입니다.',
+    series: filterLastYears(rows.filter((row) => Number.isFinite(row.m2)), 10)
+  };
+}
+
+async function fetchCentralBankAssetsSeries() {
+  const sources = [
+    { id: 'WALCL', key: 'fedYoy', rawKey: 'fed', divisor: 1000000 },
+    { id: 'ECBASSETS', key: 'ecbYoy', rawKey: 'ecb', divisor: 1000000 },
+    { id: 'JPNASSETS', key: 'bojYoy', rawKey: 'boj', divisor: 1000000 }
+  ];
+  const seriesRows = await Promise.all(sources.map(async (source) => {
+    const rows = addYearOverYear(monthlyLast(await fetchFredCsvRows(source.id)).map((row) => ({
+      date: row.date,
+      [source.rawKey]: row.value / source.divisor
+    })), source.rawKey, source.key);
+    return rows;
+  }));
+  const months = new Set(seriesRows.flat().map((row) => row.date.slice(0, 7)));
+  const byKey = seriesRows.map((rows) => new Map(rows.map((row) => [row.date.slice(0, 7), row])));
+  const series = [...months].sort().map((month) => ({
+    date: `${month}-01`,
+    fedYoy: byKey[0].get(month)?.fedYoy ?? null,
+    ecbYoy: byKey[1].get(month)?.ecbYoy ?? null,
+    bojYoy: byKey[2].get(month)?.bojYoy ?? null
+  })).filter((row) => [row.fedYoy, row.ecbYoy, row.bojYoy].some(Number.isFinite));
+  return {
+    unit: '%',
+    note: 'FRED 공개 시리즈 기준 중앙은행 총자산 전년동월 대비 증가율입니다.',
+    series: filterLastYears(series, 10)
+  };
+}
+
+async function fetchKoreaPrivateBondSeries() {
+  const configs = [
+    { id: 'DSAMRIAONCKR', key: 'privateDebt', label: '국내 비금융기업 채권 총액' },
+    { id: 'DBNLTRIAONCKR', key: 'corporateBond', label: '회사채/장기채권' },
+    { id: 'DMMISTRIAONCKR', key: 'commercialPaper', label: '기업어음/단기금융상품' }
+  ];
+  const rowsBySeries = await Promise.all(configs.map(async (cfg) => ({
+    cfg,
+    rows: await fetchFredCsvRows(cfg.id)
+  })));
+  const dates = new Set(rowsBySeries.flatMap((entry) => entry.rows.map((row) => row.date)));
+  const maps = rowsBySeries.map((entry) => new Map(entry.rows.map((row) => [row.date, row.value / 1000])));
+  const series = [...dates].sort().map((date) => ({
+    date,
+    privateDebt: maps[0].get(date) ?? null,
+    corporateBond: maps[1].get(date) ?? null,
+    commercialPaper: maps[2].get(date) ?? null
+  })).filter((row) => [row.privateDebt, row.corporateBond, row.commercialPaper].some(Number.isFinite));
+  return {
+    unit: '십억달러',
+    note: 'BIS/FRED 기반 한국 비금융기업 국내채권·단기금융상품 잔액입니다. ABS·여전채 세부선은 무인증 공개 원천 확인 전까지 가짜값으로 대체하지 않습니다.',
+    series: filterLastYears(series, 10)
+  };
+}
+
+async function fetchPrivateCreditGdpSeries() {
+  const rows = await fetchFredCsvRows('QKRPAM770A');
+  return {
+    unit: '%GDP',
+    note: 'BIS/FRED 한국 민간 비금융부문 총신용/GDP, 분기 말 기준입니다.',
+    series: filterLastYears(rows.map((row) => ({ date: row.date, creditGdp: row.value })), 10)
   };
 }
 
@@ -1309,6 +1425,14 @@ const server = http.createServer(async (req, res) => {
       return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');
     }
   }
+  if (u.pathname === '/api/dashboard-panels') {
+    try {
+      const payload = await fetchDashboardPanels(u.searchParams.get('watchlist') || '');
+      return send(res, 200, JSON.stringify({ ok: true, ...payload }), 'application/json');
+    } catch (e) {
+      return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');
+    }
+  }
   if (u.pathname === '/api/chart') {
     try {
       const key = u.searchParams.get('key') || '';
@@ -1336,6 +1460,10 @@ const server = http.createServer(async (req, res) => {
       if (kind === 'kospi-futures-minute') payload = await fetchPriceMinuteSeries('KOSPI_FUTURES', 'KOSPI200 선물', 'P');
       if (kind === 'usdkrw-minute') payload = await fetchPriceMinuteSeries('USDKRW', '원/달러', '원');
       if (kind === 'market-turnover-daily') payload = await fetchMarketTurnoverSeries(days);
+      if (kind === 'm2-trend') payload = await fetchM2TrendSeries();
+      if (kind === 'central-bank-assets') payload = await fetchCentralBankAssetsSeries();
+      if (kind === 'korea-private-bonds') payload = await fetchKoreaPrivateBondSeries();
+      if (kind === 'private-credit-gdp') payload = await fetchPrivateCreditGdpSeries();
       if (!payload) return send(res, 404, JSON.stringify({ ok: false, error: 'no data' }), 'application/json');
       if (payload.unavailable) return send(res, 404, JSON.stringify({ ok: false, error: payload.error }), 'application/json');
       return send(res, 200, JSON.stringify({ ok: true, ...payload }), 'application/json');
@@ -1419,7 +1547,17 @@ const server = http.createServer(async (req, res) => {
   if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) return send(res, 404, 'Not found');
 
   const ext = path.extname(file).toLowerCase();
-  const type = ext === '.html' ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8';
+  const types = {
+    '.html': 'text/html; charset=utf-8',
+    '.js': 'application/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.svg': 'image/svg+xml; charset=utf-8'
+  };
+  const type = types[ext] || 'text/plain; charset=utf-8';
   send(res, 200, fs.readFileSync(file), type);
 });
 
@@ -1436,5 +1574,9 @@ module.exports = {
   fetchForeignFuturesSeries,
   fetchForeignFuturesMinuteSeries,
   fetchPriceMinuteSeries,
-  fetchMarketTurnoverSeries
+  fetchMarketTurnoverSeries,
+  fetchM2TrendSeries,
+  fetchCentralBankAssetsSeries,
+  fetchKoreaPrivateBondSeries,
+  fetchPrivateCreditGdpSeries
 };
