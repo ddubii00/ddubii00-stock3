@@ -4,7 +4,7 @@ const path = require('path');
 const WebSocketClient = require('ws');
 const { fetchUnifiedSeries, fetchBondYields, fetchNaverIndexClosingMinutes } = require('./tradingview-data');
 const { fetchHighBreakouts } = require('./breakout-data');
-const { fetchDashboardPanels } = require('./dashboard-data');
+const { fetchDashboardPanels, fetchBinanceKoreaFutures } = require('./dashboard-data');
 
 const PORT = 8000;
 const ROOT = __dirname;
@@ -554,14 +554,66 @@ async function fetchUsM2TrendSeries() {
   };
 }
 
+async function fetchKredBokAssetYoyRows() {
+  const html = await fetchTextWithRetries('https://kred.dev/en/series/KRBOKASSET', {
+    headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://kred.dev/' }
+  }, 2, 'utf-8');
+  const embeddedRows = [...html.matchAll(/\\?"date\\?":\\?"(\d{4}-\d{2}-\d{2})\\?",\\?"value\\?":([\d.]+)/g)]
+    .map((match) => ({ date: match[1], value: Number(match[2]) }));
+  const tableRows = [...html.matchAll(/<td[^>]*>(\d{4}-\d{2}-\d{2})<\/td>\s*<td[^>]*>([\d,.]+)<\/td>/g)]
+    .map((match) => ({ date: match[1], value: parseTrendNumber(match[2]) }));
+  const byDate = new Map([...embeddedRows, ...tableRows].map((row) => [row.date, row]));
+  const observations = [...byDate.values()]
+    .filter((row) => Number.isFinite(row.value))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const byMonth = new Map(observations.map((row) => [row.date.slice(0, 7), row]));
+  const rows = observations.map((row) => {
+    const previousMonth = `${Number(row.date.slice(0, 4)) - 1}${row.date.slice(4, 7)}`;
+    const previous = byMonth.get(previousMonth);
+    const yoy = previous?.value ? ((row.value - previous.value) / previous.value) * 100 : null;
+    return { date: row.date, bokYoy: yoy };
+  }).filter((row) => Number.isFinite(row.bokYoy));
+  const latest = observations[observations.length - 1];
+  const yoyAmountMatch = html.match(/Change over one year[\s\S]{0,400}?text-ink">([+\-−]?[\d,.]+)/);
+  const yoyAmount = parseTrendNumber(String(yoyAmountMatch?.[1] || '').replace('−', '-'));
+  if (latest && Number.isFinite(yoyAmount)) {
+    const previous = latest.value - yoyAmount;
+    if (previous > 0) {
+      const latestYoy = (yoyAmount / previous) * 100;
+      const existingIndex = rows.findIndex((row) => row.date === latest.date);
+      const latestRow = { date: latest.date, bokYoy: latestYoy };
+      if (existingIndex >= 0) rows[existingIndex] = latestRow;
+      else rows.push(latestRow);
+    }
+  }
+  if (!rows.length) throw new Error('KRED BOK asset data not found');
+  return rows.sort((a, b) => a.date.localeCompare(b.date));
+}
+
 async function fetchCentralBankAssetsSeries() {
   const sources = [
     { id: 'WALCL', key: 'fedYoy', rawKey: 'fed', divisor: 1000000 },
+    { id: 'BOK_ASSETS', key: 'bokYoy', rawKey: 'bok', divisor: 1, optional: true, custom: fetchKredBokAssetYoyRows },
     { id: 'ECBASSETS', key: 'ecbYoy', rawKey: 'ecb', divisor: 1000000 },
     { id: 'JPNASSETS', key: 'bojYoy', rawKey: 'boj', divisor: 1000000 }
   ];
   const seriesRows = await Promise.all(sources.map(async (source) => {
-    const rows = addYearOverYear(monthlyLast(await fetchFredCsvRows(source.id)).map((row) => ({
+    if (source.custom) {
+      try {
+        return await source.custom();
+      } catch (_) {
+        const fallbackRows = await fetchFredCsvRows('DDDI06KRA156NWDB').catch(() => []);
+        return addYearOverYear(monthlyLast(fallbackRows).map((row) => ({
+          date: row.date,
+          [source.rawKey]: row.value / source.divisor
+        })), source.rawKey, source.key);
+      }
+    }
+    const rawRows = await fetchFredCsvRows(source.id).catch((error) => {
+      if (source.optional) return [];
+      throw error;
+    });
+    const rows = addYearOverYear(monthlyLast(rawRows).map((row) => ({
       date: row.date,
       [source.rawKey]: row.value / source.divisor
     })), source.rawKey, source.key);
@@ -572,12 +624,13 @@ async function fetchCentralBankAssetsSeries() {
   const series = [...months].sort().map((month) => ({
     date: `${month}-01`,
     fedYoy: byKey[0].get(month)?.fedYoy ?? null,
-    ecbYoy: byKey[1].get(month)?.ecbYoy ?? null,
-    bojYoy: byKey[2].get(month)?.bojYoy ?? null
-  })).filter((row) => [row.fedYoy, row.ecbYoy, row.bojYoy].some(Number.isFinite));
+    bokYoy: byKey[1].get(month)?.bokYoy ?? null,
+    ecbYoy: byKey[2].get(month)?.ecbYoy ?? null,
+    bojYoy: byKey[3].get(month)?.bojYoy ?? null
+  })).filter((row) => [row.fedYoy, row.bokYoy, row.ecbYoy, row.bojYoy].some(Number.isFinite));
   return {
     unit: '%',
-    note: 'FRED 공개 시리즈 기준 중앙은행 총자산 전년동월 대비 증가율입니다.',
+    note: '미국·일본·ECB는 FRED, 한국은 KRED의 Bank of Korea Total Assets 공개값을 우선 사용한 전년동월 대비 증가율입니다.',
     series: filterLastYears(series, 10)
   };
 }
@@ -1170,12 +1223,12 @@ async function fetchChartSeries(key, interval = '1d') {
   if (key === 'US10Y') {
     const rows = await supplementTreasuryYield(await fetchFredYieldSeries('DGS10', 0.2), 'BC_10YEAR');
     if (!rows.length) return null;
-    return rows.slice(-120);
+    return rows.slice(-260);
   }
   if (key === 'US2Y') {
     const rows = await supplementTreasuryYield(await fetchFredYieldSeries('DGS2', 0.1), 'BC_2YEAR');
     if (!rows.length) return null;
-    return rows.slice(-120);
+    return rows.slice(-260);
   }
   if (key === 'USDKRW') {
     const url = 'https://query1.finance.yahoo.com/v8/finance/chart/KRW%3DX?range=1y&interval=1d';
@@ -1192,7 +1245,7 @@ async function fetchChartSeries(key, interval = '1d') {
       rows.push({ date, close });
     }
     if (!rows.length) return null;
-    return rows.slice(-120);
+    return rows.slice(-260);
   }
   if (key === 'VIX') {
     const url = 'https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?range=1y&interval=1d';
@@ -1209,7 +1262,7 @@ async function fetchChartSeries(key, interval = '1d') {
       rows.push({ date, close });
     }
     if (!rows.length) return null;
-    return rows.slice(-120);
+    return rows.slice(-260);
   }
   if (key === 'SOX') {
     const url = 'https://query1.finance.yahoo.com/v8/finance/chart/%5ESOX?range=1y&interval=1d';
@@ -1226,7 +1279,7 @@ async function fetchChartSeries(key, interval = '1d') {
       rows.push({ date, close });
     }
     if (!rows.length) return null;
-    return rows.slice(-120);
+    return rows.slice(-260);
   }
   if (key === 'WTI') {
     const url = 'https://query1.finance.yahoo.com/v8/finance/chart/CL%3DF?range=1y&interval=1d';
@@ -1243,7 +1296,7 @@ async function fetchChartSeries(key, interval = '1d') {
       rows.push({ date, close });
     }
     if (!rows.length) return null;
-    return rows.slice(-120);
+    return rows.slice(-260);
   }
   if (key === 'DXY') {
     const url = 'https://query1.finance.yahoo.com/v8/finance/chart/DX-Y.NYB?range=1y&interval=1d';
@@ -1260,7 +1313,7 @@ async function fetchChartSeries(key, interval = '1d') {
       rows.push({ date, close });
     }
     if (!rows.length) return null;
-    return rows.slice(-120);
+    return rows.slice(-260);
   }
   if (key === 'GOLD') {
     const url = 'https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?range=1y&interval=1d';
@@ -1277,7 +1330,7 @@ async function fetchChartSeries(key, interval = '1d') {
       rows.push({ date, close });
     }
     if (!rows.length) return null;
-    return rows.slice(-120);
+    return rows.slice(-260);
   }
   const yahooSymbols = {
     'KOSPI': '%5EKS11',
@@ -1472,6 +1525,14 @@ const server = http.createServer(async (req, res) => {
     try {
       const payload = await fetchDashboardPanels(u.searchParams.get('watchlist') || '');
       return send(res, 200, JSON.stringify({ ok: true, ...payload }), 'application/json');
+    } catch (e) {
+      return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');
+    }
+  }
+  if (u.pathname === '/api/binance-korea-futures') {
+    try {
+      const rows = await fetchBinanceKoreaFutures();
+      return send(res, 200, JSON.stringify({ ok: true, asOf: new Date().toISOString(), rows }), 'application/json');
     } catch (e) {
       return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');
     }

@@ -179,9 +179,9 @@ async function fetchUnifiedSeries(key, interval = '1d') {
   };
   if (yahooSymbols[key]) {
     const yahooRows = await fetchYahooSeries(yahooSymbols[key], interval).catch(() => null);
-    if (yahooRows?.length) return yahooRows.slice(interval.endsWith('m') ? -5000 : -260);
+    if (yahooRows?.length) return yahooRows.slice(interval.endsWith('m') ? -5000 : -520);
   }
-  const limit = interval.endsWith('m') ? (key === 'KOSPI_FUTURES' ? 3200 : 5000) : 260;
+  const limit = interval.endsWith('m') ? (key === 'KOSPI_FUTURES' ? 3200 : 5000) : 520;
   let result = await fetchTradingViewSeriesQueued(source.symbols, interval, limit, source.offset);
   if (!result?.rows?.length) {
     await new Promise((resolve) => setTimeout(resolve, 350 + key.length * 45));

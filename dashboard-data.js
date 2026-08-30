@@ -41,6 +41,14 @@ const WATCHLIST_ALIASES = new Map(DEFAULT_WATCHLIST.flatMap((item) => [
   [item.name.toLowerCase(), item]
 ]));
 
+const BINANCE_KOREA_FUTURES = [
+  { name: 'SK하이닉스', code: '000660', symbol: 'SKHYNIXUSDT' },
+  { name: '삼성전자', code: '005930', symbol: 'SAMSUNGUSDT' },
+  { name: '한미반도체', code: '042700', symbol: 'HANMIUSDT' },
+  { name: '현대차', code: '005380', symbol: 'HYUNDAIUSDT' },
+  { name: 'NAVER', code: '035420', symbol: 'NAVERUSDT' }
+];
+
 const ECONOMIC_EVENTS = [
   { date: '2026-06-10', name: '미국 CPI', source: 'BLS', importance: 'high', result: '5월 CPI 전월 +0.5%, 전년 +4.2%; 근원 CPI 전년 +2.9%' },
   { date: '2026-06-12', name: '미국 PPI', source: 'BLS', importance: 'high', result: '5월 PPI 최종수요 전월 +1.1%, 전년 +6.5%; 에너지 가격 급등 영향' },
@@ -375,6 +383,214 @@ async function fetchYahooRows(symbol) {
   })).filter((row) => Number.isFinite(row.close) && row.close > 0);
 }
 
+async function fetchYahooHistory(symbol, range = '1y', interval = '1d') {
+  const json = await fetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}`, {
+    headers: { Referer: 'https://finance.yahoo.com/' }
+  });
+  const result = json?.chart?.result?.[0] || {};
+  const timestamps = Array.isArray(result.timestamp) ? result.timestamp : [];
+  const quote = result.indicators?.quote?.[0] || {};
+  return timestamps.map((timestamp, index) => {
+    const close = signedNumber(quote.close?.[index]);
+    const volume = signedNumber(quote.volume?.[index]);
+    const date = new Date(Number(timestamp) * 1000).toISOString().slice(0, 10);
+    return { date, close, volume };
+  }).filter((row) => Number.isFinite(row.close) && row.close > 0);
+}
+
+function daysLeftFromDate(dateText) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateText || ''))) return 9999;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const eventDate = new Date(`${dateText}T00:00:00+09:00`);
+  return Math.ceil((eventDate - today) / 86400000);
+}
+
+async function fetchNasdaqEarningsEvent(item) {
+  if (item.market !== 'US') return null;
+  try {
+    const json = await fetchJson(`https://api.nasdaq.com/api/calendar/earnings?symbol=${encodeURIComponent(item.code)}`, {
+      headers: { Referer: 'https://www.nasdaq.com/', Origin: 'https://www.nasdaq.com' }
+    }, 8000);
+    const rows = Array.isArray(json?.data?.rows) ? json.data.rows : [];
+    const row = rows.find((entry) => entry?.symbol?.toUpperCase?.() === item.code) || rows[0];
+    const rawDate = String(row?.date || row?.reportDate || '');
+    const mdy = rawDate.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    const date = mdy
+      ? `${mdy[3]}-${String(mdy[1]).padStart(2, '0')}-${String(mdy[2]).padStart(2, '0')}`
+      : rawDate.replace(/\//g, '-');
+    if (!date) return null;
+    return {
+      name: item.name,
+      code: item.code,
+      date,
+      daysLeft: daysLeftFromDate(date),
+      source: 'Nasdaq earnings calendar',
+      status: row?.time || '실적',
+      result: row?.epsForecast ? `EPS 예상 ${row.epsForecast}` : ''
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchEarningsCalendar(watchlist) {
+  const targetCodes = new Set(['005930', '000660', 'NVDA', 'TSM', 'PLTR']);
+  const targets = watchlist.filter((item) => targetCodes.has(item.code));
+  const events = await Promise.all(targets.map(async (item) => {
+    const nasdaq = await fetchNasdaqEarningsEvent(item);
+    if (nasdaq) return nasdaq;
+    return {
+      name: item.name,
+      code: item.code,
+      date: '',
+      daysLeft: 9999,
+      source: item.market === 'KR' ? '국내 실적 캘린더 공개 API 확인 필요' : 'Nasdaq/Yahoo 응답 제한',
+      status: '원천 확인',
+      result: ''
+    };
+  }));
+  return events.sort((a, b) => (a.daysLeft - b.daysLeft) || a.name.localeCompare(b.name, 'ko'));
+}
+
+async function fetchSectorRelativeStrength() {
+  try {
+    const symbols = {
+      kospi: '^KS11',
+      samsung: '005930.KS',
+      hynix: '000660.KS',
+      hanmi: '042700.KS',
+      hanwha: '012450.KS',
+      lig: '079550.KS'
+    };
+    const [kospi, samsung, hynix, hanmi, hanwha, lig] = await Promise.all([
+      fetchYahooHistory(symbols.kospi, '1y'),
+      fetchYahooHistory(symbols.samsung, '1y'),
+      fetchYahooHistory(symbols.hynix, '1y'),
+      fetchYahooHistory(symbols.hanmi, '1y'),
+      fetchYahooHistory(symbols.hanwha, '1y'),
+      fetchYahooHistory(symbols.lig, '1y')
+    ]);
+    const indexByDate = new Map(kospi.map((row) => [row.date, row.close]));
+    const normalize = (rows) => {
+      const base = rows.find((row) => indexByDate.has(row.date))?.close;
+      return new Map(rows.map((row) => [row.date, base ? (row.close / base) * 100 : null]));
+    };
+    const maps = {
+      samsung: normalize(samsung),
+      hynix: normalize(hynix),
+      hanmi: normalize(hanmi),
+      hanwha: normalize(hanwha),
+      lig: normalize(lig)
+    };
+    const kospiBase = kospi[0]?.close;
+    const series = kospi.map((row) => {
+      const kospiNorm = kospiBase ? (row.close / kospiBase) * 100 : null;
+      const avg = (values) => average(values.filter(Number.isFinite));
+      const semiconductor = avg([maps.samsung.get(row.date), maps.hynix.get(row.date), maps.hanmi.get(row.date)]);
+      const defense = avg([maps.hanwha.get(row.date), maps.lig.get(row.date)]);
+      return {
+        date: row.date,
+        semiconductorRs: Number.isFinite(semiconductor) && kospiNorm ? (semiconductor / kospiNorm) * 100 : null,
+        defenseRs: Number.isFinite(defense) && kospiNorm ? (defense / kospiNorm) * 100 : null
+      };
+    }).filter((row) => Number.isFinite(row.semiconductorRs) || Number.isFinite(row.defenseRs));
+    return { note: 'Yahoo Finance 일봉 기준 대표종목 바스켓/KOSPI 상대강도입니다.', series: series.slice(-240) };
+  } catch (error) {
+    return { note: `섹터 RS 원천 확인 실패: ${error.message || error}`, series: [] };
+  }
+}
+
+async function fetchOptionsIndicators() {
+  const [vixRows, vix3mRows] = await Promise.all([
+    fetchYahooRows('^VIX').catch(() => []),
+    fetchYahooRows('^VIX3M').catch(() => [])
+  ]);
+  const vix = lastChange(vixRows);
+  const vix3m = lastChange(vix3mRows);
+  const term = Number.isFinite(vix.value) && Number.isFinite(vix3m.value) ? vix3m.value - vix.value : null;
+  return [
+    { name: 'VIX', value: vix.value, changeRate: vix.changeRate, asOf: vix.asOf, note: vix.asOf ? `최근 개장일 ${vix.asOf}` : '원천 확인 필요' },
+    { name: 'VIX3M-VIX', value: term, changeRate: null, asOf: vix3m.asOf || vix.asOf, note: Number.isFinite(term) ? (term >= 0 ? '콘탱고: 공포 완화' : '백워데이션: 단기 공포') : '기간구조 원천 확인 필요' },
+    { name: 'Put/Call Ratio', value: null, changeRate: null, asOf: '', note: '무인증 공개 원천 확인 필요' }
+  ];
+}
+
+function buildFearGreed(riskScore) {
+  const score = Number(riskScore?.score);
+  const safeScore = Number.isFinite(score) ? score : 50;
+  const state = safeScore >= 70 ? 'Greed' : safeScore >= 55 ? 'Neutral+' : safeScore >= 40 ? 'Neutral-' : 'Fear';
+  return {
+    score: safeScore,
+    state,
+    note: 'CNN 원천이 봇 차단될 때도 대시보드 내 실제 지표 6개로 산출합니다.'
+  };
+}
+
+async function fetchEtfFlowProxies() {
+  const configs = [
+    { symbol: 'SOXX', name: 'SOXX 반도체' },
+    { symbol: 'ITA', name: 'ITA 방산' }
+  ];
+  const rows = await Promise.all(configs.map(async (cfg) => {
+    const history = await fetchYahooHistory(cfg.symbol, '1mo').catch(() => []);
+    const last = history[history.length - 1];
+    const prev = history[history.length - 2];
+    const changeRate = last?.close && prev?.close ? ((last.close - prev.close) / prev.close) * 100 : null;
+    return {
+      ...cfg,
+      price: last?.close ?? null,
+      changeRate,
+      tradeAmount: last?.close && last?.volume ? last.close * last.volume : null,
+      asOf: last?.date || '',
+      status: '순유입/유출 API 미연결, 가격·거래대금 프록시'
+    };
+  }));
+  return rows;
+}
+
+async function fetchBinanceKoreaFutures() {
+  const rows = await Promise.all(BINANCE_KOREA_FUTURES.map(async (item) => {
+    try {
+      const response = await fetch(`https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=${encodeURIComponent(item.symbol)}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0', Referer: `https://www.binance.com/en/futures/${item.symbol}` }
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const json = await response.json();
+      const price = signedNumber(json.lastPrice);
+      const change = signedNumber(json.priceChange);
+      const changeRate = signedNumber(json.priceChangePercent);
+      const high = signedNumber(json.highPrice);
+      const low = signedNumber(json.lowPrice);
+      const volume = signedNumber(json.volume);
+      return {
+        ...item,
+        price,
+        change,
+        changeRate,
+        high,
+        low,
+        volume,
+        asOf: json.closeTime ? new Date(Number(json.closeTime)).toISOString() : '',
+        status: json.lastPrice ? 'Binance USDT-M TradFi Perpetual' : '원천 확인 필요'
+      };
+    } catch (error) {
+      return {
+        ...item,
+        price: null,
+        change: null,
+        changeRate: null,
+        high: null,
+        low: null,
+        volume: null,
+        asOf: '',
+        status: `Binance 확인 실패: ${error.message || error}`
+      };
+    }
+  }));
+  return rows;
+}
+
 async function fetchMarketRows(symbol) {
   const stooqSymbols = { '^VIX': '^vix', '^SOX': '^sox', 'KRW=X': 'usdkrw', US10Y: '10us.b', US2Y: '2us.b' };
   const yahooRows = symbol.startsWith('^') || symbol.endsWith('=X') ? await fetchYahooRows(symbol).catch(() => []) : [];
@@ -634,10 +850,15 @@ async function fetchDashboardPanelsFresh(watchlistConfig) {
     }
   }));
   const snapshotByCode = new Map(watchlist.filter((item) => item.market === 'KR').map((item) => [item.code, item]));
-  const [sectors, disclosures, riskScore] = await Promise.all([
+  const [sectors, disclosures, riskScore, earningsCalendar, sectorRs, optionsIndicators, etfFlows, binanceKoreaStocks] = await Promise.all([
     fetchSectorRows(snapshotByCode, marketByCode),
     fetchDisclosureRows(watchlist),
-    fetchRiskScore()
+    fetchRiskScore(),
+    fetchEarningsCalendar(watchlist),
+    fetchSectorRelativeStrength(),
+    fetchOptionsIndicators(),
+    fetchEtfFlowProxies(),
+    fetchBinanceKoreaFutures()
   ]);
   const shortSelling = await Promise.all(watchlist.filter((item) => item.market === 'KR').map((item) => fetchShortSellingSnapshot(item, marketByCode.get(item.code))));
   return {
@@ -648,6 +869,12 @@ async function fetchDashboardPanelsFresh(watchlistConfig) {
     disclosures,
     calendar: buildCalendar(),
     riskScore,
+    earningsCalendar,
+    sectorRs,
+    optionsIndicators,
+    fearGreed: buildFearGreed(riskScore),
+    etfFlows,
+    binanceKoreaStocks,
     referencePanels: buildReferencePanels(sectors, marketRows),
     notes: {
       sectors: '20개 섹터를 대표종목 시가총액 순서로 배열했습니다. 색이 진할수록 평균 등락률 폭이 큽니다.',
@@ -672,4 +899,4 @@ async function fetchDashboardPanels(watchlistInput) {
   return request;
 }
 
-module.exports = { fetchDashboardPanels };
+module.exports = { fetchDashboardPanels, fetchBinanceKoreaFutures };

@@ -97,7 +97,8 @@
     .technical-heading { grid-column:1/-1; margin:8px 2px -2px; font-size:22px; font-weight:950; letter-spacing:-.02em; }
     .technical-card .title { font-size:26px; margin:0; }
     .technical-legend { display:flex; align-items:center; gap:11px; flex-wrap:wrap; margin:2px 0 7px; color:var(--muted); font-size:11px; font-weight:850; }
-    .legend-chip { display:inline-flex; align-items:center; gap:4px; }
+    .legend-chip { display:inline-flex; align-items:center; gap:4px; cursor:pointer; user-select:none; transition:opacity .15s ease; }
+    .legend-chip.off { opacity:.32; }
     .legend-dot { width:16px; height:3px; border-radius:99px; display:inline-block; }
     .chart-reference-values { position:absolute; top:11px; right:64px; z-index:55; display:flex; gap:6px; align-items:center; pointer-events:none; }
     .chart-value-pill { min-width:74px; padding:5px 8px; border:1px solid var(--line); border-radius:7px; background:rgba(255,255,255,.94); box-shadow:0 4px 12px rgba(16,35,70,.1); text-align:right; font-size:15px; line-height:1.15; font-weight:950; font-variant-numeric:tabular-nums; }
@@ -126,9 +127,11 @@
     .breakout-market { font-weight:850; color:#42506c; }
     .breakout-badges { display:flex; gap:5px; align-items:center; }
     .breakout-badge { display:inline-flex; align-items:center; padding:4px 7px; border-radius:7px; font-size:11px; font-weight:900; }
+    .breakout-badge.week20 { color:#166534; background:#dcfce7; }
     .breakout-badge.week26 { color:#075985; background:#e0f2fe; }
     .breakout-badge.week52 { color:#9b3e00; background:#fff1df; }
     .breakout-badge.alltime { color:#b4232a; background:#ffe9eb; }
+    .breakout-badge.low20 { color:#166534; background:#dcfce7; }
     .breakout-badge.low26 { color:#075985; background:#e0f2fe; }
     .breakout-badge.low52 { color:#1e40af; background:#dbeafe; }
     .breakout-badge.lowall { color:#4338ca; background:#e0e7ff; }
@@ -161,11 +164,11 @@
     .stock-symbol { display:block; color:var(--muted); font-size:10px; margin-top:2px; }
     .volume-badge { display:inline-flex; padding:3px 6px; border-radius:6px; background:#eef3fb; color:#536078; font-size:10px; font-weight:850; }
     .volume-badge.surge { background:#fff0d5; color:#a34d00; }
-    .sector-tiles { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:9px; }
-    .sector-tile { min-height:62px; border-radius:13px; padding:7px 10px; display:flex; flex-direction:column; justify-content:space-between; border:1px solid rgba(23,32,51,.08); box-shadow:0 6px 16px rgba(17,38,74,.09); transition:background-color .2s ease, transform .15s ease; cursor:pointer; text-align:left; }
+    .sector-tiles { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:5px; }
+    .sector-tile { min-height:52px; border-radius:12px; padding:6px 9px; display:flex; flex-direction:column; justify-content:space-between; border:1px solid rgba(23,32,51,.08); box-shadow:0 4px 12px rgba(17,38,74,.07); transition:background-color .2s ease, transform .15s ease; cursor:pointer; text-align:left; }
     .sector-tile:hover { transform:translateY(-1px); }
-    .sector-name { font-size:15px; font-weight:950; }
-    .sector-rate { font-size:19px; font-weight:950; }
+    .sector-name { font-size:16px; font-weight:950; }
+    .sector-rate { font-size:18px; font-weight:950; }
     .sector-flow { font-size:9px; line-height:1.25; opacity:.94; }
     .sector-detail-panel { display:none; margin-top:12px; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#fff; }
     .sector-detail-panel.open { display:block; }
@@ -179,7 +182,7 @@
     .feed-title { color:var(--text); font-size:12px; font-weight:750; text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .feed-title:hover { color:var(--accent); }
     .feed-date { color:var(--muted); font-size:10px; white-space:nowrap; }
-    .calendar-list { display:grid; gap:7px; max-height:326px; overflow:auto; padding-right:3px; scroll-behavior:smooth; }
+    .calendar-list { display:grid; gap:7px; max-height:292px; overflow:auto; padding-right:3px; scroll-behavior:smooth; }
     .calendar-item { display:grid; grid-template-columns:66px 1fr auto; gap:10px; align-items:center; padding:9px 11px; border-left:4px solid #85a4d7; background:#f7f9fd; border-radius:8px; }
     .calendar-item.critical { border-left-color:#d94343; }
     .calendar-item.past { opacity:.72; }
@@ -187,6 +190,15 @@
     .calendar-name { font-size:12px; font-weight:900; }
     .calendar-source { color:var(--muted); font-size:10px; }
     .calendar-result { margin-top:3px; color:#172033; font-size:11px; line-height:1.25; font-weight:850; }
+    .calendar-result .up { color:#d92c2c; font-weight:950; }
+    .calendar-result .down { color:#1f5bd8; font-weight:950; }
+    .calendar-result .neutral { color:#172033; font-weight:900; }
+    .mini-panel-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+    .mini-panel { border:1px solid var(--line); border-radius:12px; background:#f8faff; padding:10px 12px; }
+    .mini-panel-title { font-size:13px; font-weight:950; color:var(--text); }
+    .mini-panel-value { margin-top:5px; font-size:24px; font-weight:950; }
+    .mini-panel-note { margin-top:4px; color:var(--muted); font-size:11px; line-height:1.35; }
+    .mini-chart { height:230px; border:1px solid var(--line); border-radius:12px; background:#f9fbff; margin-top:8px; overflow:hidden; position:relative; }
     .reference-data-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
     .reference-panel { border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#fff; }
     .reference-panel-head { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:10px 12px; background:#f7f9fd; border-bottom:1px solid var(--line); font-weight:950; }
@@ -281,6 +293,36 @@
         <div class="bridge-note" id="disclosureNote">국내 관심종목의 최신 공개 공시와 뉴스를 확인합니다.</div>
         <div class="feed-list" id="disclosureFeed"><div class="panel-empty">공시 확인 중...</div></div>
       </section>
+      <section class="card span-6 bridge-card">
+        <div class="head-row"><div class="title">실적 발표 캘린더</div><div class="asof" id="earningsAsOf">관심종목</div></div>
+        <div class="bridge-note">삼성전자·SK하이닉스·NVIDIA·TSMC·Palantir의 공개 캘린더 원천을 확인합니다.</div>
+        <div class="calendar-list" id="earningsCalendar"><div class="panel-empty">실적 일정 확인 중...</div></div>
+      </section>
+      <section class="card span-6 bridge-card">
+        <div class="head-row"><div class="title">섹터 상대강도(RS)</div><div class="asof">KOSPI=100 기준</div></div>
+        <div class="bridge-note">반도체·방산 대표종목 바스켓이 KOSPI 대비 강한지 확인합니다.</div>
+        <div class="mini-chart" id="sectorRsChart"><div class="panel-empty">RS 계산 중...</div></div>
+      </section>
+      <section class="card span-6 bridge-card">
+        <div class="head-row"><div class="title">옵션 시장 지표</div><div class="asof">VIX 구조</div></div>
+        <div class="bridge-note">VIX·VIX3M 기반으로 단기 공포와 기간구조를 봅니다. Put/Call은 공개 원천이 확인될 때만 표시합니다.</div>
+        <div class="mini-panel-grid" id="optionsPanel"><div class="panel-empty">옵션 지표 확인 중...</div></div>
+      </section>
+      <section class="card span-6 bridge-card">
+        <div class="head-row"><div class="title">Fear & Greed Index</div><div class="asof">대시보드 산출</div></div>
+        <div class="bridge-note">VIX·금리·환율·수급·시장폭·거래대금 기반 종합 심리지표입니다.</div>
+        <div class="mini-panel-grid" id="fearGreedPanel"><div class="panel-empty">심리지표 계산 중...</div></div>
+      </section>
+      <section class="card span-6 bridge-card">
+        <div class="head-row"><div class="title">ETF 자금 흐름 SOXX·ITA</div><div class="asof">원천 확인</div></div>
+        <div class="bridge-note">순유입/유출 공개 API가 막히면 가격·거래대금 프록시만 표시하고 가짜 플로우는 만들지 않습니다.</div>
+        <div class="bridge-table-wrap"><table class="bridge-table"><thead><tr><th>ETF</th><th>가격</th><th>등락률</th><th>거래대금</th><th>상태</th></tr></thead><tbody id="etfFlowBody"><tr><td colspan="5" class="panel-empty">ETF 확인 중...</td></tr></tbody></table></div>
+      </section>
+      <section class="card span-6 bridge-card">
+        <div class="head-row"><div class="title">Binance 국내주식 30초 시세</div><div class="asof">상장 페어 확인</div></div>
+        <div class="bridge-note">삼성전자·SK하이닉스·네이버·현대차·한미반도체의 Binance 상장 페어 존재 여부를 확인합니다.</div>
+        <div class="bridge-table-wrap"><table class="bridge-table"><thead><tr><th>종목</th><th>페어</th><th>현재가</th><th>등락률</th><th>상태</th></tr></thead><tbody id="binanceKoreaBody"><tr><td colspan="5" class="panel-empty">Binance 페어 확인 중...</td></tr></tbody></table></div>
+      </section>
     </div>
 
     <div class="grid" id="summaryCards"></div>
@@ -323,7 +365,7 @@
       <div class="card span-6">
         <div class="head-row">
           <div>
-            <div class="title">미국 10년물 국채금리 (US10Y)</div>
+            <div class="title">미국 10년물 국채금리 (일봉)</div>
           </div>
         </div>
         <div class="memo warning-memo">금리 상승 → 성장주 압박
@@ -335,7 +377,7 @@
       <div class="card span-6">
         <div class="head-row">
           <div>
-            <div class="title">미국 2년물 국채금리 (US2Y)</div>
+            <div class="title">미국 2년물 국채금리 (일봉)</div>
           </div>
         </div>
         <div class="memo warning-memo">연준 금리 기대에 민감
@@ -653,6 +695,7 @@
           </div>
           <div class="breakout-filter-group" id="breakoutPeriodFilters">
             <span class="breakout-filter-label">기간</span>
+            <button class="breakout-filter-btn" data-breakout-period="20">20일 신고가</button>
             <button class="breakout-filter-btn" data-breakout-period="26">26주 신고가</button>
             <button class="breakout-filter-btn active" data-breakout-period="52">52주 신고가</button>
             <button class="breakout-filter-btn" data-breakout-period="ALL">역대 신고가</button>
@@ -663,9 +706,9 @@
         <div class="breakout-table-wrap">
           <table class="breakout-table">
             <thead>
-              <tr><th>시장</th><th>종목</th><th>현재가</th><th>등락률</th><th>최근 거래일 고가</th><th>26주 최고</th><th>52주 최고</th><th>역대 최고</th><th>돌파 구분</th></tr>
+              <tr><th>시장</th><th>종목</th><th>현재가</th><th>등락률</th><th>최근 거래일 고가</th><th>20일 최고</th><th>26주 최고</th><th>52주 최고</th><th>역대 최고</th><th>돌파 구분</th></tr>
             </thead>
-            <tbody id="breakoutTableBody"><tr><td colspan="9" class="breakout-loading">신고가 종목 확인 중...</td></tr></tbody>
+            <tbody id="breakoutTableBody"><tr><td colspan="10" class="breakout-loading">신고가 종목 확인 중...</td></tr></tbody>
           </table>
         </div>
       </section>
@@ -686,6 +729,7 @@
           </div>
           <div class="breakout-filter-group" id="lowBreakoutPeriodFilters">
             <span class="breakout-filter-label">기간</span>
+            <button class="breakout-filter-btn" data-low-period="20">20일 신저가</button>
             <button class="breakout-filter-btn" data-low-period="26">26주 신저가</button>
             <button class="breakout-filter-btn active" data-low-period="52">52주 신저가</button>
             <button class="breakout-filter-btn" data-low-period="ALL">역대 신저가</button>
@@ -696,9 +740,9 @@
         <div class="breakout-table-wrap">
           <table class="breakout-table">
             <thead>
-              <tr><th>시장</th><th>종목</th><th>현재가</th><th>등락률</th><th>최근 거래일 저가</th><th>26주 최저</th><th>52주 최저</th><th>역대 최저</th><th>돌파 구분</th></tr>
+              <tr><th>시장</th><th>종목</th><th>현재가</th><th>등락률</th><th>최근 거래일 저가</th><th>20일 최저</th><th>26주 최저</th><th>52주 최저</th><th>역대 최저</th><th>돌파 구분</th></tr>
             </thead>
-            <tbody id="lowBreakoutTableBody"><tr><td colspan="9" class="breakout-loading">신저가 종목 확인 중...</td></tr></tbody>
+            <tbody id="lowBreakoutTableBody"><tr><td colspan="10" class="breakout-loading">신저가 종목 확인 중...</td></tr></tbody>
           </table>
         </div>
       </section>
@@ -1190,7 +1234,66 @@
         chart, candleSeries, maSeries, bbSeries, containerId, interval: initialInterval, visibleCount, options,
         toggles: { candle:true, bb:!!bbSeries, 5:visibleMa.includes(5), 10:visibleMa.includes(10), 20:visibleMa.includes(20), 60:visibleMa.includes(60), 120:visibleMa.includes(120), 240:visibleMa.includes(240) }
       };
+      bindStaticChartControls(key);
       loadLwChart(key);
+    }
+
+    function bindStaticChartControls(key) {
+      const inst = lwChartInstances[key];
+      const el = document.getElementById(inst?.containerId || '');
+      const card = el?.closest('.technical-card, .card');
+      if (!inst || !card || card.dataset.staticControlsBound === key) return;
+      card.dataset.staticControlsBound = key;
+      const head = card.querySelector('.head-row');
+      if (inst.options?.periodControl && head && !head.querySelector(`[data-lw-days="${key}"]`)) {
+        const label = document.createElement('label');
+        label.className = 'chart-control';
+        label.innerHTML = `조회기간 <input data-lw-days="${key}" type="number" min="40" max="520" value="${inst.visibleCount}" />개`;
+        head.appendChild(label);
+        const input = label.querySelector('input');
+        const applyDays = () => {
+          const days = Math.max(40, Math.min(520, Number(input.value) || inst.visibleCount || 200));
+          input.value = String(days);
+          inst.visibleCount = days;
+          loadLwChart(key);
+        };
+        input.addEventListener('change', applyDays);
+        input.addEventListener('keydown', (event) => { if (event.key === 'Enter') applyDays(); });
+      }
+      const legend = card.querySelector('.technical-legend');
+      if (!legend) return;
+      const seriesFromText = (text) => {
+        if (/MA\s*20/.test(text)) return '20';
+        if (/MA\s*60/.test(text)) return '60';
+        if (/MA\s*120/.test(text)) return '120';
+        if (/MA\s*5/.test(text)) return '5';
+        if (/MA\s*10/.test(text)) return '10';
+        if (/볼린저/.test(text)) return 'bb';
+        return '';
+      };
+      const applyLegendState = () => {
+        legend.querySelectorAll('.legend-chip').forEach((chip) => {
+          const target = chip.dataset.series || seriesFromText(chip.textContent || '');
+          if (!target) return;
+          chip.dataset.series = target;
+          chip.classList.toggle('off', inst.toggles[target] === false);
+        });
+      };
+      legend.addEventListener('click', (event) => {
+        const chip = event.target.closest('.legend-chip');
+        if (!chip) return;
+        const target = chip.dataset.series || seriesFromText(chip.textContent || '');
+        if (!target) return;
+        inst.toggles[target] = inst.toggles[target] === false;
+        if (target === 'bb' && inst.bbSeries) {
+          inst.bbSeries.upper.applyOptions({ visible: inst.toggles.bb });
+          inst.bbSeries.lower.applyOptions({ visible: inst.toggles.bb });
+        } else if (inst.maSeries[target]) {
+          inst.maSeries[target].applyOptions({ visible: inst.toggles[target] });
+        }
+        applyLegendState();
+      });
+      applyLegendState();
     }
 
     function renderSummary() {
@@ -1537,6 +1640,96 @@
       }
     }
 
+    function colorizeResultText(text) {
+      return escapeDashboard(text || '').replace(/([+-]\d+(?:\.\d+)?\s*%p|[+-]\d+(?:\.\d+)?\s*%|[+-]\d+(?:\.\d+)?)/g, (match) => {
+        const value = Number(match.replace(/[^\d.-]/g, ''));
+        const cls = value > 0 ? 'up' : value < 0 ? 'down' : 'neutral';
+        return `<span class="${cls}">${match}</span>`;
+      });
+    }
+
+    function renderMiniLineChart(containerId, payload, fields) {
+      const el = document.getElementById(containerId);
+      if (!el) return;
+      const series = Array.isArray(payload?.series) ? payload.series : [];
+      if (!series.length) {
+        el.innerHTML = `<div class="panel-empty">${escapeDashboard(payload?.note || '데이터가 없습니다.')}</div>`;
+        return;
+      }
+      const w = el.clientWidth || 760;
+      const h = el.clientHeight || 230;
+      const padL = 48, padR = 18, padT = 30, padB = 26;
+      const values = fields.flatMap((field) => series.map((row) => Number(row[field.key])).filter(Number.isFinite));
+      const rawMin = Math.min(...values);
+      const rawMax = Math.max(...values);
+      const margin = (rawMax - rawMin || 1) * 0.08;
+      const min = rawMin - margin;
+      const max = rawMax + margin;
+      const span = max - min || 1;
+      const xFor = (i) => padL + (i * (w - padL - padR)) / Math.max(1, series.length - 1);
+      const yFor = (value) => h - padB - ((value - min) / span) * (h - padT - padB);
+      const grid = Array.from({ length: 4 }, (_, i) => min + span * i / 3).map((value) => {
+        const y = yFor(value);
+        return `<line x1="${padL}" y1="${y}" x2="${w - padR}" y2="${y}" stroke="#e6ecf7" /><text x="6" y="${y + 4}" fill="#5f6b85" font-size="10">${value.toFixed(1)}</text>`;
+      }).join('');
+      const lines = fields.map((field) => {
+        const points = series.map((row, i) => {
+          const value = Number(row[field.key]);
+          return Number.isFinite(value) ? `${xFor(i)},${yFor(value)}` : null;
+        }).filter(Boolean).join(' ');
+        return `<polyline fill="none" stroke="${field.color}" stroke-width="2.4" points="${points}" />`;
+      }).join('');
+      const legend = fields.map((field, i) => `<text x="${padL + i * 115}" y="19" fill="${field.color}" font-size="12" font-weight="900">${field.label}</text>`).join('');
+      let prevYear = '';
+      const xTicks = series.map((row, i) => {
+        const year = String(row.date || '').slice(0, 4);
+        if (!year || year === prevYear) return '';
+        prevYear = year;
+        return `<text x="${xFor(i) - 13}" y="${h - 7}" fill="#5f6b85" font-size="10">${year}</text>`;
+      }).join('');
+      el.innerHTML = `<svg width="100%" height="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><rect width="${w}" height="${h}" fill="#f9fbff"/>${grid}${lines}${legend}${xTicks}</svg>`;
+    }
+
+    function renderMiniPanels(rootId, rows, formatter) {
+      const root = document.getElementById(rootId);
+      if (!root) return;
+      root.innerHTML = rows?.length ? rows.map(formatter).join('') : '<div class="panel-empty">표시할 실제 데이터가 없습니다.</div>';
+    }
+
+    function renderBinanceKoreaRows(rows, asOf = '') {
+      const binanceBody = document.getElementById('binanceKoreaBody');
+      if (!binanceBody) return;
+      binanceBody.innerHTML = rows?.length ? rows.map((item) => {
+        const rate = Number(item.changeRate);
+        const cls = rate > 0 ? 'up' : rate < 0 ? 'down' : 'flat';
+        const price = Number.isFinite(Number(item.price))
+          ? Number(item.price).toLocaleString('ko-KR', { maximumFractionDigits: 5 })
+          : '-';
+        const change = Number.isFinite(Number(item.change))
+          ? `${Number(item.change) > 0 ? '+' : ''}${Number(item.change).toLocaleString('ko-KR', { maximumFractionDigits: 5 })}`
+          : '-';
+        const rowAsOf = item.asOf ? new Date(item.asOf).toLocaleString('ko-KR') : asOf;
+        return `<tr>
+          <td>${escapeDashboard(item.name)}<span class="stock-symbol">${escapeDashboard(item.code)} · ${escapeDashboard(rowAsOf || '')}</span></td>
+          <td><a class="breakout-stock" href="https://www.binance.com/en/futures/${encodeURIComponent(item.symbol)}" target="_blank" rel="noopener">${escapeDashboard(item.symbol || '-')}</a></td>
+          <td class="${cls}">${price}</td>
+          <td class="${cls}">${change}<span class="stock-symbol ${cls}">${Number.isFinite(rate) ? `${rate > 0 ? '+' : ''}${rate.toFixed(2)}%` : '-'}</span></td>
+          <td>${escapeDashboard(item.status || '')}</td>
+        </tr>`;
+      }).join('') : '<tr><td colspan="5" class="panel-empty">Binance 선물 시세가 없습니다.</td></tr>';
+    }
+
+    async function refreshBinanceKoreaFutures() {
+      try {
+        const json = await fetchJsonWithRetry('/api/binance-korea-futures', 1);
+        const asOf = json.asOf ? new Date(json.asOf).toLocaleString('ko-KR') : '';
+        renderBinanceKoreaRows(Array.isArray(json.rows) ? json.rows : [], asOf);
+      } catch (error) {
+        const binanceBody = document.getElementById('binanceKoreaBody');
+        if (binanceBody) binanceBody.innerHTML = `<tr><td colspan="5" class="panel-empty">Binance 시세 확인 실패: ${escapeDashboard(error.message || error)}</td></tr>`;
+      }
+    }
+
     async function renderDashboardBridge() {
       const refreshButton = document.getElementById('refreshDashboardBridge');
       if (!refreshButton) return;
@@ -1595,7 +1788,7 @@
         const ddayLabel = (daysLeft) => Number(daysLeft) === 0 ? 'D-DAY' : Number(daysLeft) > 0 ? `D-${Number(daysLeft)}` : `D+${Math.abs(Number(daysLeft))}`;
         calendarEl.innerHTML = events.length ? events.map((event, index) => {
           const badge = event.type === 'news' ? '중요뉴스' : event.importance === 'critical' ? '통화정책' : '물가';
-          const result = event.result ? `<div class="calendar-result">${escapeDashboard(event.result)}</div>` : '';
+          const result = event.result ? `<div class="calendar-result">${colorizeResultText(event.result)}</div>` : '';
           return `<div class="calendar-item ${event.importance === 'critical' ? 'critical' : ''} ${Number(event.daysLeft) < 0 ? 'past' : ''}" data-calendar-index="${index}"><div class="calendar-dday">${ddayLabel(event.daysLeft)}</div><div><div class="calendar-name">${escapeDashboard(event.name)}</div><div class="calendar-source">${escapeDashboard(event.date)} · ${escapeDashboard(event.source)}</div>${result}</div><span class="volume-badge">${badge}</span></div>`;
         }).join('') : '<div class="panel-empty">예정된 주요 일정이 없습니다.</div>';
         const firstUpcomingIndex = events.findIndex((event) => Number(event.daysLeft) >= 0);
@@ -1607,6 +1800,48 @@
         const disclosures = Array.isArray(json.disclosures) ? json.disclosures : [];
         document.getElementById('disclosureFeed').innerHTML = disclosures.length ? disclosures.map((item) => `
           <div class="feed-item"><div class="feed-company">${escapeDashboard(item.name)}<span class="stock-symbol">${escapeDashboard(item.code)}</span></div><div style="display:flex;align-items:center;gap:7px;min-width:0"><span class="volume-badge">${escapeDashboard(item.type || '공시')}</span><a class="feed-title" href="${escapeDashboard(item.url)}" target="_blank" rel="noopener">${escapeDashboard(item.title)}</a></div><div class="feed-date">${escapeDashboard(String(item.datetime || '').replace('T', ' '))}</div></div>`).join('') : '<div class="panel-empty">최신 공시·뉴스가 없습니다.</div>';
+
+        const earnings = Array.isArray(json.earningsCalendar) ? json.earningsCalendar : [];
+        const earningsEl = document.getElementById('earningsCalendar');
+        if (earningsEl) {
+          earningsEl.innerHTML = earnings.length ? earnings.map((event, index) => {
+            const result = event.result ? `<div class="calendar-result">${colorizeResultText(event.result)}</div>` : '';
+            const dateKnown = /^\d{4}-\d{2}-\d{2}$/.test(String(event.date || ''));
+            return `<div class="calendar-item ${dateKnown && Number(event.daysLeft) < 0 ? 'past' : ''}" data-earnings-index="${index}"><div class="calendar-dday">${dateKnown ? ddayLabel(event.daysLeft) : '미정'}</div><div><div class="calendar-name">${escapeDashboard(event.name)}</div><div class="calendar-source">${escapeDashboard(event.date || '-')} · ${escapeDashboard(event.source || '')}</div>${result}</div><span class="volume-badge">${escapeDashboard(event.status || '실적')}</span></div>`;
+          }).join('') : '<div class="panel-empty">실적 일정 원천이 확인되지 않았습니다.</div>';
+          const upcoming = earnings.findIndex((event) => Number(event.daysLeft) >= 0);
+          requestAnimationFrame(() => {
+            const target = earningsEl.querySelector(`[data-earnings-index="${Math.max(0, upcoming)}"]`);
+            if (target) earningsEl.scrollTop = Math.max(0, target.offsetTop - earningsEl.offsetTop);
+          });
+        }
+        renderMiniLineChart('sectorRsChart', json.sectorRs, [
+          { key: 'semiconductorRs', label: '반도체', color: '#d92c2c' },
+          { key: 'defenseRs', label: '방산', color: '#0f6fff' }
+        ]);
+        const optionRows = Array.isArray(json.optionsIndicators) ? json.optionsIndicators : [];
+        renderMiniPanels('optionsPanel', optionRows, (item) => {
+          const rate = Number(item.changeRate);
+          const cls = rate > 0 ? 'up' : rate < 0 ? 'down' : 'flat';
+          return `<div class="mini-panel"><div class="mini-panel-title">${escapeDashboard(item.name)}</div><div class="mini-panel-value ${cls}">${Number.isFinite(Number(item.value)) ? Number(item.value).toLocaleString('ko-KR', { maximumFractionDigits: 2 }) : '-'}</div><div class="mini-panel-note">${Number.isFinite(rate) ? `${rate > 0 ? '+' : ''}${rate.toFixed(2)}% · ` : ''}${escapeDashboard(item.note || item.asOf || '')}</div></div>`;
+        });
+        const fear = json.fearGreed || {};
+        renderMiniPanels('fearGreedPanel', [fear], (item) => {
+          const scoreValue = Number(item.score);
+          const cls = scoreValue >= 65 ? 'up' : scoreValue <= 40 ? 'down' : 'flat';
+          return `<div class="mini-panel" style="grid-column:1/-1"><div class="mini-panel-title">현재 심리</div><div class="mini-panel-value ${cls}">${Number.isFinite(scoreValue) ? scoreValue : '-'} · ${escapeDashboard(item.state || '-')}</div><div class="mini-panel-note">${escapeDashboard(item.note || '')}</div></div>`;
+        });
+        const etfFlows = Array.isArray(json.etfFlows) ? json.etfFlows : [];
+        const etfBody = document.getElementById('etfFlowBody');
+        if (etfBody) {
+          etfBody.innerHTML = etfFlows.length ? etfFlows.map((item) => {
+            const rate = Number(item.changeRate);
+            const cls = rate > 0 ? 'up' : rate < 0 ? 'down' : 'flat';
+            return `<tr><td>${escapeDashboard(item.name)}<span class="stock-symbol">${escapeDashboard(item.symbol)}</span></td><td>${Number.isFinite(Number(item.price)) ? `$${Number(item.price).toLocaleString('ko-KR', { maximumFractionDigits: 2 })}` : '-'}</td><td class="${cls}">${Number.isFinite(rate) ? `${rate > 0 ? '+' : ''}${rate.toFixed(2)}%` : '-'}</td><td>${formatDashboardMarketCap(item.tradeAmount)}</td><td>${escapeDashboard(item.status || '')}</td></tr>`;
+          }).join('') : '<tr><td colspan="5" class="panel-empty">ETF 원천 데이터가 없습니다.</td></tr>';
+        }
+        const binanceRows = Array.isArray(json.binanceKoreaStocks) ? json.binanceKoreaStocks : [];
+        renderBinanceKoreaRows(binanceRows, asOf);
       } catch (error) {
         document.getElementById('riskScorePanel').innerHTML = `<div class="panel-empty">${escapeDashboard(error.message || '상단 패널 데이터를 불러오지 못했습니다.')}</div>`;
       } finally {
@@ -1688,17 +1923,18 @@
     function ensureAssetChartControls(containerId, key) {
       const el = document.getElementById(containerId);
       if (!el) return null;
-      const state = assetChartState[key] || (assetChartState[key] = { days: 120, ma: { 5: true, 20: true, 60: true } });
+      const defaultDays = key === 'US10Y' || key === 'US2Y' ? 200 : 120;
+      const state = assetChartState[key] || (assetChartState[key] = { days: defaultDays, ma: { 5: true, 20: true, 60: true } });
       const card = el.closest('.card');
       const head = card?.querySelector('.head-row');
       if (head && !head.querySelector('[data-asset-days]')) {
         const label = document.createElement('label');
         label.className = 'chart-control';
-        label.innerHTML = `조회기간 <input data-asset-days="${key}" type="number" min="20" max="260" value="120" />일`;
+        label.innerHTML = `조회기간 <input data-asset-days="${key}" type="number" min="20" max="500" value="${defaultDays}" />일`;
         head.appendChild(label);
         const input = label.querySelector('input');
         const applyDays = () => {
-          state.days = Math.max(20, Math.min(260, Number(input.value) || 120));
+          state.days = Math.max(20, Math.min(500, Number(input.value) || defaultDays));
           input.value = String(state.days);
           renderMiniChart(containerId, key);
         };
@@ -1845,15 +2081,16 @@
         }
         const previousCloseValue = Number(json.previousClose ?? json.referenceValue);
         if (noteEl) noteEl.textContent = json.note || `단위: ${json.unit || '-'}`;
-        const formatChartValue = (value) => {
+        const unitForField = (field = {}) => field.unit ?? json.units?.[field.key] ?? json.unit ?? '';
+        const formatChartValue = (value, unit = json.unit) => {
           const numeric = Number(value);
           if (!Number.isFinite(numeric)) return '-';
           const normalized = Math.abs(numeric) < 0.005 ? 0 : numeric;
           if (normalized === 0) return '0';
-          if (json.unit === '조원' || json.unit === 'P') {
+          if (unit === '조원' || unit === '조달러' || unit === 'P') {
             return normalized.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
           }
-          if (json.unit === '%' || json.unit === '%GDP' || json.unit === '조달러/%' || json.unit === '조원/%' || json.unit === '십억달러') {
+          if (unit === '%' || unit === '%GDP' || unit === '십억달러') {
             return normalized.toLocaleString('ko-KR', { maximumFractionDigits: 2 });
           }
           return Math.round(normalized).toLocaleString('ko-KR');
@@ -1931,13 +2168,13 @@
         };
         const leftTickSvg = makeTicks(leftScale).map((value) => {
           const y = leftScale.yFor(value);
-          return `<text x="6" y="${y + 4}" fill="#5f6b85" font-size="11">${formatChartValue(value)}</text>
+          return `<text x="6" y="${y + 4}" fill="#5f6b85" font-size="11">${formatChartValue(value, leftFields[0]?.unit || json.unit)}</text>
                   <line x1="${padL}" y1="${y}" x2="${w - padR}" y2="${y}" stroke="#e6ecf7" stroke-width="1" />`;
         }).join('');
         const rightTickSvg = options.dualAxis ? makeTicks(rightScale).map((value) => {
           const y = rightScale.yFor(value);
           return `<line x1="${w - padR}" y1="${y}" x2="${w - padR + 5}" y2="${y}" stroke="#94a0b8" stroke-width="1" />
-                  <text x="${w - 6}" y="${y + 4}" fill="#5f6b85" font-size="11" text-anchor="end">${formatChartValue(value)}</text>`;
+                  <text x="${w - 6}" y="${y + 4}" fill="#5f6b85" font-size="11" text-anchor="end">${formatChartValue(value, rightFields[0]?.unit || json.unit)}</text>`;
         }).join('') : '';
         const zeroLineSvg = options.zeroLine && leftScale.min <= 0 && leftScale.max >= 0
           ? `<line x1="${padL}" y1="${leftScale.yFor(0)}" x2="${w - padR}" y2="${leftScale.yFor(0)}" stroke="#111827" stroke-width="1.4" stroke-dasharray="5 4" />
@@ -1951,7 +2188,7 @@
           : '';
         const previousCloseLineSvg = options.previousCloseLine && Number.isFinite(previousCloseValue) && previousCloseValue >= leftScale.min && previousCloseValue <= leftScale.max
           ? `<line x1="${padL}" y1="${leftScale.yFor(previousCloseValue)}" x2="${w - padR}" y2="${leftScale.yFor(previousCloseValue)}" stroke="#111827" stroke-width="1.2" stroke-dasharray="6 5" opacity=".72" />
-             <text x="${w - padR - 6}" y="${leftScale.yFor(previousCloseValue) - 5}" fill="#111827" font-size="11" font-weight="850" text-anchor="end">전일 종가 ${formatChartValue(previousCloseValue)}${json.unit || ''}</text>`
+             <text x="${w - padR - 6}" y="${leftScale.yFor(previousCloseValue) - 5}" fill="#111827" font-size="11" font-weight="850" text-anchor="end">전일 종가 ${formatChartValue(previousCloseValue, json.unit)}${json.unit || ''}</text>`
           : '';
         const plotWidth = w - padL - padR;
         const barWidth = Math.max(1.5, Math.min(10, (plotWidth / Math.max(1, series.length)) * 0.72));
@@ -2018,7 +2255,10 @@
         const lastRow = series[series.length - 1] || {};
         const lastDate = lastRow.date || '';
         let currentValues = options.showLastValues
-          ? fields.filter((field) => field.type !== 'bar').map((field) => `${field.label}${options.cumulative ? ' 누적' : ''} ${formatChartValue(lastRow[field.key])}${json.unit || ''}`).join('   ')
+          ? fields.filter((field) => field.type !== 'bar').map((field) => {
+              const unit = unitForField(field);
+              return `${field.label}${options.cumulative ? ' 누적' : ''} ${formatChartValue(lastRow[field.key], unit)}${unit}`;
+            }).join('   ')
           : '';
         let currentValuesMarkup = currentValues;
         if (options.latestSummary) {
@@ -2026,9 +2266,10 @@
           const change = Number(lastRow[summary.changeKey]);
           const rate = Number(lastRow[summary.percentKey]);
           const sign = change > 0 ? '+' : '';
-          currentValues = `${summary.label} ${formatChartValue(lastRow[summary.key])}${json.unit || ''}   전일 ${sign}${formatChartValue(change)}${json.unit || ''} (${sign}${Number.isFinite(rate) ? rate.toFixed(2) : '-'}%)`;
+          const summaryUnit = summary.unit || json.units?.[summary.key] || json.unit || '';
+          currentValues = `${summary.label} ${formatChartValue(lastRow[summary.key], summaryUnit)}${summaryUnit}   전일 ${sign}${formatChartValue(change, summaryUnit)}${summaryUnit} (${sign}${Number.isFinite(rate) ? rate.toFixed(2) : '-'}%)`;
           const changeColor = change > 0 ? '#d92c2c' : change < 0 ? '#1f5bd8' : '#5f6b85';
-          currentValuesMarkup = `<tspan fill="${summary.color || '#111827'}">${summary.label} ${formatChartValue(lastRow[summary.key])}${json.unit || ''}</tspan><tspan fill="${changeColor}">   전일 ${sign}${formatChartValue(change)}${json.unit || ''} (${sign}${Number.isFinite(rate) ? rate.toFixed(2) : '-'}%)</tspan>`;
+          currentValuesMarkup = `<tspan fill="${summary.color || '#111827'}">${summary.label} ${formatChartValue(lastRow[summary.key], summaryUnit)}${summaryUnit}</tspan><tspan fill="${changeColor}">   전일 ${sign}${formatChartValue(change, summaryUnit)}${summaryUnit} (${sign}${Number.isFinite(rate) ? rate.toFixed(2) : '-'}%)</tspan>`;
         }
         el.innerHTML = `<svg width="100%" height="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
           <rect x="0" y="0" width="${w}" height="${h}" fill="#f9fbff"/>
@@ -2086,7 +2327,8 @@
               const label = field.tooltipLabel || field.label;
               const cumulativeLabel = options.cumulative ? ' 누적' : '';
               const valueLabel = field.type === 'bar' ? '' : cumulativeLabel;
-              return `<div style="color:${colorForField(field, value)};font-weight:800;">${label}${valueLabel}: ${formatChartValue(value)}${json.unit ? ` ${json.unit}` : ''}</div>`;
+              const unit = unitForField(field);
+              return `<div style="color:${colorForField(field, value)};font-weight:800;">${label}${valueLabel}: ${formatChartValue(value, unit)}${unit ? ` ${unit}` : ''}</div>`;
             }).join('');
             tooltip.innerHTML = `<div style="font-weight:900;margin-bottom:4px;color:#111827;">${row.date || '-'}</div>${valueRows}`;
             tooltip.style.display = 'block';
@@ -2273,15 +2515,15 @@
       const body = document.getElementById('breakoutTableBody');
       const summary = document.getElementById('breakoutSummary');
       if (!body) return;
-      const periodKey = breakoutPeriod === '26' ? 'week26Breakout' : breakoutPeriod === '52' ? 'week52Breakout' : 'allTimeBreakout';
-      const periodLabel = breakoutPeriod === '26' ? '26주 신고가' : breakoutPeriod === '52' ? '52주 신고가' : '역대 신고가';
+      const periodKey = breakoutPeriod === '20' ? 'day20Breakout' : breakoutPeriod === '26' ? 'week26Breakout' : breakoutPeriod === '52' ? 'week52Breakout' : 'allTimeBreakout';
+      const periodLabel = breakoutPeriod === '20' ? '20일 신고가' : breakoutPeriod === '26' ? '26주 신고가' : breakoutPeriod === '52' ? '52주 신고가' : '역대 신고가';
       const periodRows = breakoutRows.filter((row) => row[periodKey]);
       const rows = periodRows.filter((row) => breakoutMarket === 'ALL' || row.market === breakoutMarket);
       const kospiCount = periodRows.filter((row) => row.market === 'KOSPI').length;
       const kosdaqCount = periodRows.filter((row) => row.market === 'KOSDAQ').length;
       summary.innerHTML = `<span class="breakout-count">${periodLabel} ${rows.length}종목</span><span class="breakout-count">KOSPI ${kospiCount}종목</span><span class="breakout-count">KOSDAQ ${kosdaqCount}종목</span>`;
       if (!rows.length) {
-        body.innerHTML = '<tr><td colspan="9" class="breakout-loading">현재 선택 조건을 충족한 종목이 없습니다.</td></tr>';
+        body.innerHTML = '<tr><td colspan="10" class="breakout-loading">현재 선택 조건을 충족한 종목이 없습니다.</td></tr>';
         return;
       }
       const formatPrice = (value) => Number.isFinite(Number(value)) ? `${Number(value).toLocaleString('ko-KR')}원` : '-';
@@ -2289,6 +2531,7 @@
         const rate = Number(row.changeRate) || 0;
         const rateClass = rate > 0 ? 'up' : rate < 0 ? 'down' : 'flat';
         const badges = [
+          row.day20Breakout ? '<span class="breakout-badge week20">20일 신고가</span>' : '',
           row.week26Breakout ? '<span class="breakout-badge week26">26주 신고가</span>' : '',
           row.week52Breakout ? '<span class="breakout-badge week52">52주 신고가</span>' : '',
           row.allTimeBreakout ? '<span class="breakout-badge alltime">역대 신고가</span>' : ''
@@ -2299,6 +2542,7 @@
           <td>${formatPrice(row.currentPrice)}</td>
           <td class="${rateClass}">${rate > 0 ? '+' : ''}${rate.toFixed(2)}%</td>
           <td>${formatPrice(row.todayHigh)}</td>
+          <td>${formatPrice(row.day20High)}</td>
           <td>${formatPrice(row.week26High)}</td>
           <td>${formatPrice(row.week52High)}</td>
           <td>${formatPrice(row.allTimeHigh)}</td>
@@ -2311,15 +2555,15 @@
       const body = document.getElementById('lowBreakoutTableBody');
       const summary = document.getElementById('lowBreakoutSummary');
       if (!body) return;
-      const periodKey = lowBreakoutPeriod === '26' ? 'week26LowBreakout' : lowBreakoutPeriod === '52' ? 'week52LowBreakout' : 'allTimeLowBreakout';
-      const periodLabel = lowBreakoutPeriod === '26' ? '26주 신저가' : lowBreakoutPeriod === '52' ? '52주 신저가' : '역대 신저가';
+      const periodKey = lowBreakoutPeriod === '20' ? 'day20LowBreakout' : lowBreakoutPeriod === '26' ? 'week26LowBreakout' : lowBreakoutPeriod === '52' ? 'week52LowBreakout' : 'allTimeLowBreakout';
+      const periodLabel = lowBreakoutPeriod === '20' ? '20일 신저가' : lowBreakoutPeriod === '26' ? '26주 신저가' : lowBreakoutPeriod === '52' ? '52주 신저가' : '역대 신저가';
       const periodRows = lowBreakoutRows.filter((row) => row[periodKey]);
       const rows = periodRows.filter((row) => lowBreakoutMarket === 'ALL' || row.market === lowBreakoutMarket);
       const kospiCount = periodRows.filter((row) => row.market === 'KOSPI').length;
       const kosdaqCount = periodRows.filter((row) => row.market === 'KOSDAQ').length;
       summary.innerHTML = `<span class="breakout-count">${periodLabel} ${rows.length}종목</span><span class="breakout-count">KOSPI ${kospiCount}종목</span><span class="breakout-count">KOSDAQ ${kosdaqCount}종목</span>`;
       if (!rows.length) {
-        body.innerHTML = '<tr><td colspan="9" class="breakout-loading">현재 선택 조건을 충족한 종목이 없습니다.</td></tr>';
+        body.innerHTML = '<tr><td colspan="10" class="breakout-loading">현재 선택 조건을 충족한 종목이 없습니다.</td></tr>';
         return;
       }
       const formatPrice = (value) => Number.isFinite(Number(value)) ? `${Number(value).toLocaleString('ko-KR')}원` : '-';
@@ -2327,6 +2571,7 @@
         const rate = Number(row.changeRate) || 0;
         const rateClass = rate > 0 ? 'up' : rate < 0 ? 'down' : 'flat';
         const badges = [
+          row.day20LowBreakout ? '<span class="breakout-badge low20">20일 신저가</span>' : '',
           row.week26LowBreakout ? '<span class="breakout-badge low26">26주 신저가</span>' : '',
           row.week52LowBreakout ? '<span class="breakout-badge low52">52주 신저가</span>' : '',
           row.allTimeLowBreakout ? '<span class="breakout-badge lowall">역대 신저가</span>' : ''
@@ -2337,6 +2582,7 @@
           <td>${formatPrice(row.currentPrice)}</td>
           <td class="${rateClass}">${rate > 0 ? '+' : ''}${rate.toFixed(2)}%</td>
           <td>${formatPrice(row.todayLow)}</td>
+          <td>${formatPrice(row.day20Low)}</td>
           <td>${formatPrice(row.week26Low)}</td>
           <td>${formatPrice(row.week52Low)}</td>
           <td>${formatPrice(row.allTimeLow)}</td>
@@ -2381,8 +2627,8 @@
         asOf.textContent = '기준시각: -';
         lowAsOf.textContent = '기준시각: -';
         const message = error.message || '신고가·신저가 데이터를 불러오지 못했습니다.';
-        body.innerHTML = `<tr><td colspan="9" class="breakout-loading">${message}</td></tr>`;
-        lowBody.innerHTML = `<tr><td colspan="9" class="breakout-loading">${message}</td></tr>`;
+        body.innerHTML = `<tr><td colspan="10" class="breakout-loading">${message}</td></tr>`;
+        lowBody.innerHTML = `<tr><td colspan="10" class="breakout-loading">${message}</td></tr>`;
       } finally {
         button.disabled = false;
         button.textContent = '새로고침';
@@ -2439,17 +2685,17 @@
     renderMiniChart('chart-wti', 'WTI');
     renderMiniChart('chart-dxy', 'DXY');
     renderMiniChart('chart-gold', 'GOLD');
-    initLwChart('US10Y_WEEK', 'lwchart-US10Y_WEEK', '1wk', 160, {
+    initLwChart('US10Y_WEEK', 'lwchart-US10Y_WEEK', '1wk', 200, {
       apiKey:'US10Y', plain:true, noMarkers:true, bollinger:true, visibleMa:[20,60,120],
-      referenceValues:true, valueSuffix:'%', valueDigits:2, axisDigits:2
+      referenceValues:true, valueSuffix:'%', valueDigits:2, axisDigits:2, periodControl:true
     });
-    initLwChart('KR3Y_WEEK', 'lwchart-KR3Y_WEEK', '1wk', 160, {
+    initLwChart('KR3Y_WEEK', 'lwchart-KR3Y_WEEK', '1wk', 200, {
       apiKey:'KR3Y', plain:true, noMarkers:true, bollinger:true, visibleMa:[20,60,120],
-      referenceValues:true, valueSuffix:'%', valueDigits:2, axisDigits:2
+      referenceValues:true, valueSuffix:'%', valueDigits:2, axisDigits:2, periodControl:true
     });
-    initLwChart('JP30Y_WEEK', 'lwchart-JP30Y_WEEK', '1wk', 160, {
+    initLwChart('JP30Y_WEEK', 'lwchart-JP30Y_WEEK', '1wk', 200, {
       apiKey:'JP30Y', plain:true, noMarkers:true, bollinger:true, visibleMa:[20,60,120],
-      referenceValues:true, valueSuffix:'%', valueDigits:2, axisDigits:2
+      referenceValues:true, valueSuffix:'%', valueDigits:2, axisDigits:2, periodControl:true
     });
     initLwChart('SAMSUNG_DAILY', 'lwchart-SAMSUNG_DAILY', '1d', 120, {
       apiKey:'SAMSUNG', plain:true, noMarkers:true, visibleMa:[20,60,120],
@@ -2581,15 +2827,16 @@
       { key: 'kosdaq', label: 'KOSDAQ', color: '#0f6fff' }
     ], { daysInputId: 'days-market-turnover', tooltip: true });
     const renderM2Trend = () => renderExtraChart('chart-m2-trend', 'note-m2-trend', 'm2-trend', [
-      { key: 'm2', label: '한국 M2', color: '#0f6fff' },
-      { key: 'm2Yoy', label: 'YoY(우)', color: '#d92c2c', axis: 'right' }
-    ], { dualAxis: true, tooltip: true, yearlyTicks: true });
+      { key: 'm2', label: '한국 M2', color: '#0f6fff', unit: '조원' },
+      { key: 'm2Yoy', label: 'YoY(우)', color: '#d92c2c', axis: 'right', unit: '%' }
+    ], { dualAxis: true, rightZeroLine: true, tooltip: true, yearlyTicks: true });
     const renderUsM2Trend = () => renderExtraChart('chart-us-m2-trend', 'note-us-m2-trend', 'us-m2-trend', [
-      { key: 'm2', label: '미국 M2', color: '#0f6fff' },
-      { key: 'm2Yoy', label: 'YoY(우)', color: '#d92c2c', axis: 'right' }
-    ], { dualAxis: true, tooltip: true, yearlyTicks: true });
+      { key: 'm2', label: '미국 M2', color: '#0f6fff', unit: '조달러' },
+      { key: 'm2Yoy', label: 'YoY(우)', color: '#d92c2c', axis: 'right', unit: '%' }
+    ], { dualAxis: true, rightZeroLine: true, tooltip: true, yearlyTicks: true });
     const renderCentralBankAssets = () => renderExtraChart('chart-central-bank-assets', 'note-central-bank-assets', 'central-bank-assets', [
       { key: 'fedYoy', label: '미국', color: '#d92c2c' },
+      { key: 'bokYoy', label: '한국', color: '#111827' },
       { key: 'bojYoy', label: '일본', color: '#0f6fff' },
       { key: 'ecbYoy', label: 'ECB', color: '#0a9d58' }
     ], { zeroLine: true, tooltip: true, yearlyTicks: true });
@@ -2660,6 +2907,7 @@
     renderHighBreakouts();
     updateSummaryNumbers();
     setInterval(updateSummaryNumbers, 60000);
+    setInterval(refreshBinanceKoreaFutures, 30000);
     setInterval(renderDashboardBridge, 2 * 60 * 1000);
     setInterval(renderHighBreakouts, 5 * 60 * 1000);
     setInterval(() => {
