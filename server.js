@@ -502,27 +502,55 @@ function addYearOverYear(rows, valueKey = 'value', outputKey = 'yoy') {
   });
 }
 
+async function fetchRichCounterM2Rows(country) {
+  const response = await fetchWithTimeout(`https://richcounter.com/api/indices/m2-series?country=${encodeURIComponent(country)}&since=2010-01`, {
+    headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://richcounter.com/indices/m2' }
+  }, 12000);
+  if (!response.ok) throw new Error(`M2 ${country} HTTP ${response.status}`);
+  const json = await response.json();
+  const rows = (Array.isArray(json?.series) ? json.series : []).map((row) => {
+    const month = String(row.date || '').slice(0, 7);
+    const value = Number(row.value);
+    if (!/^\d{4}-\d{2}$/.test(month) || !Number.isFinite(value) || value <= 0) return null;
+    return { date: `${month}-01`, value };
+  }).filter(Boolean);
+  if (!rows.length) throw new Error(`M2 ${country} no data`);
+  return {
+    unit: json.unit || (country === 'KR' ? 'KRW' : 'USD'),
+    lastUpdated: json.lastUpdated || '',
+    rows: rows.sort((a, b) => a.date.localeCompare(b.date))
+  };
+}
+
 async function fetchM2TrendSeries() {
-  const rows = addYearOverYear(monthlyLast(await fetchFredCsvRows('MYAGM2KRM189N')).map((row) => ({
+  const source = await fetchRichCounterM2Rows('KR');
+  const rows = addYearOverYear(monthlyLast(source.rows).map((row) => ({
     date: row.date,
     m2: row.value / 1000000000000
   })), 'm2', 'm2Yoy');
+  const latest = rows[rows.length - 1]?.date?.slice(0, 7) || '';
   return {
     unit: '조원/%',
-    note: 'FRED/IMF 한국 M2 통화량. 값은 조원, YoY는 전년동월 대비입니다. 무인증 공개 원천 기준으로 표시합니다.',
-    series: filterLastYears(rows.filter((row) => Number.isFinite(row.m2)), 10)
+    note: `한국 M2 통화량(한국은행 ECOS 기반 공개 API). 값은 조원, YoY는 전년동월 대비입니다. 최신월: ${latest}.`,
+    lastUpdated: source.lastUpdated,
+    series: filterLastYears(rows.filter((row) => Number.isFinite(row.m2)), 15)
   };
 }
 
 async function fetchUsM2TrendSeries() {
-  const rows = addYearOverYear(monthlyLast(await fetchFredCsvRows('M2SL')).map((row) => ({
+  const source = await fetchRichCounterM2Rows('US').catch(() => null);
+  const rawRows = source?.rows?.length ? source.rows : await fetchFredCsvRows('M2SL');
+  const divisor = source?.rows?.length ? 1000000000000 : 1000;
+  const rows = addYearOverYear(monthlyLast(rawRows).map((row) => ({
     date: row.date,
-    m2: row.value / 1000
+    m2: row.value / divisor
   })), 'm2', 'm2Yoy');
+  const latest = rows[rows.length - 1]?.date?.slice(0, 7) || '';
   return {
     unit: '조달러/%',
-    note: 'FRED M2SL 미국 M2 통화량. 값은 조달러, YoY는 전년동월 대비입니다.',
-    series: filterLastYears(rows.filter((row) => Number.isFinite(row.m2)), 10)
+    note: `미국 M2 통화량(FRED M2SL 기반 공개 API). 값은 조달러, YoY는 전년동월 대비입니다. 최신월: ${latest}.`,
+    lastUpdated: source?.lastUpdated || '',
+    series: filterLastYears(rows.filter((row) => Number.isFinite(row.m2)), 15)
   };
 }
 

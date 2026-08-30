@@ -42,16 +42,18 @@ const WATCHLIST_ALIASES = new Map(DEFAULT_WATCHLIST.flatMap((item) => [
 ]));
 
 const ECONOMIC_EVENTS = [
-  { date: '2026-06-10', name: '미국 CPI', source: 'BLS', importance: 'high' },
-  { date: '2026-06-12', name: '미국 PPI', source: 'BLS', importance: 'high' },
-  { date: '2026-06-17', name: 'FOMC 금리결정', source: 'Federal Reserve', importance: 'critical' },
-  { date: '2026-07-09', name: '한국은행 금통위', source: '한국은행', importance: 'critical' },
-  { date: '2026-07-15', name: '미국 CPI', source: 'BLS', importance: 'high' },
-  { date: '2026-07-16', name: '미국 PPI', source: 'BLS', importance: 'high' },
-  { date: '2026-07-29', name: 'FOMC 금리결정', source: 'Federal Reserve', importance: 'critical' },
-  { date: '2026-08-12', name: '미국 CPI', source: 'BLS', importance: 'high' },
-  { date: '2026-08-13', name: '미국 PPI', source: 'BLS', importance: 'high' },
-  { date: '2026-08-27', name: '한국은행 금통위', source: '한국은행', importance: 'critical' },
+  { date: '2026-06-10', name: '미국 CPI', source: 'BLS', importance: 'high', result: '5월 CPI 전월 +0.5%, 전년 +4.2%; 근원 CPI 전년 +2.9%' },
+  { date: '2026-06-12', name: '미국 PPI', source: 'BLS', importance: 'high', result: '5월 PPI 최종수요 전월 +1.1%, 전년 +6.5%; 에너지 가격 급등 영향' },
+  { date: '2026-06-17', name: 'FOMC 금리결정', source: 'Federal Reserve', importance: 'critical', result: '연방기금금리 3.50~3.75% 동결, 만장일치' },
+  { date: '2026-07-16', name: '한국은행 금통위', source: '한국은행', importance: 'critical', result: '기준금리 2.50% -> 2.75% 인상, 7명 만장일치' },
+  { date: '2026-07-15', name: '미국 CPI', source: 'BLS', importance: 'high', result: '6월 CPI 전월 -0.4%, 전년 +3.5%; 근원 CPI 전년 +2.6%' },
+  { date: '2026-07-16', name: '미국 PPI', source: 'BLS', importance: 'high', result: '6월 PPI 최종수요 전월 -0.3%, 전년 +5.5%; 상품 가격 하락 주도' },
+  { date: '2026-07-29', name: 'FOMC 금리결정', source: 'Federal Reserve', importance: 'critical', result: '연방기금금리 3.50~3.75% 동결, 9:3 표결; 3명은 0.25%p 인상 선호' },
+  { date: '2026-08-12', name: '미국 CPI', source: 'BLS', importance: 'high', result: '7월 CPI 전월 +0.1%, 전년 +3.4%; 근원 CPI 전월 +0.2%, 전년 +2.5%' },
+  { date: '2026-08-13', name: '미국 PPI', source: 'BLS', importance: 'high', result: '7월 PPI 최종수요 전월 0.0%, 전년 +4.7%; 근원 PPI 전월 +0.4%' },
+  { date: '2026-08-19', name: 'FOMC 의사록', source: 'Federal Reserve', importance: 'high', type: 'news', result: '7월 회의 의사록 공개: 금리 동결, 일부 위원은 0.25%p 인상 선호' },
+  { date: '2026-08-26', name: '미국 PCE·개인지출', source: 'BEA', importance: 'high', type: 'news', result: '7월 PCE 물가 전월 +0.2%, 전년 +3.7%; 근원 PCE 전년 +3.3%' },
+  { date: '2026-08-27', name: '한국은행 금통위', source: '한국은행', importance: 'critical', result: '기준금리 2.75% -> 3.00% 인상, 0.25%p 인상' },
   { date: '2026-09-10', name: '미국 PPI', source: 'BLS', importance: 'high' },
   { date: '2026-09-11', name: '미국 CPI', source: 'BLS', importance: 'high' },
   { date: '2026-09-16', name: 'FOMC 금리결정', source: 'Federal Reserve', importance: 'critical' },
@@ -345,7 +347,7 @@ function buildCalendar() {
   return ECONOMIC_EVENTS.map((event) => {
     const eventDate = new Date(`${event.date}T00:00:00+09:00`);
     return { ...event, daysLeft: Math.ceil((eventDate - today) / 86400000) };
-  }).filter((event) => event.daysLeft >= -90).slice(0, 20);
+  }).filter((event) => event.daysLeft >= -90).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 20);
 }
 
 async function fetchStooqRows(symbol) {

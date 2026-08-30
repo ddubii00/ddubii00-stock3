@@ -164,7 +164,7 @@
     .sector-tiles { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:9px; }
     .sector-tile { min-height:62px; border-radius:13px; padding:7px 10px; display:flex; flex-direction:column; justify-content:space-between; border:1px solid rgba(23,32,51,.08); box-shadow:0 6px 16px rgba(17,38,74,.09); transition:background-color .2s ease, transform .15s ease; cursor:pointer; text-align:left; }
     .sector-tile:hover { transform:translateY(-1px); }
-    .sector-name { font-size:14px; font-weight:950; }
+    .sector-name { font-size:15px; font-weight:950; }
     .sector-rate { font-size:19px; font-weight:950; }
     .sector-flow { font-size:9px; line-height:1.25; opacity:.94; }
     .sector-detail-panel { display:none; margin-top:12px; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#fff; }
@@ -186,6 +186,7 @@
     .calendar-dday { font-size:16px; font-weight:950; color:#153b72; }
     .calendar-name { font-size:12px; font-weight:900; }
     .calendar-source { color:var(--muted); font-size:10px; }
+    .calendar-result { margin-top:3px; color:#172033; font-size:11px; line-height:1.25; font-weight:850; }
     .reference-data-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
     .reference-panel { border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#fff; }
     .reference-panel-head { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:10px 12px; background:#f7f9fd; border-bottom:1px solid var(--line); font-weight:950; }
@@ -1592,8 +1593,11 @@
         const events = Array.isArray(json.calendar) ? json.calendar : [];
         const calendarEl = document.getElementById('economicCalendar');
         const ddayLabel = (daysLeft) => Number(daysLeft) === 0 ? 'D-DAY' : Number(daysLeft) > 0 ? `D-${Number(daysLeft)}` : `D+${Math.abs(Number(daysLeft))}`;
-        calendarEl.innerHTML = events.length ? events.map((event, index) => `
-          <div class="calendar-item ${event.importance === 'critical' ? 'critical' : ''} ${Number(event.daysLeft) < 0 ? 'past' : ''}" data-calendar-index="${index}"><div class="calendar-dday">${ddayLabel(event.daysLeft)}</div><div><div class="calendar-name">${escapeDashboard(event.name)}</div><div class="calendar-source">${escapeDashboard(event.date)} · ${escapeDashboard(event.source)}</div></div><span class="volume-badge">${event.importance === 'critical' ? '통화정책' : '물가'}</span></div>`).join('') : '<div class="panel-empty">예정된 주요 일정이 없습니다.</div>';
+        calendarEl.innerHTML = events.length ? events.map((event, index) => {
+          const badge = event.type === 'news' ? '중요뉴스' : event.importance === 'critical' ? '통화정책' : '물가';
+          const result = event.result ? `<div class="calendar-result">${escapeDashboard(event.result)}</div>` : '';
+          return `<div class="calendar-item ${event.importance === 'critical' ? 'critical' : ''} ${Number(event.daysLeft) < 0 ? 'past' : ''}" data-calendar-index="${index}"><div class="calendar-dday">${ddayLabel(event.daysLeft)}</div><div><div class="calendar-name">${escapeDashboard(event.name)}</div><div class="calendar-source">${escapeDashboard(event.date)} · ${escapeDashboard(event.source)}</div>${result}</div><span class="volume-badge">${badge}</span></div>`;
+        }).join('') : '<div class="panel-empty">예정된 주요 일정이 없습니다.</div>';
         const firstUpcomingIndex = events.findIndex((event) => Number(event.daysLeft) >= 0);
         requestAnimationFrame(() => {
           const target = calendarEl.querySelector(`[data-calendar-index="${Math.max(0, firstUpcomingIndex)}"]`);
