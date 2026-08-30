@@ -162,10 +162,10 @@
     .volume-badge { display:inline-flex; padding:3px 6px; border-radius:6px; background:#eef3fb; color:#536078; font-size:10px; font-weight:850; }
     .volume-badge.surge { background:#fff0d5; color:#a34d00; }
     .sector-tiles { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:9px; }
-    .sector-tile { min-height:70px; border-radius:13px; padding:8px 10px; display:flex; flex-direction:column; justify-content:space-between; border:1px solid rgba(23,32,51,.08); box-shadow:0 6px 16px rgba(17,38,74,.09); transition:background-color .2s ease, transform .15s ease; cursor:pointer; text-align:left; }
+    .sector-tile { min-height:62px; border-radius:13px; padding:7px 10px; display:flex; flex-direction:column; justify-content:space-between; border:1px solid rgba(23,32,51,.08); box-shadow:0 6px 16px rgba(17,38,74,.09); transition:background-color .2s ease, transform .15s ease; cursor:pointer; text-align:left; }
     .sector-tile:hover { transform:translateY(-1px); }
     .sector-name { font-size:14px; font-weight:950; }
-    .sector-rate { font-size:20px; font-weight:950; }
+    .sector-rate { font-size:19px; font-weight:950; }
     .sector-flow { font-size:9px; line-height:1.25; opacity:.94; }
     .sector-detail-panel { display:none; margin-top:12px; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#fff; }
     .sector-detail-panel.open { display:block; }
@@ -179,9 +179,10 @@
     .feed-title { color:var(--text); font-size:12px; font-weight:750; text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .feed-title:hover { color:var(--accent); }
     .feed-date { color:var(--muted); font-size:10px; white-space:nowrap; }
-    .calendar-list { display:grid; gap:7px; max-height:292px; overflow:auto; padding-right:3px; }
+    .calendar-list { display:grid; gap:7px; max-height:326px; overflow:auto; padding-right:3px; scroll-behavior:smooth; }
     .calendar-item { display:grid; grid-template-columns:66px 1fr auto; gap:10px; align-items:center; padding:9px 11px; border-left:4px solid #85a4d7; background:#f7f9fd; border-radius:8px; }
     .calendar-item.critical { border-left-color:#d94343; }
+    .calendar-item.past { opacity:.72; }
     .calendar-dday { font-size:16px; font-weight:950; color:#153b72; }
     .calendar-name { font-size:12px; font-weight:900; }
     .calendar-source { color:var(--muted); font-size:10px; }
@@ -264,7 +265,7 @@
         <div class="calendar-list" id="economicCalendar"><div class="panel-empty">경제일정 확인 중...</div></div>
       </section>
       <section class="card span-12 bridge-card">
-        <div class="head-row"><div class="title">섹터별 수급 히트맵</div><div class="asof" id="sectorAsOf">-</div></div>
+        <div class="head-row"><div class="title">섹터별 수급 히트맵</div><div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><div class="breakout-filter-group" id="sectorSortFilters"><button class="breakout-filter-btn active" type="button" data-sector-sort="marketCap">시총순</button><button class="breakout-filter-btn" type="button" data-sector-sort="changeRate">등락순</button></div><div class="asof" id="sectorAsOf">-</div></div></div>
         <div class="bridge-note" id="sectorNote">대표종목 실제 시세와 투자자 순매수로 계산합니다.</div>
         <div class="sector-tiles" id="sectorTiles"><div class="panel-empty">섹터 수급 확인 중...</div></div>
         <div class="sector-detail-panel" id="sectorDetailPanel"></div>
@@ -588,11 +589,20 @@
       <section class="card span-6">
         <div class="head-row">
           <div>
-            <div class="title">M2통화량 추세</div>
+            <div class="title">한국 M2통화량 추세</div>
             <div class="chart-note" id="note-m2-trend"></div>
           </div>
         </div>
         <div class="chart" id="chart-m2-trend"></div>
+      </section>
+      <section class="card span-6">
+        <div class="head-row">
+          <div>
+            <div class="title">미국 M2통화량 추세</div>
+            <div class="chart-note" id="note-us-m2-trend"></div>
+          </div>
+        </div>
+        <div class="chart" id="chart-us-m2-trend"></div>
       </section>
       <section class="card span-6">
         <div class="head-row">
@@ -1399,6 +1409,7 @@
     const DEFAULT_DASHBOARD_WATCHLIST = '012450,079550,000660,005930,NVDA,PLTR,TSM';
     const WATCHLIST_STORAGE_KEY = 'stock3-dashboard-watchlist';
     let lastDashboardSectors = [];
+    let sectorSortMode = 'marketCap';
 
     function getDashboardWatchlist() {
       try { return localStorage.getItem(WATCHLIST_STORAGE_KEY) || DEFAULT_DASHBOARD_WATCHLIST; }
@@ -1416,12 +1427,40 @@
       return `background:rgba(${rgb},${alpha.toFixed(2)});color:${color}`;
     }
 
+    function getSortedSectors(sectors = lastDashboardSectors) {
+      const rows = Array.isArray(sectors) ? sectors.slice() : [];
+      if (sectorSortMode === 'changeRate') {
+        return rows.sort((a, b) => (Number(b.changeRate) || -Infinity) - (Number(a.changeRate) || -Infinity));
+      }
+      return rows.sort((a, b) => (Number(b.marketCap) || 0) - (Number(a.marketCap) || 0));
+    }
+
+    function renderSectorTiles(sectors = lastDashboardSectors) {
+      const tiles = document.getElementById('sectorTiles');
+      if (!tiles) return;
+      const formatFlow = (value) => Number.isFinite(Number(value)) ? `${Number(value) >= 0 ? '+' : ''}${(Number(value) / 1e12).toFixed(2)}조` : '-';
+      const formatTrillion = (value) => Number.isFinite(Number(value)) ? `${(Number(value) / 1e12).toLocaleString('ko-KR', { maximumFractionDigits: 2 })}조` : '-';
+      const sortedSectors = getSortedSectors(sectors);
+      tiles.innerHTML = sortedSectors.length ? sortedSectors.map((sector, sectorIndex) => {
+        const rate = Number(sector.changeRate);
+        return `<button class="sector-tile" type="button" data-sector-index="${sectorIndex}" style="${sectorHeatStyle(rate)}"><div><div class="sector-name">${escapeDashboard(sector.name)}</div><div class="stock-symbol" style="color:inherit;opacity:.76">시총 ${formatTrillion(sector.marketCap)} · 거래액 ${formatTrillion(sector.tradeAmount)}</div></div><div class="sector-rate">${Number.isFinite(rate) ? `${rate > 0 ? '+' : ''}${rate.toFixed(2)}%` : '-'}</div><div class="sector-flow">외국인 ${formatFlow(sector.foreignValue)} · 기관 ${formatFlow(sector.institutionValue)}</div></button>`;
+      }).join('') : '<div class="panel-empty">섹터 수급 데이터가 없습니다.</div>';
+      lastDashboardSectors = sortedSectors;
+      document.querySelectorAll('[data-sector-index]').forEach((tile) => {
+        tile.addEventListener('click', () => renderSectorDetail(tile.dataset.sectorIndex));
+      });
+      document.querySelectorAll('[data-sector-sort]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.sectorSort === sectorSortMode);
+      });
+    }
+
     function renderSectorDetail(index) {
       const panel = document.getElementById('sectorDetailPanel');
       const sector = lastDashboardSectors[Number(index)];
       if (!panel || !sector) return;
       const stocks = Array.isArray(sector.stocks) ? sector.stocks : [];
       const formatMoney = (value) => Number.isFinite(Number(value)) ? `${Number(value) >= 0 ? '+' : ''}${(Number(value) / 1e12).toFixed(2)}조` : '-';
+      const formatTrillion = (value) => Number.isFinite(Number(value)) ? `${(Number(value) / 1e12).toLocaleString('ko-KR', { maximumFractionDigits: 2 })}조` : '-';
       panel.classList.add('open');
       panel.innerHTML = `
         <div class="sector-detail-head">
@@ -1430,22 +1469,22 @@
         </div>
         <div class="sector-detail-table-wrap">
           <table class="bridge-table">
-            <thead><tr><th>종목명</th><th>현재가</th><th>등락률</th><th>거래량</th><th>외국인</th><th>기관</th><th>기준일</th></tr></thead>
+            <thead><tr><th>종목명</th><th>현재가</th><th>등락률</th><th>시가총액</th><th>거래액</th><th>외국인</th><th>기관</th><th>기준일</th></tr></thead>
             <tbody>${stocks.length ? stocks.map((stock) => {
               const rate = Number(stock.changeRate);
               const direction = rate > 0 ? 'up' : rate < 0 ? 'down' : 'flat';
               const price = Number.isFinite(Number(stock.price)) ? `${Number(stock.price).toLocaleString('ko-KR', { maximumFractionDigits: 2 })}원` : '-';
-              const volumeRatio = Number(stock.volumeRatio);
               return `<tr>
                 <td><a class="breakout-stock" href="${escapeDashboard(stock.url)}" target="_blank" rel="noopener">${escapeDashboard(stock.name)}</a><span class="stock-symbol">${escapeDashboard(stock.code)}</span></td>
                 <td class="${direction}">${price}</td>
                 <td class="${direction}">${Number.isFinite(rate) ? `${rate > 0 ? '+' : ''}${rate.toFixed(2)}%` : '-'}</td>
-                <td>${Number.isFinite(volumeRatio) ? `${volumeRatio.toFixed(2)}배` : '-'}</td>
+                <td>${formatTrillion(stock.marketCap)}</td>
+                <td>${formatTrillion(stock.tradeAmount)}</td>
                 <td>${formatMoney(stock.foreignValue)}</td>
                 <td>${formatMoney(stock.institutionValue)}</td>
                 <td>${escapeDashboard(stock.asOf || '-')}</td>
               </tr>`;
-            }).join('') : '<tr><td colspan="7" class="panel-empty">섹터 상세 종목 데이터가 없습니다.</td></tr>'}</tbody>
+            }).join('') : '<tr><td colspan="8" class="panel-empty">섹터 상세 종목 데이터가 없습니다.</td></tr>'}</tbody>
           </table>
         </div>`;
       document.getElementById('closeSectorDetail')?.addEventListener('click', () => panel.classList.remove('open'));
@@ -1540,16 +1579,9 @@
           return `<tr><td><a class="breakout-stock" href="${href}" target="_blank" rel="noopener">${escapeDashboard(item.name)}</a><span class="stock-symbol">${escapeDashboard(item.code)} · ${escapeDashboard(item.asOf || '')}</span></td><td class="watch-price ${direction}">${price}</td><td class="watch-rate ${direction}">${Number.isFinite(rate) ? `${rate > 0 ? '+' : ''}${rate.toFixed(2)}%` : '-'}</td><td><span class="volume-badge ${volumeRatio >= 1.5 ? 'surge' : ''}">${volumeText}</span></td></tr>`;
         }).join('') : '<tr><td colspan="4" class="panel-empty">관심종목 데이터가 없습니다.</td></tr>';
 
-        const formatFlow = (value) => Number.isFinite(Number(value)) ? `${Number(value) >= 0 ? '+' : ''}${(Number(value) / 1e12).toFixed(2)}조` : '-';
         const sectors = Array.isArray(json.sectors) ? json.sectors : [];
         lastDashboardSectors = sectors;
-        document.getElementById('sectorTiles').innerHTML = sectors.length ? sectors.map((sector, sectorIndex) => {
-          const rate = Number(sector.changeRate);
-          return `<button class="sector-tile" type="button" data-sector-index="${sectorIndex}" style="${sectorHeatStyle(rate)}"><div><div class="sector-name">${escapeDashboard(sector.name)}</div><div class="stock-symbol" style="color:inherit;opacity:.76">시총 ${formatDashboardMarketCap(sector.marketCap)} · 대표 ${Number(sector.covered)}/${Number(sector.total)}</div></div><div class="sector-rate">${Number.isFinite(rate) ? `${rate > 0 ? '+' : ''}${rate.toFixed(2)}%` : '-'}</div><div class="sector-flow">외국인 ${formatFlow(sector.foreignValue)} · 기관 ${formatFlow(sector.institutionValue)}</div></button>`;
-        }).join('') : '<div class="panel-empty">섹터 수급 데이터가 없습니다.</div>';
-        document.querySelectorAll('[data-sector-index]').forEach((tile) => {
-          tile.addEventListener('click', () => renderSectorDetail(tile.dataset.sectorIndex));
-        });
+        renderSectorTiles(sectors);
 
         const shortRows = Array.isArray(json.shortSelling) ? json.shortSelling : [];
         document.getElementById('shortSellingBody').innerHTML = shortRows.length ? shortRows.map((item) => `
@@ -1558,8 +1590,15 @@
         renderReferencePanels(json);
 
         const events = Array.isArray(json.calendar) ? json.calendar : [];
-        document.getElementById('economicCalendar').innerHTML = events.length ? events.map((event) => `
-          <div class="calendar-item ${event.importance === 'critical' ? 'critical' : ''}"><div class="calendar-dday">${Number(event.daysLeft) === 0 ? 'D-DAY' : `D-${Number(event.daysLeft)}`}</div><div><div class="calendar-name">${escapeDashboard(event.name)}</div><div class="calendar-source">${escapeDashboard(event.date)} · ${escapeDashboard(event.source)}</div></div><span class="volume-badge">${event.importance === 'critical' ? '통화정책' : '물가'}</span></div>`).join('') : '<div class="panel-empty">예정된 주요 일정이 없습니다.</div>';
+        const calendarEl = document.getElementById('economicCalendar');
+        const ddayLabel = (daysLeft) => Number(daysLeft) === 0 ? 'D-DAY' : Number(daysLeft) > 0 ? `D-${Number(daysLeft)}` : `D+${Math.abs(Number(daysLeft))}`;
+        calendarEl.innerHTML = events.length ? events.map((event, index) => `
+          <div class="calendar-item ${event.importance === 'critical' ? 'critical' : ''} ${Number(event.daysLeft) < 0 ? 'past' : ''}" data-calendar-index="${index}"><div class="calendar-dday">${ddayLabel(event.daysLeft)}</div><div><div class="calendar-name">${escapeDashboard(event.name)}</div><div class="calendar-source">${escapeDashboard(event.date)} · ${escapeDashboard(event.source)}</div></div><span class="volume-badge">${event.importance === 'critical' ? '통화정책' : '물가'}</span></div>`).join('') : '<div class="panel-empty">예정된 주요 일정이 없습니다.</div>';
+        const firstUpcomingIndex = events.findIndex((event) => Number(event.daysLeft) >= 0);
+        requestAnimationFrame(() => {
+          const target = calendarEl.querySelector(`[data-calendar-index="${Math.max(0, firstUpcomingIndex)}"]`);
+          if (target) calendarEl.scrollTop = Math.max(0, target.offsetTop - calendarEl.offsetTop);
+        });
 
         const disclosures = Array.isArray(json.disclosures) ? json.disclosures : [];
         document.getElementById('disclosureFeed').innerHTML = disclosures.length ? disclosures.map((item) => `
@@ -1591,6 +1630,13 @@
     });
     watchlistInput.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') document.getElementById('applyWatchlist').click();
+    });
+    document.querySelectorAll('[data-sector-sort]').forEach((button) => {
+      button.addEventListener('click', () => {
+        sectorSortMode = button.dataset.sectorSort || 'marketCap';
+        renderSectorTiles();
+        document.getElementById('sectorDetailPanel')?.classList.remove('open');
+      });
     });
     document.getElementById('refreshDashboardBridge').addEventListener('click', renderDashboardBridge);
 
@@ -1699,10 +1745,13 @@
         }).filter((row) => [row.open,row.high,row.low,row.close].every(Number.isFinite));
         const visibleStart = Math.max(0, fullSeries.length - state.days);
         const series = fullSeries.slice(visibleStart);
+        const previousCloseLineValue = (key === 'BTC' || config.previousCloseLine) && fullSeries.length >= 2
+          ? Number(fullSeries[fullSeries.length - 2]?.close)
+          : NaN;
         const w = el.clientWidth || 900, h = el.clientHeight || 270;
         const padL = 54, padR = 14, padT = 30, padB = 28;
-        const rawMin = Math.min(...series.map((row) => row.low));
-        const rawMax = Math.max(...series.map((row) => row.high));
+        const rawMin = Math.min(...series.map((row) => row.low), ...(Number.isFinite(previousCloseLineValue) ? [previousCloseLineValue] : []));
+        const rawMax = Math.max(...series.map((row) => row.high), ...(Number.isFinite(previousCloseLineValue) ? [previousCloseLineValue] : []));
         const margin = (rawMax - rawMin || 1) * .05;
         const min = rawMin - margin, max = rawMax + margin, span = max - min || 1;
         const xFor = (i) => padL + i * (w-padL-padR) / Math.max(1,series.length-1);
@@ -1748,8 +1797,11 @@
         const currentLabel=last.close.toLocaleString('ko-KR',{maximumFractionDigits:priceDigits});
         const changeLabel=`${changeSign}${change.toLocaleString('ko-KR',{maximumFractionDigits:priceDigits})} (${changeSign}${changePercent.toFixed(2)}%)`;
         const threshold=key==='US10Y'&&min<=4.5&&max>=4.5?`<line x1="${padL}" y1="${yFor(4.5)}" x2="${w-padR}" y2="${yFor(4.5)}" stroke="#d92c2c" stroke-dasharray="5 4"/><text x="${w-padR-24}" y="${yFor(4.5)-4}" fill="#d92c2c" font-size="10">4.5</text>`:'';
+        const previousCloseLine = Number.isFinite(previousCloseLineValue) && previousCloseLineValue >= min && previousCloseLineValue <= max
+          ? `<line x1="${padL}" y1="${yFor(previousCloseLineValue)}" x2="${w-padR}" y2="${yFor(previousCloseLineValue)}" stroke="#111827" stroke-width="1.15" stroke-dasharray="6 5" opacity=".72"/><text x="${w-padR-6}" y="${yFor(previousCloseLineValue)-5}" fill="#111827" font-size="11" font-weight="850" text-anchor="end">전일 종가 ${previousCloseLineValue.toLocaleString('ko-KR',{maximumFractionDigits:priceDigits})}</text>`
+          : '';
         el.innerHTML=`<svg width="100%" height="100%" viewBox="0 0 ${w} ${h}">
-          <rect width="${w}" height="${h}" fill="#f9fbff"/>${yTicks}${threshold}${candles}${maSvg}
+          <rect width="${w}" height="${h}" fill="#f9fbff"/>${yTicks}${threshold}${previousCloseLine}${candles}${maSvg}
           <text x="${padL}" y="20" fill="#5f6b85" font-size="14" font-weight="850">최근 ${series.length}거래일</text>
           <text x="${w-padR}" y="20" text-anchor="end" fill="#111" font-size="16" font-weight="900">${last.date} 현재 <tspan fill="${changeColor}">${currentLabel}</tspan> <tspan fill="${changeColor}">${changeLabel}</tspan></text>
           ${xTicks}<g id="${containerId}-hover"></g></svg>`;
@@ -1787,6 +1839,7 @@
           });
           if (sessionRows.length) series = sessionRows;
         }
+        const previousCloseValue = Number(json.previousClose ?? json.referenceValue);
         if (noteEl) noteEl.textContent = json.note || `단위: ${json.unit || '-'}`;
         const formatChartValue = (value) => {
           const numeric = Number(value);
@@ -1796,7 +1849,7 @@
           if (json.unit === '조원' || json.unit === 'P') {
             return normalized.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
           }
-          if (json.unit === '%' || json.unit === '%GDP' || json.unit === '조달러/%' || json.unit === '십억달러') {
+          if (json.unit === '%' || json.unit === '%GDP' || json.unit === '조달러/%' || json.unit === '조원/%' || json.unit === '십억달러') {
             return normalized.toLocaleString('ko-KR', { maximumFractionDigits: 2 });
           }
           return Math.round(normalized).toLocaleString('ko-KR');
@@ -1848,7 +1901,8 @@
         const leftFields = options.dualAxis ? fields.filter((field) => field.axis !== 'right' && field.axis !== 'change') : fields;
         const rightFields = options.dualAxis ? fields.filter((field) => field.axis === 'right') : [];
         const changeFields = fields.filter((field) => field.axis === 'change');
-        const leftScale = makeScale(valuesForFields(leftFields), options.zeroLine);
+        const referenceValues = options.previousCloseLine && Number.isFinite(previousCloseValue) ? [previousCloseValue] : [];
+        const leftScale = makeScale([...valuesForFields(leftFields), ...referenceValues], options.zeroLine);
         const rightScale = options.dualAxis ? makeScale(valuesForFields(rightFields), options.rightZeroLine ?? options.zeroLine) : leftScale;
         const changeScale = changeFields.length ? makeScale(valuesForFields(changeFields), true) : null;
         if (!leftScale || !rightScale) throw new Error('no numeric data');
@@ -1890,6 +1944,10 @@
           : '';
         const changeZeroLineSvg = options.changeZeroLine && changeScale && changeScale.min <= 0 && changeScale.max >= 0
           ? `<line x1="${padL}" y1="${changeScale.yFor(0)}" x2="${w - padR}" y2="${changeScale.yFor(0)}" stroke="#94a0b8" stroke-width="1" stroke-dasharray="3 4" />`
+          : '';
+        const previousCloseLineSvg = options.previousCloseLine && Number.isFinite(previousCloseValue) && previousCloseValue >= leftScale.min && previousCloseValue <= leftScale.max
+          ? `<line x1="${padL}" y1="${leftScale.yFor(previousCloseValue)}" x2="${w - padR}" y2="${leftScale.yFor(previousCloseValue)}" stroke="#111827" stroke-width="1.2" stroke-dasharray="6 5" opacity=".72" />
+             <text x="${w - padR - 6}" y="${leftScale.yFor(previousCloseValue) - 5}" fill="#111827" font-size="11" font-weight="850" text-anchor="end">전일 종가 ${formatChartValue(previousCloseValue)}${json.unit || ''}</text>`
           : '';
         const plotWidth = w - padL - padR;
         const barWidth = Math.max(1.5, Math.min(10, (plotWidth / Math.max(1, series.length)) * 0.72));
@@ -1937,13 +1995,13 @@
             if (i % step === 0 || i === series.length - 1) xTicks.push({ i, d: String(row.date || '') });
           });
         } else {
-          let prevYm = '';
+          let prevKey = '';
           series.forEach((row, i) => {
             const d = String(row.date || '');
-            const ym = d.slice(0, 7);
-            if (ym && ym !== prevYm) {
-              xTicks.push({ i, d });
-              prevYm = ym;
+            const key = options.yearlyTicks ? d.slice(0, 4) : d.slice(0, 7);
+            if (key && key !== prevKey) {
+              xTicks.push({ i, d, label: options.yearlyTicks ? key : undefined });
+              prevKey = key;
             }
           });
         }
@@ -1975,6 +2033,7 @@
           ${zeroLineSvg}
           ${rightZeroLineSvg}
           ${changeZeroLineSvg}
+          ${previousCloseLineSvg}
           ${bars}
           ${lines}
           ${legend}
@@ -2402,7 +2461,7 @@
     });
     initLwChart('NASDAQ_FUTURES', 'lwchart-NASDAQ_FUTURES', '1m', 390, { plain: true, noMarkers: true, statusId: 'state-nasdaq-night' });
     initLwChart('KOSPI_NIGHT_FUTURES', 'lwchart-KOSPI_NIGHT_FUTURES', '1m', 390, { plain: true, noMarkers: true, statusId: 'state-kospi-night' });
-    renderMiniChart('chart-btc', 'BTC');
+    renderMiniChart('chart-btc', 'BTC', { previousCloseLine: true });
     renderBondYields();
     const investorFields = [
       { key: 'foreign', label: '외국인', color: '#d92c2c' },
@@ -2504,36 +2563,40 @@
       'note-kospi-futures-minute',
       'kospi-futures-minute',
       [{ key: 'close', label: 'KOSPI200 선물', color: '#d92c2c' }],
-      { intraday: true, sessionAxis: { start: 540, end: 930 }, tooltip: true, showLastValues: true }
+      { intraday: true, sessionAxis: { start: 540, end: 930 }, tooltip: true, showLastValues: true, previousCloseLine: true }
     );
     const renderUsdkrwMinute = () => renderExtraChart(
       'chart-usdkrw-minute',
       'note-usdkrw-minute',
       'usdkrw-minute',
       [{ key: 'close', label: '원/달러', color: '#d92c2c' }],
-      { intraday: true, tooltip: true, showLastValues: true }
+      { intraday: true, tooltip: true, showLastValues: true, previousCloseLine: true }
     );
     const renderMarketTurnover = () => renderExtraChart('chart-market-turnover', 'note-market-turnover', 'market-turnover-daily', [
       { key: 'kospi', label: 'KOSPI', color: '#d92c2c' },
       { key: 'kosdaq', label: 'KOSDAQ', color: '#0f6fff' }
     ], { daysInputId: 'days-market-turnover', tooltip: true });
     const renderM2Trend = () => renderExtraChart('chart-m2-trend', 'note-m2-trend', 'm2-trend', [
-      { key: 'm2', label: 'M2', color: '#0f6fff' },
+      { key: 'm2', label: '한국 M2', color: '#0f6fff' },
       { key: 'm2Yoy', label: 'YoY(우)', color: '#d92c2c', axis: 'right' }
-    ], { dualAxis: true, tooltip: true });
+    ], { dualAxis: true, tooltip: true, yearlyTicks: true });
+    const renderUsM2Trend = () => renderExtraChart('chart-us-m2-trend', 'note-us-m2-trend', 'us-m2-trend', [
+      { key: 'm2', label: '미국 M2', color: '#0f6fff' },
+      { key: 'm2Yoy', label: 'YoY(우)', color: '#d92c2c', axis: 'right' }
+    ], { dualAxis: true, tooltip: true, yearlyTicks: true });
     const renderCentralBankAssets = () => renderExtraChart('chart-central-bank-assets', 'note-central-bank-assets', 'central-bank-assets', [
       { key: 'fedYoy', label: '미국', color: '#d92c2c' },
       { key: 'bojYoy', label: '일본', color: '#0f6fff' },
       { key: 'ecbYoy', label: 'ECB', color: '#0a9d58' }
-    ], { zeroLine: true, tooltip: true });
+    ], { zeroLine: true, tooltip: true, yearlyTicks: true });
     const renderKoreaPrivateBonds = () => renderExtraChart('chart-korea-private-bonds', 'note-korea-private-bonds', 'korea-private-bonds', [
       { key: 'privateDebt', label: '민간채권', color: '#111827' },
       { key: 'corporateBond', label: '회사채', color: '#d92c2c' },
       { key: 'commercialPaper', label: '기업어음', color: '#0f6fff' }
-    ], { tooltip: true });
+    ], { tooltip: true, yearlyTicks: true });
     const renderPrivateCreditGdp = () => renderExtraChart('chart-private-credit-gdp', 'note-private-credit-gdp', 'private-credit-gdp', [
       { key: 'creditGdp', label: '민간신용/GDP', color: '#8b5cf6' }
-    ], { tooltip: true });
+    ], { tooltip: true, yearlyTicks: true });
     renderKospiInvestorDaily();
     renderKospiInvestorMinute();
     renderKosdaqInvestorDaily();
@@ -2547,6 +2610,7 @@
     renderUsdkrwMinute();
     renderMarketTurnover();
     renderM2Trend();
+    renderUsM2Trend();
     renderCentralBankAssets();
     renderKoreaPrivateBonds();
     renderPrivateCreditGdp();

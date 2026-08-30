@@ -399,7 +399,7 @@ async function fetchPriceMinuteSeries(key, label, unit) {
     if (!rows?.length && attempt < 3) await new Promise((resolve) => setTimeout(resolve, 450 * attempt));
   }
   if (!Array.isArray(rows) || !rows.length) return null;
-  let series = rows.slice(key === 'KOSPI_FUTURES' ? -1800 : -900).map((row) => {
+  let series = rows.slice(key === 'KOSPI_FUTURES' ? -3200 : -5000).map((row) => {
     const timestamp = Number(row.date);
     const close = Number(row.close);
     if (!Number.isFinite(timestamp) || !Number.isFinite(close)) return null;
@@ -415,10 +415,13 @@ async function fetchPriceMinuteSeries(key, label, unit) {
   }
   if (!series.length) return null;
   const latestDate = series[series.length - 1].date.slice(0, 10);
+  const previousRows = series.filter((row) => row.date.slice(0, 10) < latestDate);
+  const previousClose = previousRows.length ? previousRows[previousRows.length - 1].close : null;
   const latestSeries = series.filter((row) => row.date.startsWith(latestDate));
   return {
     unit,
     note: `${label} 최신 거래일(${latestDate}) 1분봉, 1분마다 갱신.`,
+    previousClose,
     series: latestSeries.length ? latestSeries : series
   };
 }
@@ -500,6 +503,18 @@ function addYearOverYear(rows, valueKey = 'value', outputKey = 'yoy') {
 }
 
 async function fetchM2TrendSeries() {
+  const rows = addYearOverYear(monthlyLast(await fetchFredCsvRows('MYAGM2KRM189N')).map((row) => ({
+    date: row.date,
+    m2: row.value / 1000000000000
+  })), 'm2', 'm2Yoy');
+  return {
+    unit: '조원/%',
+    note: 'FRED/IMF 한국 M2 통화량. 값은 조원, YoY는 전년동월 대비입니다. 무인증 공개 원천 기준으로 표시합니다.',
+    series: filterLastYears(rows.filter((row) => Number.isFinite(row.m2)), 10)
+  };
+}
+
+async function fetchUsM2TrendSeries() {
   const rows = addYearOverYear(monthlyLast(await fetchFredCsvRows('M2SL')).map((row) => ({
     date: row.date,
     m2: row.value / 1000
@@ -1461,6 +1476,7 @@ const server = http.createServer(async (req, res) => {
       if (kind === 'usdkrw-minute') payload = await fetchPriceMinuteSeries('USDKRW', '원/달러', '원');
       if (kind === 'market-turnover-daily') payload = await fetchMarketTurnoverSeries(days);
       if (kind === 'm2-trend') payload = await fetchM2TrendSeries();
+      if (kind === 'us-m2-trend') payload = await fetchUsM2TrendSeries();
       if (kind === 'central-bank-assets') payload = await fetchCentralBankAssetsSeries();
       if (kind === 'korea-private-bonds') payload = await fetchKoreaPrivateBondSeries();
       if (kind === 'private-credit-gdp') payload = await fetchPrivateCreditGdpSeries();
@@ -1576,6 +1592,7 @@ module.exports = {
   fetchPriceMinuteSeries,
   fetchMarketTurnoverSeries,
   fetchM2TrendSeries,
+  fetchUsM2TrendSeries,
   fetchCentralBankAssetsSeries,
   fetchKoreaPrivateBondSeries,
   fetchPrivateCreditGdpSeries

@@ -9,6 +9,7 @@ const {
   fetchPriceMinuteSeries,
   fetchMarketTurnoverSeries,
   fetchM2TrendSeries,
+  fetchUsM2TrendSeries,
   fetchCentralBankAssetsSeries,
   fetchKoreaPrivateBondSeries,
   fetchPrivateCreditGdpSeries
@@ -35,6 +36,7 @@ module.exports = async function handler(req, res) {
     if (kind === 'usdkrw-minute') payload = await fetchPriceMinuteSeries('USDKRW', '원/달러', '원');
     if (kind === 'market-turnover-daily') payload = await fetchMarketTurnoverSeries(days);
     if (kind === 'm2-trend') payload = await fetchM2TrendSeries();
+    if (kind === 'us-m2-trend') payload = await fetchUsM2TrendSeries();
     if (kind === 'central-bank-assets') payload = await fetchCentralBankAssetsSeries();
     if (kind === 'korea-private-bonds') payload = await fetchKoreaPrivateBondSeries();
     if (kind === 'private-credit-gdp') payload = await fetchPrivateCreditGdpSeries();

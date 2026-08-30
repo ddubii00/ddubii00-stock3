@@ -42,6 +42,16 @@ const WATCHLIST_ALIASES = new Map(DEFAULT_WATCHLIST.flatMap((item) => [
 ]));
 
 const ECONOMIC_EVENTS = [
+  { date: '2026-06-10', name: '미국 CPI', source: 'BLS', importance: 'high' },
+  { date: '2026-06-12', name: '미국 PPI', source: 'BLS', importance: 'high' },
+  { date: '2026-06-17', name: 'FOMC 금리결정', source: 'Federal Reserve', importance: 'critical' },
+  { date: '2026-07-09', name: '한국은행 금통위', source: '한국은행', importance: 'critical' },
+  { date: '2026-07-15', name: '미국 CPI', source: 'BLS', importance: 'high' },
+  { date: '2026-07-16', name: '미국 PPI', source: 'BLS', importance: 'high' },
+  { date: '2026-07-29', name: 'FOMC 금리결정', source: 'Federal Reserve', importance: 'critical' },
+  { date: '2026-08-12', name: '미국 CPI', source: 'BLS', importance: 'high' },
+  { date: '2026-08-13', name: '미국 PPI', source: 'BLS', importance: 'high' },
+  { date: '2026-08-27', name: '한국은행 금통위', source: '한국은행', importance: 'critical' },
   { date: '2026-09-10', name: '미국 PPI', source: 'BLS', importance: 'high' },
   { date: '2026-09-11', name: '미국 CPI', source: 'BLS', importance: 'high' },
   { date: '2026-09-16', name: 'FOMC 금리결정', source: 'Federal Reserve', importance: 'critical' },
@@ -204,6 +214,7 @@ async function fetchKoreanSnapshot(code, name = '', marketRow = null) {
     changeRate: signedNumber(basic.fluctuationsRatio) ?? signedNumber(rows[0]?.fluctuationsRatio) ?? marketRow?.changeRate ?? null,
     volume: currentVolume,
     volumeRatio: currentVolume && averageVolume20 ? currentVolume / averageVolume20 : null,
+    tradeAmount: marketRow?.tradeAmount ?? number(rows[0]?.accumulatedTradingValue) ?? null,
     asOf: String(basic.localTradedAt || rows[0]?.localTradedAt || marketRow?.asOf || '').slice(0, 10),
     foreignValue: close && latestTrend ? (signedNumber(latestTrend.foreignerPureBuyQuant) || 0) * close : null,
     institutionValue: close && latestTrend ? (signedNumber(latestTrend.organPureBuyQuant) || 0) * close : null,
@@ -305,6 +316,7 @@ async function fetchSectorRows(snapshotByCode, marketByCode) {
       foreignValue: valid.reduce((sum, row) => sum + (Number.isFinite(row.foreignValue) ? row.foreignValue : 0), 0),
       institutionValue: valid.reduce((sum, row) => sum + (Number.isFinite(row.institutionValue) ? row.institutionValue : 0), 0),
       marketCap,
+      tradeAmount: valid.reduce((sum, row) => sum + (Number.isFinite(row.tradeAmount) ? row.tradeAmount : 0), 0),
       upRatio: valid.length ? (upCount / valid.length) * 100 : null,
       covered: valid.length,
       total: sector.codes.length,
@@ -314,6 +326,7 @@ async function fetchSectorRows(snapshotByCode, marketByCode) {
         price: row.price,
         changeRate: row.changeRate,
         volumeRatio: row.volumeRatio,
+        tradeAmount: row.tradeAmount,
         foreignValue: row.foreignValue,
         institutionValue: row.institutionValue,
         marketCap: row.marketCap,
@@ -332,7 +345,7 @@ function buildCalendar() {
   return ECONOMIC_EVENTS.map((event) => {
     const eventDate = new Date(`${event.date}T00:00:00+09:00`);
     return { ...event, daysLeft: Math.ceil((eventDate - today) / 86400000) };
-  }).filter((event) => event.daysLeft >= 0).slice(0, 20);
+  }).filter((event) => event.daysLeft >= -90).slice(0, 20);
 }
 
 async function fetchStooqRows(symbol) {
@@ -588,6 +601,7 @@ function buildReferencePanels(sectors, marketRows) {
       stockCount: sector.covered,
       upRatio: sector.upRatio,
       marketCap: sector.marketCap,
+      tradeAmount: sector.tradeAmount,
       foreignValue: sector.foreignValue,
       institutionValue: sector.institutionValue,
       topStocks: sector.stocks
