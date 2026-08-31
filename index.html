@@ -157,10 +157,27 @@
     .bridge-table th { position:sticky; top:0; z-index:2; background:#f7f9fd; white-space:nowrap; }
     .bridge-table td { font-size:12px; white-space:nowrap; font-variant-numeric:tabular-nums; }
     .bridge-table td.watch-price, .bridge-table td.watch-rate { font-size:16px; font-weight:950; }
+    .watch-drag-cell { width:34px; text-align:center; }
+    .watch-drag-handle, .watch-remove-btn {
+      width:26px; height:26px; border:1px solid var(--line); border-radius:8px; background:#fff;
+      color:#536078; font-weight:950; cursor:pointer;
+    }
+    .watch-drag-handle { cursor:grab; }
+    .watch-drag-handle:active { cursor:grabbing; }
+    .watch-remove-btn { color:#b4232a; }
+    .watch-row.dragging { opacity:.45; background:#eef4ff; }
+    .watch-actions { width:38px; text-align:center; }
     .watchlist-editor { display:none; grid-template-columns:1fr auto auto; gap:7px; align-items:center; margin:7px 0 10px; }
     .watchlist-editor.open { display:grid; }
     .watchlist-editor input { min-width:0; width:100%; border:1px solid var(--line); border-radius:9px; padding:9px 10px; color:var(--text); font-weight:750; }
     .watchlist-help { grid-column:1/-1; color:var(--muted); font-size:10px; }
+    .watchlist-modal { position:fixed; inset:0; z-index:60; display:none; align-items:center; justify-content:center; background:rgba(15,23,42,.34); padding:18px; }
+    .watchlist-modal.open { display:flex; }
+    .watchlist-modal-panel { width:min(480px, 96vw); background:#fff; border:1px solid var(--line); border-radius:18px; box-shadow:0 24px 70px rgba(17,38,74,.24); overflow:hidden; }
+    .watchlist-modal-body { display:grid; gap:10px; padding:14px; }
+    .watchlist-modal-body label { display:grid; gap:5px; color:var(--muted); font-size:12px; font-weight:850; }
+    .watchlist-modal-body input, .watchlist-modal-body select { border:1px solid var(--line); border-radius:10px; padding:10px 11px; color:var(--text); font-size:14px; font-weight:800; }
+    .watchlist-modal-actions { display:flex; justify-content:flex-end; gap:8px; padding:12px 14px; border-top:1px solid var(--line); background:#f8faff; }
     .stock-symbol { display:block; color:var(--muted); font-size:10px; margin-top:2px; }
     .volume-badge { display:inline-flex; padding:3px 6px; border-radius:6px; background:#eef3fb; color:#536078; font-size:10px; font-weight:850; }
     .volume-badge.surge { background:#fff0d5; color:#a34d00; }
@@ -262,15 +279,15 @@
         <div class="score-shell" id="riskScorePanel"><div class="panel-empty">시황 신호 계산 중...</div></div>
       </section>
       <section class="card span-6 bridge-card">
-        <div class="head-row"><div class="title">관심종목 트래커</div><div style="display:flex;align-items:center;gap:7px"><button class="btn outline" id="toggleWatchlistEditor">종목 편집</button><div class="asof" id="watchlistAsOf">-</div></div></div>
+        <div class="head-row"><div class="title">관심종목 트래커</div><div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><button class="btn" id="openWatchlistAdd">종목추가</button><button class="btn outline" id="resetWatchlist">기본값</button><button class="btn outline" id="toggleWatchlistEditor">직접편집</button><div class="asof" id="watchlistAsOf">-</div></div></div>
         <div class="bridge-note">거래량 강도는 최근 거래량을 직전 20거래일 평균과 비교합니다.</div>
         <div class="watchlist-editor" id="watchlistEditor">
           <input id="watchlistInput" type="text" autocomplete="off" aria-label="관심종목 코드 또는 티커" />
           <button class="btn" id="applyWatchlist">적용</button>
-          <button class="btn outline" id="resetWatchlist">기본값</button>
+          <button class="btn outline" id="closeWatchlistEditor">닫기</button>
           <div class="watchlist-help">최대 20개 · 국내 종목은 6자리 코드, 미국 종목은 티커를 쉼표로 구분하세요. 예: 005930, 000660, NVDA</div>
         </div>
-        <div class="bridge-table-wrap"><table class="bridge-table"><thead><tr><th>종목</th><th>현재가</th><th>등락률</th><th>거래량</th></tr></thead><tbody id="watchlistBody"><tr><td colspan="4" class="panel-empty">관심종목 확인 중...</td></tr></tbody></table></div>
+        <div class="bridge-table-wrap"><table class="bridge-table"><thead><tr><th></th><th>종목</th><th>현재가</th><th>등락률</th><th>거래량</th><th></th></tr></thead><tbody id="watchlistBody"><tr><td colspan="6" class="panel-empty">관심종목 확인 중...</td></tr></tbody></table></div>
       </section>
       <section class="card span-6 bridge-card">
         <div class="head-row"><div class="title">경제지표 캘린더</div><div class="asof">공식 2026 일정</div></div>
@@ -749,7 +766,32 @@
     </div>
   </div>
 
-  
+  <div class="watchlist-modal" id="watchlistAddModal" aria-hidden="true">
+    <div class="watchlist-modal-panel">
+      <div class="modal-top">
+        <strong>관심종목 추가</strong>
+        <button class="btn close" id="closeWatchlistAdd">닫기</button>
+      </div>
+      <div class="watchlist-modal-body">
+        <label>시장
+          <select id="watchlistAddMarket">
+            <option value="KR">한국 주식</option>
+            <option value="US">미국 주식</option>
+          </select>
+        </label>
+        <label>종목코드 / 티커
+          <input id="watchlistAddCode" type="text" autocomplete="off" placeholder="예: 005930 또는 NVDA" />
+        </label>
+        <label>표시명 선택 입력
+          <input id="watchlistAddName" type="text" autocomplete="off" placeholder="비워두면 자동 조회 또는 코드로 표시" />
+        </label>
+        <div class="watchlist-help">한국 주식은 6자리 코드, 미국 주식은 티커를 입력하세요. 이미 있는 종목은 중복 추가하지 않습니다.</div>
+      </div>
+      <div class="watchlist-modal-actions">
+        <button class="btn outline" id="cancelWatchlistAdd">취소</button>
+        <button class="btn" id="confirmWatchlistAdd">추가</button>
+      </div>
+    </div>
   </div>
 
   <script src="https://s3.tradingview.com/tv.js"></script>
@@ -1520,6 +1562,72 @@
       catch { return DEFAULT_DASHBOARD_WATCHLIST; }
     }
 
+    function parseDashboardWatchlist(value = getDashboardWatchlist()) {
+      return String(value || '')
+        .split(/[\n,]+/)
+        .map((token) => token.trim())
+        .filter(Boolean)
+        .slice(0, 20);
+    }
+
+    function codeFromWatchlistToken(token) {
+      const text = String(token || '').trim();
+      const separator = text.lastIndexOf(':');
+      return (separator > 0 ? text.slice(separator + 1) : text).trim().toUpperCase();
+    }
+
+    function saveDashboardWatchlist(tokens) {
+      const next = [];
+      const seen = new Set();
+      (tokens || []).forEach((token) => {
+        const clean = String(token || '').trim();
+        const code = codeFromWatchlistToken(clean);
+        if (!clean || !code || seen.has(code)) return;
+        seen.add(code);
+        next.push(clean);
+      });
+      const value = (next.length ? next : parseDashboardWatchlist(DEFAULT_DASHBOARD_WATCHLIST)).slice(0, 20).join(',');
+      try { localStorage.setItem(WATCHLIST_STORAGE_KEY, value); } catch {}
+      const input = document.getElementById('watchlistInput');
+      if (input) input.value = value;
+      return value;
+    }
+
+    function makeWatchlistToken({ market, code, name }) {
+      const cleanCode = String(code || '').trim().toUpperCase();
+      const cleanName = String(name || '').trim();
+      if (market === 'KR' && !/^\d{6}$/.test(cleanCode)) return null;
+      if (market === 'US' && !/^[A-Z][A-Z0-9.-]{0,9}$/.test(cleanCode)) return null;
+      return cleanName ? `${cleanName}:${cleanCode}` : cleanCode;
+    }
+
+    function removeWatchlistCode(code) {
+      const target = String(code || '').toUpperCase();
+      const tokens = parseDashboardWatchlist().filter((token) => codeFromWatchlistToken(token) !== target);
+      saveDashboardWatchlist(tokens);
+      renderDashboardBridge();
+    }
+
+    function reorderWatchlistCodes(orderedCodes) {
+      const tokenByCode = new Map(parseDashboardWatchlist().map((token) => [codeFromWatchlistToken(token), token]));
+      const used = new Set();
+      const next = [];
+      orderedCodes.forEach((code) => {
+        const cleanCode = String(code || '').toUpperCase();
+        const token = tokenByCode.get(cleanCode);
+        if (token && !used.has(cleanCode)) {
+          used.add(cleanCode);
+          next.push(token);
+        }
+      });
+      parseDashboardWatchlist().forEach((token) => {
+        const code = codeFromWatchlistToken(token);
+        if (!used.has(code)) next.push(token);
+      });
+      saveDashboardWatchlist(next);
+      renderDashboardBridge();
+    }
+
     function sectorHeatStyle(rate) {
       if (!Number.isFinite(rate) || Math.abs(rate) < 0.05) {
         return 'background:#eef2f7;color:#35415a';
@@ -1696,6 +1804,46 @@
       root.innerHTML = rows?.length ? rows.map(formatter).join('') : '<div class="panel-empty">표시할 실제 데이터가 없습니다.</div>';
     }
 
+    function bindWatchlistRowControls(watchlist) {
+      const body = document.getElementById('watchlistBody');
+      if (!body) return;
+      body.querySelectorAll('.watch-remove-btn').forEach((button) => {
+        button.addEventListener('click', () => removeWatchlistCode(button.dataset.watchCode));
+      });
+      let draggedCode = '';
+      body.querySelectorAll('.watch-row').forEach((row) => {
+        row.addEventListener('dragstart', (event) => {
+          if (!event.target.closest('.watch-drag-handle')) {
+            event.preventDefault();
+            return;
+          }
+          draggedCode = row.dataset.watchCode || '';
+          row.classList.add('dragging');
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', draggedCode);
+        });
+        row.addEventListener('dragend', () => {
+          row.classList.remove('dragging');
+          draggedCode = '';
+        });
+        row.addEventListener('dragover', (event) => {
+          if (draggedCode) event.preventDefault();
+        });
+        row.addEventListener('drop', (event) => {
+          event.preventDefault();
+          const targetCode = row.dataset.watchCode || '';
+          if (!draggedCode || !targetCode || draggedCode === targetCode) return;
+          const codes = (watchlist || []).map((item) => item.code);
+          const from = codes.indexOf(draggedCode);
+          const to = codes.indexOf(targetCode);
+          if (from < 0 || to < 0) return;
+          const [moved] = codes.splice(from, 1);
+          codes.splice(to, 0, moved);
+          reorderWatchlistCodes(codes);
+        });
+      });
+    }
+
     function renderBinanceKoreaRows(rows, asOf = '') {
       const binanceBody = document.getElementById('binanceKoreaBody');
       if (!binanceBody) return;
@@ -1770,8 +1918,16 @@
           const volumeRatio = Number(item.volumeRatio);
           const volumeText = Number.isFinite(volumeRatio) ? `${volumeRatio.toFixed(2)}배${volumeRatio >= 1.5 ? ' 급증' : ''}` : '-';
           const href = item.market === 'KR' ? `https://stock.naver.com/domestic/stock/${encodeURIComponent(item.code)}/price` : `https://finance.yahoo.com/quote/${encodeURIComponent(item.code)}`;
-          return `<tr><td><a class="breakout-stock" href="${href}" target="_blank" rel="noopener">${escapeDashboard(item.name)}</a><span class="stock-symbol">${escapeDashboard(item.code)} · ${escapeDashboard(item.asOf || '')}</span></td><td class="watch-price ${direction}">${price}</td><td class="watch-rate ${direction}">${Number.isFinite(rate) ? `${rate > 0 ? '+' : ''}${rate.toFixed(2)}%` : '-'}</td><td><span class="volume-badge ${volumeRatio >= 1.5 ? 'surge' : ''}">${volumeText}</span></td></tr>`;
-        }).join('') : '<tr><td colspan="4" class="panel-empty">관심종목 데이터가 없습니다.</td></tr>';
+          return `<tr class="watch-row" draggable="true" data-watch-code="${escapeDashboard(item.code)}">
+            <td class="watch-drag-cell"><button class="watch-drag-handle" type="button" title="드래그해서 순서 변경">-</button></td>
+            <td><a class="breakout-stock" href="${href}" target="_blank" rel="noopener">${escapeDashboard(item.name)}</a><span class="stock-symbol">${escapeDashboard(item.code)} · ${escapeDashboard(item.asOf || '')}</span></td>
+            <td class="watch-price ${direction}">${price}</td>
+            <td class="watch-rate ${direction}">${Number.isFinite(rate) ? `${rate > 0 ? '+' : ''}${rate.toFixed(2)}%` : '-'}</td>
+            <td><span class="volume-badge ${volumeRatio >= 1.5 ? 'surge' : ''}">${volumeText}</span></td>
+            <td class="watch-actions"><button class="watch-remove-btn" type="button" data-watch-code="${escapeDashboard(item.code)}" title="관심종목 삭제">X</button></td>
+          </tr>`;
+        }).join('') : '<tr><td colspan="6" class="panel-empty">관심종목 데이터가 없습니다.</td></tr>';
+        bindWatchlistRowControls(watchlist);
 
         const sectors = Array.isArray(json.sectors) ? json.sectors : [];
         lastDashboardSectors = sectors;
@@ -1855,9 +2011,12 @@
     document.getElementById('toggleWatchlistEditor').addEventListener('click', () => {
       document.getElementById('watchlistEditor').classList.toggle('open');
     });
+    document.getElementById('closeWatchlistEditor').addEventListener('click', () => {
+      document.getElementById('watchlistEditor').classList.remove('open');
+    });
     document.getElementById('applyWatchlist').addEventListener('click', () => {
       const value = watchlistInput.value.trim() || DEFAULT_DASHBOARD_WATCHLIST;
-      try { localStorage.setItem(WATCHLIST_STORAGE_KEY, value); } catch {}
+      saveDashboardWatchlist(parseDashboardWatchlist(value));
       document.getElementById('watchlistEditor').classList.remove('open');
       renderDashboardBridge();
     });
@@ -1869,6 +2028,53 @@
     });
     watchlistInput.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') document.getElementById('applyWatchlist').click();
+    });
+    const watchlistAddModal = document.getElementById('watchlistAddModal');
+    const openWatchlistAdd = () => {
+      watchlistAddModal.classList.add('open');
+      watchlistAddModal.setAttribute('aria-hidden', 'false');
+      document.getElementById('watchlistAddCode').value = '';
+      document.getElementById('watchlistAddName').value = '';
+      setTimeout(() => document.getElementById('watchlistAddCode')?.focus(), 0);
+    };
+    const closeWatchlistAdd = () => {
+      watchlistAddModal.classList.remove('open');
+      watchlistAddModal.setAttribute('aria-hidden', 'true');
+    };
+    document.getElementById('openWatchlistAdd').addEventListener('click', openWatchlistAdd);
+    document.getElementById('closeWatchlistAdd').addEventListener('click', closeWatchlistAdd);
+    document.getElementById('cancelWatchlistAdd').addEventListener('click', closeWatchlistAdd);
+    watchlistAddModal.addEventListener('click', (event) => {
+      if (event.target === watchlistAddModal) closeWatchlistAdd();
+    });
+    document.getElementById('confirmWatchlistAdd').addEventListener('click', () => {
+      const market = document.getElementById('watchlistAddMarket').value;
+      const code = document.getElementById('watchlistAddCode').value.trim().toUpperCase();
+      const name = document.getElementById('watchlistAddName').value.trim();
+      const token = makeWatchlistToken({ market, code, name });
+      if (!token) {
+        alert(market === 'KR' ? '한국 주식은 6자리 종목코드를 입력해주세요.' : '미국 주식은 영문 티커를 입력해주세요.');
+        return;
+      }
+      const tokens = parseDashboardWatchlist();
+      const nextCode = codeFromWatchlistToken(token);
+      if (tokens.some((item) => codeFromWatchlistToken(item) === nextCode)) {
+        alert('이미 관심종목에 있는 종목입니다.');
+        return;
+      }
+      if (tokens.length >= 20) {
+        alert('관심종목은 최대 20개까지 추가할 수 있습니다.');
+        return;
+      }
+      saveDashboardWatchlist([...tokens, token]);
+      closeWatchlistAdd();
+      renderDashboardBridge();
+    });
+    ['watchlistAddCode', 'watchlistAddName'].forEach((id) => {
+      document.getElementById(id).addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') document.getElementById('confirmWatchlistAdd').click();
+        if (event.key === 'Escape') closeWatchlistAdd();
+      });
     });
     document.querySelectorAll('[data-sector-sort]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -2909,7 +3115,7 @@
       const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
       if (values.weekday === 'Sat' || values.weekday === 'Sun') return false;
       const minutes = Number(values.hour) * 60 + Number(values.minute);
-      return minutes >= 9 * 60 && minutes <= 15 * 60 + 30;
+      return minutes >= 9 * 60 && minutes <= 15 * 60 + 33;
     };
     const isKoreaFuturesHours = () => {
       const parts = new Intl.DateTimeFormat('en-US', {
