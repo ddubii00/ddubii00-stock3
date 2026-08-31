@@ -79,6 +79,25 @@ function formatYmd(date) {
   return `${yyyy}${mm}${dd}`;
 }
 
+function getKoreaClock() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).formatToParts(new Date()).reduce((acc, part) => {
+    acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    minutes: Number(parts.hour) * 60 + Number(parts.minute)
+  };
+}
+
 async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -157,9 +176,10 @@ async function fetchDaumInvestorDays(market = 'KOSPI', limit = 200) {
   const rows = Array.isArray(json?.data) ? json.data : [];
   return rows.reverse().map((row) => ({
     date: String(row.date || '').slice(0, 10),
+    individual: Number(row.individualStraightPurchasePrice) / 1000000000000,
     foreign: Number(row.foreignStraightPurchasePrice) / 1000000000000,
     institution: Number(row.institutionStraightPurchasePrice) / 1000000000000
-  })).filter((row) => row.date && Number.isFinite(row.foreign) && Number.isFinite(row.institution));
+  })).filter((row) => row.date && Number.isFinite(row.individual) && Number.isFinite(row.foreign) && Number.isFinite(row.institution));
 }
 
 function stripHtml(value) {
@@ -223,13 +243,14 @@ async function fetchNaverInvestorTimeRows(market = 'KOSPI') {
       if (cells.length < 4) continue;
       const time = cells[0].match(/\d{2}:\d{2}/)?.[0];
       if (!time) continue;
+      const individual = parseTrendNumber(cells[1]);
       const foreign = parseTrendNumber(cells[2]);
       const institution = parseTrendNumber(cells[3]);
-      if (!Number.isFinite(foreign) || !Number.isFinite(institution)) continue;
+      if (!Number.isFinite(individual) || !Number.isFinite(foreign) || !Number.isFinite(institution)) continue;
       const date = `${latestDate} ${time}`;
       if (seen.has(date)) continue;
       seen.add(date);
-      rows.push({ date, foreign: foreign / 10000, institution: institution / 10000 });
+      rows.push({ date, individual: individual / 10000, foreign: foreign / 10000, institution: institution / 10000 });
       foundInPage += 1;
     }
     if (!foundInPage) {
@@ -247,9 +268,11 @@ async function fetchNaverInvestorTimeRows(market = 'KOSPI') {
   });
   const series = regularRows.length >= 5 ? regularRows : rows;
   const finalDaily = dayRows[dayRows.length - 1];
-  if (finalDaily && Number.isFinite(finalDaily.foreign) && Number.isFinite(finalDaily.institution)) {
+  const koreaClock = getKoreaClock();
+  const shouldAppendClose = latestDate < koreaClock.date || koreaClock.minutes >= 15 * 60 + 30;
+  if (shouldAppendClose && finalDaily && Number.isFinite(finalDaily.individual) && Number.isFinite(finalDaily.foreign) && Number.isFinite(finalDaily.institution)) {
     const closeDate = `${latestDate} 15:30`;
-    const closeRow = { date: closeDate, foreign: finalDaily.foreign, institution: finalDaily.institution, final: true };
+    const closeRow = { date: closeDate, individual: finalDaily.individual, foreign: finalDaily.foreign, institution: finalDaily.institution, final: true };
     const existingIndex = series.findIndex((row) => row.date === closeDate);
     if (existingIndex >= 0) series[existingIndex] = closeRow;
     else series.push(closeRow);

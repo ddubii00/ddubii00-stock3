@@ -464,7 +464,7 @@
 
       <div class="card span-6">
         <div class="head-row">
-          <div class="title">KOSPI 외국인/기관 매수 분봉</div>
+          <div class="title">KOSPI 외국인/기관/개인 매수 분봉</div>
         </div>
         <div class="chart-note" id="note-kospi-investor-minute"></div>
         <div class="chart" id="chart-kospi-investor-minute"></div>
@@ -483,7 +483,7 @@
 
       <div class="card span-6">
         <div class="head-row">
-          <div class="title">KOSDAQ 외국인/기관 매수 분봉</div>
+          <div class="title">KOSDAQ 외국인/기관/개인 매수 분봉</div>
         </div>
         <div class="chart-note" id="note-kosdaq-investor-minute"></div>
         <div class="chart" id="chart-kosdaq-investor-minute"></div>
@@ -2070,13 +2070,38 @@
           const match = time.match(/^(\d{2}):(\d{2})/);
           return match ? Number(match[1]) * 60 + Number(match[2]) : NaN;
         };
+        const koreaClock = () => {
+          const parts = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Seoul',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+          }).formatToParts(new Date()).reduce((acc, part) => {
+            acc[part.type] = part.value;
+            return acc;
+          }, {});
+          return {
+            date: `${parts.year}-${parts.month}-${parts.day}`,
+            minutes: Number(parts.hour) * 60 + Number(parts.minute)
+          };
+        };
         const sessionStart = options.sessionAxis?.start ?? 9 * 60;
         const sessionEnd = options.sessionAxis?.end ?? 15 * 60 + 30;
         if (options.sessionAxis) {
-          const sessionRows = series.filter((row) => {
+          let sessionRows = series.filter((row) => {
             const minute = minuteOfDay(row);
             return Number.isFinite(minute) && minute >= sessionStart && minute <= sessionEnd;
           });
+          const clock = koreaClock();
+          if (clock.minutes < sessionEnd) {
+            const todayRows = sessionRows.filter((row) => String(row.date || '').slice(0, 10) === clock.date);
+            if (todayRows.length) {
+              sessionRows = sessionRows.filter((row) => String(row.date || '').slice(0, 10) !== clock.date || minuteOfDay(row) <= clock.minutes);
+            }
+          }
           if (sessionRows.length) series = sessionRows;
         }
         const previousCloseValue = Number(json.previousClose ?? json.referenceValue);
@@ -2717,6 +2742,11 @@
       { key: 'foreign', label: '외국인', color: '#d92c2c' },
       { key: 'institution', label: '기관', color: '#0f6fff' }
     ];
+    const investorMinuteFields = [
+      { key: 'foreign', label: '외국인', color: '#d92c2c' },
+      { key: 'institution', label: '기관', color: '#0f6fff' },
+      { key: 'individual', label: '개인', color: '#16a34a' }
+    ];
     const kospiInvestorDailyFields = [
       ...investorFields,
       {
@@ -2739,7 +2769,7 @@
       'chart-kospi-investor-minute',
       'note-kospi-investor-minute',
       'kospi-investor-minute',
-      investorFields,
+      investorMinuteFields,
       { zeroLine: true, intraday: true, sessionAxis: { start: 540, end: 930 }, tooltip: true, cumulative: true, showLastValues: true }
     );
     const renderKosdaqInvestorDaily = () => renderExtraChart(
@@ -2753,7 +2783,7 @@
       'chart-kosdaq-investor-minute',
       'note-kosdaq-investor-minute',
       'kosdaq-investor-minute',
-      investorFields,
+      investorMinuteFields,
       { zeroLine: true, intraday: true, sessionAxis: { start: 540, end: 930 }, tooltip: true, cumulative: true, showLastValues: true }
     );
     const renderCreditBalance = () => renderExtraChart('chart-credit-balance', 'note-credit-balance', 'market-funds', [
