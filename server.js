@@ -98,6 +98,22 @@ function getKoreaClock() {
   };
 }
 
+function formatKoreaMinute(timestampSeconds) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).formatToParts(new Date(timestampSeconds * 1000)).reduce((acc, part) => {
+    acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
+}
+
 async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -162,9 +178,9 @@ async function supplementTreasuryYield(rows, fieldName) {
   return rows;
 }
 
-async function fetchDaumInvestorDays(market = 'KOSPI', limit = 200) {
+async function fetchDaumInvestorDays(market = 'KOSPI', limit = 120) {
   const safeMarket = market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
-  const safeLimit = Math.max(1, Math.min(500, Number(limit) || 200));
+  const safeLimit = Math.max(1, Math.min(500, Number(limit) || 120));
   const url = `https://finance.daum.net/api/market_index/days?page=1&perPage=${safeLimit}&market=${safeMarket}&pagination=true`;
   const r = await fetchWithTimeout(url, {
     headers: {
@@ -285,7 +301,7 @@ async function fetchNaverInvestorTimeRows(market = 'KOSPI') {
   };
 }
 
-async function fetchInvestorSeries(market, kind, limit = 200) {
+async function fetchInvestorSeries(market, kind, limit = 120) {
   const safeMarket = market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
   const marketLabel = safeMarket === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
   if (kind === 'minute') {
@@ -309,8 +325,8 @@ async function fetchInvestorSeries(market, kind, limit = 200) {
   return { unit: '조원', note: `${marketLabel} ${cumulativeRows.length}거래일 누적 순매수, 단위: 조원`, series: cumulativeRows };
 }
 
-async function fetchForeignFuturesSeries(limit = 200) {
-  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 200));
+async function fetchForeignFuturesSeries(limit = 120) {
+  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 120));
   const rows = [];
   const seen = new Set();
   const bizdate = formatYmd(new Date());
@@ -426,7 +442,7 @@ async function fetchPriceMinuteSeries(key, label, unit) {
     const timestamp = Number(row.date);
     const close = Number(row.close);
     if (!Number.isFinite(timestamp) || !Number.isFinite(close)) return null;
-    const date = new Date(timestamp * 1000).toISOString().slice(0, 16).replace('T', ' ');
+    const date = formatKoreaMinute(timestamp);
     return { date, close };
   }).filter(Boolean);
   if (key === 'KOSPI_FUTURES') {
@@ -449,8 +465,8 @@ async function fetchPriceMinuteSeries(key, label, unit) {
   };
 }
 
-async function fetchMarketTurnoverSeries(limit = 200) {
-  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 200));
+async function fetchMarketTurnoverSeries(limit = 120) {
+  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 120));
   const fetchMarket = async (market) => {
     const url = `https://finance.daum.net/api/market_index/days?page=1&perPage=${safeLimit}&market=${market}&pagination=true`;
     const response = await fetchWithTimeout(url, {
@@ -728,8 +744,8 @@ async function fetchKofiaMarketFundsLatest() {
   return { date, deposit: deposit.value / 1000000, credit: credit.value / 1000000 };
 }
 
-async function fetchMarketFundsSeriesFresh(limit = 200) {
-  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 200));
+async function fetchMarketFundsSeriesFresh(limit = 120) {
+  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 120));
   const rows = [];
   const seen = new Set();
   for (let page = 1; page <= 50; page += 1) {
@@ -809,8 +825,8 @@ async function fetchMarketFundsSeriesFresh(limit = 200) {
   };
 }
 
-async function fetchMarketFundsSeries(limit = 200) {
-  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 200));
+async function fetchMarketFundsSeries(limit = 120) {
+  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 120));
   const cached = marketFundsCache.get(safeLimit);
   if (cached && cached.expiresAt > Date.now()) return cached.payload;
   if (marketFundsInFlight.has(safeLimit)) return marketFundsInFlight.get(safeLimit);
@@ -1574,7 +1590,7 @@ const server = http.createServer(async (req, res) => {
   if (u.pathname === '/api/extra-chart') {
     try {
       const kind = u.searchParams.get('kind') || '';
-      const days = Number(u.searchParams.get('days') || 200);
+      const days = Number(u.searchParams.get('days') || 120);
       let payload = null;
       if (kind === 'kospi-investor-daily') payload = await fetchInvestorSeries('KOSPI', 'daily', days);
       if (kind === 'kospi-investor-minute') payload = await fetchInvestorSeries('KOSPI', 'minute', days);

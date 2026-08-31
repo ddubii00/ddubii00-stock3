@@ -194,6 +194,7 @@ async function fetchMarketUniverse() {
       changeRate: signedNumber(row.prevChangeRate),
       volume: signedNumber(row.tradeVolume),
       tradeAmount: signedNumber(row.tradeAmount),
+      foreignRatio: signedNumber(row.frgnHoldRate),
       asOf: String(row.tradableStatusUpdatedAt || '').slice(0, 10)
     })).filter((row) => /^\d{6}$/.test(row.code));
     marketUniverseCache = { rows: mapped, expiresAt: Date.now() + 5 * 60 * 1000 };
@@ -230,6 +231,7 @@ async function fetchKoreanSnapshot(code, name = '', marketRow = null) {
     institutionValue: close && latestTrend ? (signedNumber(latestTrend.organPureBuyQuant) || 0) * close : null,
     marketCap: marketRow?.marketCap ?? null,
     listedStockCnt: marketRow?.listedStockCnt ?? null,
+    foreignRatio: marketRow?.foreignRatio ?? null,
     source: 'Naver Stock/Koscom'
   };
 }
@@ -499,6 +501,34 @@ async function fetchSectorRelativeStrength() {
   } catch (error) {
     return { note: `섹터 RS 원천 확인 실패: ${error.message || error}`, series: [] };
   }
+}
+
+async function buildSectorRelativeStrengthSnapshot(sectors) {
+  const kospiRows = await fetchDaumMarketRows('KOSPI', 3).catch(() => []);
+  const latestKospi = kospiRows[kospiRows.length - 1];
+  const prevKospi = kospiRows[kospiRows.length - 2];
+  const benchmarkChangeRate = Number.isFinite(latestKospi?.close) && Number.isFinite(prevKospi?.close) && prevKospi.close !== 0
+    ? ((latestKospi.close - prevKospi.close) / prevKospi.close) * 100
+    : null;
+  const items = (Array.isArray(sectors) ? sectors : []).slice(0, 20).map((sector) => {
+    const changeRate = Number(sector.changeRate);
+    const rs = Number.isFinite(changeRate) && Number.isFinite(benchmarkChangeRate)
+      ? changeRate - benchmarkChangeRate
+      : changeRate;
+    return {
+      name: sector.name,
+      changeRate,
+      rs,
+      marketCap: sector.marketCap,
+      tradeAmount: sector.tradeAmount
+    };
+  }).filter((item) => Number.isFinite(item.rs));
+  return {
+    benchmarkChangeRate,
+    benchmarkAsOf: latestKospi?.date || '',
+    items,
+    note: '20개 섹터의 당일 평균 등락률에서 KOSPI 등락률을 뺀 상대강도입니다.'
+  };
 }
 
 async function fetchOptionsIndicators() {
@@ -786,7 +816,7 @@ async function fetchShortSellingSnapshot(item, marketRow) {
       balance: balanceQty,
       balanceAmount,
       ratio,
-      overheat: null,
+      foreignRatio: marketRow?.foreignRatio ?? item.foreignRatio ?? null,
       asOf: latest?.TRD_DD || '',
       status: latest ? 'KRX 공매도 종합정보' : '최근 잔고 미공표',
       url: `https://stock.naver.com/domestic/stock/${item.code}/shortTrade`
@@ -798,7 +828,7 @@ async function fetchShortSellingSnapshot(item, marketRow) {
       balance: null,
       balanceAmount: null,
       ratio: null,
-      overheat: null,
+      foreignRatio: marketRow?.foreignRatio ?? item.foreignRatio ?? null,
       asOf: '',
       status: `공매도 원천 확인 실패: ${error.message || error}`,
       url: `https://stock.naver.com/domestic/stock/${item.code}/shortTrade`
@@ -845,12 +875,13 @@ async function fetchDashboardPanelsFresh(watchlistConfig) {
         volumeRatio: null,
         marketCap: marketRow?.marketCap ?? null,
         listedStockCnt: marketRow?.listedStockCnt ?? null,
+        foreignRatio: marketRow?.foreignRatio ?? null,
         error: String(error.message || error)
       };
     }
   }));
   const snapshotByCode = new Map(watchlist.filter((item) => item.market === 'KR').map((item) => [item.code, item]));
-  const [sectors, disclosures, riskScore, earningsCalendar, sectorRs, optionsIndicators, etfFlows, binanceKoreaStocks] = await Promise.all([
+  const [sectors, disclosures, riskScore, earningsCalendar, historicalSectorRs, optionsIndicators, etfFlows, binanceKoreaStocks] = await Promise.all([
     fetchSectorRows(snapshotByCode, marketByCode),
     fetchDisclosureRows(watchlist),
     fetchRiskScore(),
@@ -860,6 +891,10 @@ async function fetchDashboardPanelsFresh(watchlistConfig) {
     fetchEtfFlowProxies(),
     fetchBinanceKoreaFutures()
   ]);
+  const sectorRs = {
+    ...historicalSectorRs,
+    ...(await buildSectorRelativeStrengthSnapshot(sectors))
+  };
   const shortSelling = await Promise.all(watchlist.filter((item) => item.market === 'KR').map((item) => fetchShortSellingSnapshot(item, marketByCode.get(item.code))));
   return {
     asOf: new Date().toISOString(),
@@ -878,7 +913,7 @@ async function fetchDashboardPanelsFresh(watchlistConfig) {
     referencePanels: buildReferencePanels(sectors, marketRows),
     notes: {
       sectors: '20개 섹터를 대표종목 시가총액 순서로 배열했습니다. 색이 진할수록 평균 등락률 폭이 큽니다.',
-      shortSelling: 'KRX 개별종목 공매도 종합정보에서 잔고가 공표된 최근일의 잔고수량과 상장주식수 대비 비중을 표시합니다.',
+      shortSelling: 'KRX 개별종목 공매도 잔고와 네이버 증권 외국인 보유비중을 함께 표시합니다. 원천 미제공 값은 임의로 채우지 않습니다.',
       disclosures: '네이버페이 증권이 제공하는 KRX·DART 계열 공개 공시와 관심종목 최신 뉴스입니다.'
     }
   };
