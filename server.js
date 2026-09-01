@@ -6,8 +6,25 @@ const { fetchUnifiedSeries, fetchBondYields, fetchNaverIndexClosingMinutes } = r
 const { fetchHighBreakouts } = require('./breakout-data');
 const { fetchDashboardPanels, fetchBinanceKoreaFutures, fetchInvestorTopFlows } = require('./dashboard-data');
 
-const PORT = 8000;
+const PORT = Number(process.env.PORT || 8000);
 const ROOT = __dirname;
+
+function normalizeApiPath(pathname) {
+  const match = String(pathname || '').match(/^\/[^/]+(\/api\/.*)$/);
+  return match ? match[1] : pathname;
+}
+
+function resolveStaticPath(pathname) {
+  const cleanPath = String(pathname || '/');
+  if (cleanPath === '/' || /^\/[^/.]+\/?$/.test(cleanPath) || /^\/[^/]+\/index\.html$/.test(cleanPath)) {
+    return '/index.html';
+  }
+  const directFile = path.join(ROOT, cleanPath);
+  if (directFile.startsWith(ROOT) && fs.existsSync(directFile)) return cleanPath;
+  const stripped = cleanPath.replace(/^\/[^/]+(?=\/)/, '');
+  const strippedFile = path.join(ROOT, stripped);
+  return strippedFile.startsWith(ROOT) && fs.existsSync(strippedFile) ? stripped : cleanPath;
+}
 
 const quoteMap = {
   '^IXIC': '^ndq',
@@ -1533,8 +1550,9 @@ async function fetchChartSeries(key, interval = '1d') {
 
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://${req.headers.host}`);
+  const requestPath = normalizeApiPath(u.pathname);
 
-  if (u.pathname === '/api/quote') {
+  if (requestPath === '/api/quote') {
     try {
       const symbol = u.searchParams.get('symbol') || '';
       const q = await fetchStooq(symbol);
@@ -1544,7 +1562,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');
     }
   }
-  if (u.pathname === '/api/bond-yields') {
+  if (requestPath === '/api/bond-yields') {
     try {
       const rows = await fetchBondYields();
       return send(res, 200, JSON.stringify({ ok: true, rows }), 'application/json');
@@ -1552,7 +1570,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');
     }
   }
-  if (u.pathname === '/api/high-breakouts') {
+  if (requestPath === '/api/high-breakouts') {
     try {
       const payload = await fetchHighBreakouts();
       return send(res, 200, JSON.stringify({ ok: true, ...payload }), 'application/json');
@@ -1560,7 +1578,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');
     }
   }
-  if (u.pathname === '/api/dashboard-panels') {
+  if (requestPath === '/api/dashboard-panels') {
     try {
       const payload = await fetchDashboardPanels(u.searchParams.get('watchlist') || '', u.searchParams.get('refresh') === '1');
       return send(res, 200, JSON.stringify({ ok: true, ...payload }), 'application/json');
@@ -1568,7 +1586,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');
     }
   }
-  if (u.pathname === '/api/binance-korea-futures') {
+  if (requestPath === '/api/binance-korea-futures') {
     try {
       const rows = await fetchBinanceKoreaFutures();
       return send(res, 200, JSON.stringify({ ok: true, asOf: new Date().toISOString(), rows }), 'application/json');
@@ -1576,7 +1594,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');
     }
   }
-  if (u.pathname === '/api/investor-top-flows') {
+  if (requestPath === '/api/investor-top-flows') {
     try {
       const payload = await fetchInvestorTopFlows(null, u.searchParams.get('refresh') === '1');
       return send(res, 200, JSON.stringify({ ok: true, ...payload }), 'application/json');
@@ -1584,7 +1602,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');
     }
   }
-  if (u.pathname === '/api/chart') {
+  if (requestPath === '/api/chart') {
     try {
       const key = u.searchParams.get('key') || '';
       const interval = u.searchParams.get('interval') || '1d';
@@ -1595,7 +1613,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');
     }
   }
-  if (u.pathname === '/api/extra-chart') {
+  if (requestPath === '/api/extra-chart') {
     try {
       const kind = u.searchParams.get('kind') || '';
       const days = Number(u.searchParams.get('days') || 120);
@@ -1623,7 +1641,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');
     }
   }
-  if (u.pathname === '/api/stats') {
+  if (requestPath === '/api/stats') {
     try {
       const headers = { 'User-Agent': 'Mozilla/5.0', 'Referer': 'http://finance.daum.net/' };
       
@@ -1693,7 +1711,7 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  const target = u.pathname === '/' ? '/index.html' : u.pathname;
+  const target = resolveStaticPath(u.pathname);
   const file = path.join(ROOT, target);
   if (!file.startsWith(ROOT)) return send(res, 403, 'Forbidden');
   if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) return send(res, 404, 'Not found');

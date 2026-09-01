@@ -822,6 +822,22 @@
   <script src="https://s3.tradingview.com/tv.js"></script>
   <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
   <script>
+    const APP_BASE_PATH = (() => {
+      const pathname = window.location?.pathname || '/';
+      const folder = pathname.endsWith('/')
+        ? pathname.slice(0, -1)
+        : pathname.replace(/\/[^/]*\.[^/]*$/, '');
+      return folder === '/' ? '' : folder;
+    })();
+
+    function apiUrl(path) {
+      const raw = String(path || '');
+      if (/^(?:https?:)?\/\//i.test(raw)) return raw;
+      const normalized = raw.startsWith('/') ? raw : `/${raw}`;
+      if (!normalized.startsWith('/api/')) return raw;
+      return `${APP_BASE_PATH}${normalized}`;
+    }
+
     const popupTargets = [
       { key: 'NASDAQ', name: '나스닥', symbol: 'NASDAQ:IXIC' },
       { key: 'SP500', name: 'S&P500', symbol: 'SP:SPX' },
@@ -888,7 +904,7 @@
       if (!inst) return;
       try {
         const apiKey = inst.options?.apiKey || key;
-        const res = await fetch(`/api/chart?key=${encodeURIComponent(apiKey)}&interval=${inst.interval}`);
+        const res = await fetch(apiUrl(`/api/chart?key=${encodeURIComponent(apiKey)}&interval=${inst.interval}`));
         const json = await res.json();
         if (!json?.ok || !json.series) throw new Error('no data');
         const oldWarning = document.getElementById(inst.containerId || ('lwchart-' + key))?.querySelector('.chart-load-warning');
@@ -1558,7 +1574,8 @@
       let lastError = null;
       for (let attempt = 0; attempt <= retries; attempt += 1) {
         try {
-          const cacheBustedUrl = `${url}${url.includes('?') ? '&' : '?'}_=${Date.now()}`;
+          const resolvedUrl = apiUrl(url);
+          const cacheBustedUrl = `${resolvedUrl}${resolvedUrl.includes('?') ? '&' : '?'}_=${Date.now()}`;
           const res = await fetch(cacheBustedUrl);
           const json = await res.json();
           if (res.ok && json?.ok) return json;
@@ -2739,7 +2756,7 @@
 
         async function fetchYahooQuote(symbol) {
       try {
-        const url = `/api/quote?symbol=${encodeURIComponent(symbol)}`;
+        const url = apiUrl(`/api/quote?symbol=${encodeURIComponent(symbol)}`);
         const res = await fetch(url);
         const json = await res.json();
         if (!json?.ok || !json?.quote) return null;
@@ -2756,7 +2773,7 @@
 
     async function fallbackFromChart(key) {
       try {
-        const res = await fetch(`/api/chart?key=${encodeURIComponent(key)}`);
+        const res = await fetch(apiUrl(`/api/chart?key=${encodeURIComponent(key)}`));
         const json = await res.json();
         const s = json?.series || [];
         if (s.length < 2) return null;
@@ -2809,7 +2826,7 @@
 
     async function fetchStatsAndUpdateTables() {
       try {
-        const res = await fetch('/api/stats');
+        const res = await fetch(apiUrl('/api/stats'));
         const json = await res.json();
         if (json.ok) {
           const bodyF = document.getElementById('flowTableBody');
