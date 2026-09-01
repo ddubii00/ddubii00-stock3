@@ -3,6 +3,8 @@
 const { fetchHighBreakouts } = require('./breakout-data');
 
 const CACHE_TTL_MS = 2 * 60 * 1000;
+const INVESTOR_TOP_SCAN_LIMIT = 500;
+const INVESTOR_TOP_CONCURRENCY = 12;
 const DEFAULT_WATCHLIST = [
   { name: '한화에어로스페이스', code: '012450', market: 'KR' },
   { name: 'LIG넥스원', code: '079550', market: 'KR' },
@@ -80,6 +82,8 @@ const cache = new Map();
 const inFlight = new Map();
 let marketUniverseCache = null;
 let marketUniverseInFlight = null;
+let investorTopCache = null;
+let investorTopInFlight = null;
 
 function normalizeWatchlist(input) {
   const tokens = Array.isArray(input)
@@ -234,6 +238,84 @@ async function fetchKoreanSnapshot(code, name = '', marketRow = null) {
     foreignRatio: marketRow?.foreignRatio ?? null,
     source: 'Naver Stock/Koscom'
   };
+}
+
+async function mapWithConcurrency(items, limit, mapper) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      try {
+        results[index] = await mapper(items[index], index);
+      } catch {
+        results[index] = null;
+      }
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+async function fetchStockInvestorFlow(row) {
+  if (!row?.code || !Number.isFinite(Number(row.price))) return null;
+  const json = await fetchJson(`https://m.stock.naver.com/front-api/stock/domestic/trend?code=${row.code}`, {
+    headers: { Referer: `https://stock.naver.com/domestic/stock/${row.code}/price` }
+  }, 7000);
+  const latest = Array.isArray(json?.result) ? json.result[0] : null;
+  if (!latest) return null;
+  const foreignQty = signedNumber(latest.foreignerPureBuyQuant);
+  const institutionQty = signedNumber(latest.organPureBuyQuant);
+  const price = Number(row.price);
+  return {
+    code: row.code,
+    name: row.name,
+    marketType: row.marketType,
+    price,
+    changeRate: row.changeRate,
+    foreignValue: Number.isFinite(foreignQty) ? foreignQty * price : null,
+    institutionValue: Number.isFinite(institutionQty) ? institutionQty * price : null,
+    foreignQty: Number.isFinite(foreignQty) ? foreignQty : null,
+    institutionQty: Number.isFinite(institutionQty) ? institutionQty : null,
+    tradeAmount: row.tradeAmount,
+    marketCap: row.marketCap,
+    asOf: row.asOf,
+    url: `https://stock.naver.com/domestic/stock/${row.code}/price`
+  };
+}
+
+async function fetchInvestorTopFlows(marketRowsInput = null, forceRefresh = false) {
+  if (!forceRefresh && investorTopCache && investorTopCache.expiresAt > Date.now()) return investorTopCache.payload;
+  if (!forceRefresh && investorTopInFlight) return investorTopInFlight;
+  investorTopInFlight = (async () => {
+  const marketRows = Array.isArray(marketRowsInput) ? marketRowsInput : await fetchMarketUniverse();
+  const byCode = new Map();
+  const addRows = (rows) => rows.forEach((row) => {
+    if (row?.code && !byCode.has(row.code)) byCode.set(row.code, row);
+  });
+  const tradableRows = (Array.isArray(marketRows) ? marketRows : [])
+    .filter((row) => row.code && Number.isFinite(Number(row.price)) && Number(row.price) > 0);
+  addRows(tradableRows.slice().sort((a, b) => (Number(b.tradeAmount) || 0) - (Number(a.tradeAmount) || 0)).slice(0, INVESTOR_TOP_SCAN_LIMIT));
+  addRows(tradableRows.slice().sort((a, b) => (Number(b.marketCap) || 0) - (Number(a.marketCap) || 0)).slice(0, 150));
+  const flows = (await mapWithConcurrency([...byCode.values()], INVESTOR_TOP_CONCURRENCY, fetchStockInvestorFlow))
+    .filter(Boolean);
+  const pick = (key, direction) => flows
+    .filter((row) => Number.isFinite(Number(row[key])) && Number(row[key]) !== 0)
+    .sort((a, b) => direction === 'buy' ? Number(b[key]) - Number(a[key]) : Number(a[key]) - Number(b[key]))
+    .slice(0, 20);
+  const payload = {
+    asOf: flows.find((row) => row.asOf)?.asOf || '',
+    source: `네이버 종목별 투자자 수급, 거래대금 상위 ${INVESTOR_TOP_SCAN_LIMIT}개+시총 상위 150개 스캔`,
+    foreignBuy: pick('foreignValue', 'buy'),
+    foreignSell: pick('foreignValue', 'sell'),
+    institutionBuy: pick('institutionValue', 'buy'),
+    institutionSell: pick('institutionValue', 'sell')
+  };
+  investorTopCache = { payload, expiresAt: Date.now() + 60 * 1000 };
+  return payload;
+  })().finally(() => { investorTopInFlight = null; });
+  return investorTopInFlight;
 }
 
 async function fetchUsSnapshot(symbol, name) {
@@ -919,12 +1001,12 @@ async function fetchDashboardPanelsFresh(watchlistConfig) {
   };
 }
 
-async function fetchDashboardPanels(watchlistInput) {
+async function fetchDashboardPanels(watchlistInput, forceRefresh = false) {
   const watchlist = normalizeWatchlist(watchlistInput);
   const key = watchlist.map((item) => `${item.name}:${item.code}`).join(',');
   const cached = cache.get(key);
-  if (cached && cached.expiresAt > Date.now()) return cached.payload;
-  if (inFlight.has(key)) return inFlight.get(key);
+  if (!forceRefresh && cached && cached.expiresAt > Date.now()) return cached.payload;
+  if (!forceRefresh && inFlight.has(key)) return inFlight.get(key);
   const request = fetchDashboardPanelsFresh(watchlist).then((payload) => {
     if (cache.size >= 20) cache.clear();
     cache.set(key, { payload, expiresAt: Date.now() + CACHE_TTL_MS });
@@ -934,4 +1016,4 @@ async function fetchDashboardPanels(watchlistInput) {
   return request;
 }
 
-module.exports = { fetchDashboardPanels, fetchBinanceKoreaFutures };
+module.exports = { fetchDashboardPanels, fetchBinanceKoreaFutures, fetchInvestorTopFlows };

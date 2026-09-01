@@ -4,7 +4,7 @@ const path = require('path');
 const WebSocketClient = require('ws');
 const { fetchUnifiedSeries, fetchBondYields, fetchNaverIndexClosingMinutes } = require('./tradingview-data');
 const { fetchHighBreakouts } = require('./breakout-data');
-const { fetchDashboardPanels, fetchBinanceKoreaFutures } = require('./dashboard-data');
+const { fetchDashboardPanels, fetchBinanceKoreaFutures, fetchInvestorTopFlows } = require('./dashboard-data');
 
 const PORT = 8000;
 const ROOT = __dirname;
@@ -1562,7 +1562,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (u.pathname === '/api/dashboard-panels') {
     try {
-      const payload = await fetchDashboardPanels(u.searchParams.get('watchlist') || '');
+      const payload = await fetchDashboardPanels(u.searchParams.get('watchlist') || '', u.searchParams.get('refresh') === '1');
       return send(res, 200, JSON.stringify({ ok: true, ...payload }), 'application/json');
     } catch (e) {
       return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');
@@ -1572,6 +1572,14 @@ const server = http.createServer(async (req, res) => {
     try {
       const rows = await fetchBinanceKoreaFutures();
       return send(res, 200, JSON.stringify({ ok: true, asOf: new Date().toISOString(), rows }), 'application/json');
+    } catch (e) {
+      return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');
+    }
+  }
+  if (u.pathname === '/api/investor-top-flows') {
+    try {
+      const payload = await fetchInvestorTopFlows(null, u.searchParams.get('refresh') === '1');
+      return send(res, 200, JSON.stringify({ ok: true, ...payload }), 'application/json');
     } catch (e) {
       return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');
     }
