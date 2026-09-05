@@ -31,6 +31,19 @@ function minPositive(rows, field) {
   return values.length ? Math.min(...values) : null;
 }
 
+function periodReturn(rows, days) {
+  const closes = rows.filter((row) => row.close !== null && row.close > 0);
+  if (closes.length <= days) return null;
+  const latest = closes[closes.length - 1];
+  const base = closes[closes.length - 1 - days];
+  if (!base?.close) return null;
+  return {
+    value: ((latest.close - base.close) / base.close) * 100,
+    fromDate: base.date,
+    toDate: latest.date
+  };
+}
+
 async function fetchJson(url, options = {}) {
   const response = await fetch(url, {
     ...options,
@@ -71,20 +84,18 @@ async function fetchTradingViewRows() {
   return Array.isArray(json?.data) ? json.data : [];
 }
 
-async function fetchNaverHistoryStats(code) {
-  const end = new Date();
-  const yyyy = end.getFullYear();
-  const mm = String(end.getMonth() + 1).padStart(2, '0');
-  const dd = String(end.getDate()).padStart(2, '0');
-  const url = `https://api.stock.naver.com/chart/domestic/item/${code}/day?startDateTime=199001010000&endDateTime=${yyyy}${mm}${dd}0000`;
-  const json = await fetchJson(url);
-  const rows = Array.isArray(json)
+function naverHistoryRows(json) {
+  return Array.isArray(json)
     ? json.map((row) => ({
       date: String(row.localDate || ''),
       high: toNumber(row.highPrice),
-      low: toNumber(row.lowPrice)
-    })).filter((row) => /^\d{8}$/.test(row.date) && row.high !== null && row.low !== null)
+      low: toNumber(row.lowPrice),
+      close: toNumber(row.closePrice)
+    })).filter((row) => /^\d{8}$/.test(row.date) && row.high !== null && row.low !== null && row.close !== null)
     : [];
+}
+
+function historyStats(rows) {
   if (!rows.length) return null;
   return {
     high20: maxPositive(rows.slice(-20), 'high'),
@@ -94,8 +105,51 @@ async function fetchNaverHistoryStats(code) {
     high52Week: maxPositive(rows.slice(-260), 'high'),
     low52Week: minPositive(rows.slice(-260), 'low'),
     allTimeHigh: maxPositive(rows, 'high'),
-    allTimeLow: minPositive(rows, 'low')
+    allTimeLow: minPositive(rows, 'low'),
+    return20: periodReturn(rows, 20),
+    return60: periodReturn(rows, 60)
   };
+}
+
+function naverDateRange() {
+  const end = new Date();
+  const yyyy = end.getFullYear();
+  const mm = String(end.getMonth() + 1).padStart(2, '0');
+  const dd = String(end.getDate()).padStart(2, '0');
+  return `${yyyy}${mm}${dd}0000`;
+}
+
+async function fetchNaverHistoryStats(code) {
+  const url = `https://api.stock.naver.com/chart/domestic/item/${code}/day?startDateTime=199001010000&endDateTime=${naverDateRange()}`;
+  const json = await fetchJson(url);
+  return historyStats(naverHistoryRows(json));
+}
+
+async function fetchNaverIndexStats(market) {
+  const indexCode = market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
+  const url = `https://api.stock.naver.com/chart/domestic/index/${indexCode}/day?startDateTime=199001010000&endDateTime=${naverDateRange()}`;
+  const json = await fetchJson(url);
+  return historyStats(naverHistoryRows(json));
+}
+
+function relativeReturn(stockReturn, indexReturn, indexLabel) {
+  if (!Number.isFinite(stockReturn?.value) || !Number.isFinite(indexReturn?.value)) return null;
+  return {
+    value: stockReturn.value - indexReturn.value,
+    stockReturn: stockReturn.value,
+    indexReturn: indexReturn.value,
+    indexLabel,
+    fromDate: stockReturn.fromDate,
+    toDate: stockReturn.toDate
+  };
+}
+
+async function fetchIndexStatsSafely(market) {
+  try {
+    return await fetchNaverIndexStats(market);
+  } catch (_) {
+    return null;
+  }
 }
 
 async function mapLimit(items, limit, worker) {
@@ -113,11 +167,17 @@ async function mapLimit(items, limit, worker) {
 }
 
 async function fetchHighBreakoutsFresh() {
-  const [kospiRows, kosdaqRows, scannerRows] = await Promise.all([
+  const [kospiRows, kosdaqRows, scannerRows, kospiIndexStats, kosdaqIndexStats] = await Promise.all([
     fetchMarketRows('KOSPI'),
     fetchMarketRows('KOSDAQ'),
-    fetchTradingViewRows()
+    fetchTradingViewRows(),
+    fetchIndexStatsSafely('KOSPI'),
+    fetchIndexStatsSafely('KOSDAQ')
   ]);
+  const indexStatsByMarket = {
+    KOSPI: kospiIndexStats,
+    KOSDAQ: kosdaqIndexStats
+  };
   const marketByCode = new Map([...kospiRows, ...kosdaqRows].map((row) => [row.itemcode, row]));
   const candidates = [];
   scannerRows.forEach((scannerRow) => {
@@ -172,13 +232,12 @@ async function fetchHighBreakoutsFresh() {
 
   const verified = await mapLimit(candidates, 8, async (candidate) => {
     let history = null;
-    if (candidate.needsHistoryCheck) {
-      try {
-        history = await fetchNaverHistoryStats(candidate.code);
-      } catch (_) {
-        history = null;
-      }
+    try {
+      history = await fetchNaverHistoryStats(candidate.code);
+    } catch (_) {
+      history = null;
     }
+    const indexStats = indexStatsByMarket[candidate.market];
     const day20High = candidate.day20High;
     const day20Low = candidate.day20Low;
     const week26High = candidate.week26High;
@@ -197,6 +256,10 @@ async function fetchHighBreakoutsFresh() {
       week52Low,
       allTimeHigh,
       allTimeLow,
+      relativeReturns: {
+        day20: relativeReturn(history?.return20, indexStats?.return20, candidate.market),
+        day60: relativeReturn(history?.return60, indexStats?.return60, candidate.market)
+      },
       day20Breakout: candidate.todayHigh !== null && day20High !== null && candidate.todayHigh >= day20High,
       week26Breakout: candidate.todayHigh !== null && week26High !== null && candidate.todayHigh >= week26High,
       week52Breakout: candidate.todayHigh !== null && week52High !== null && candidate.todayHigh >= week52High,
@@ -233,8 +296,8 @@ async function fetchHighBreakoutsFresh() {
     asOf: new Date().toISOString(),
     latestTradeDate: statusDates.sort().pop() || '',
     source: 'Naver Stock KRX + TradingView Korea Scanner',
-    criteria: '최근 거래일 고가가 해당 기간 최고가와 같은 종목 · 20일/26주는 TradingView 후보, 52주는 네이버 증권, 역대 최고가는 네이버 장기 일봉으로 재검증',
-    lowCriteria: '최근 거래일 저가가 해당 기간 최저가와 같은 종목 · 20일/26주는 TradingView 후보, 52주는 네이버 증권, 역대 최저가는 네이버 장기 일봉으로 재검증',
+    criteria: '최근 거래일 고가가 해당 기간 최고가와 같은 종목 · 종목별 20일/60일 수익률에서 해당 시장지수 수익률을 뺀 상대수익률 표시',
+    lowCriteria: '최근 거래일 저가가 해당 기간 최저가와 같은 종목 · 종목별 20일/60일 수익률에서 해당 시장지수 수익률을 뺀 상대수익률 표시',
     rows,
     lowRows
   };
