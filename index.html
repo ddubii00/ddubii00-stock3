@@ -105,6 +105,15 @@
     .chart-reference-values { position:absolute; top:11px; right:64px; z-index:55; display:flex; gap:6px; align-items:center; pointer-events:none; }
     .chart-value-pill { min-width:74px; padding:5px 8px; border:1px solid var(--line); border-radius:7px; background:rgba(255,255,255,.94); box-shadow:0 4px 12px rgba(16,35,70,.1); text-align:right; font-size:15px; line-height:1.15; font-weight:950; font-variant-numeric:tabular-nums; }
     .chart-value-pill.previous { color:#5f6b85; font-size:13px; }
+    .ma-compare-overlay { position:absolute; top:10px; left:12px; z-index:56; display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; max-width:calc(100% - 190px); padding:6px 8px; border:1px solid rgba(219,227,241,.82); border-radius:9px; background:rgba(255,255,255,.92); box-shadow:0 4px 12px rgba(16,35,70,.08); color:#111827; font-size:12px; line-height:1.2; font-weight:850; pointer-events:none; }
+    .ma-compare-overlay .prev-price { color:#5f6b85; }
+    .ma-compare-overlay .compare-line { display:flex; flex-wrap:wrap; align-items:center; gap:4px; }
+    .ma-compare-overlay .label { color:#111827; }
+    .ma-compare-overlay .value { font-size:12px; line-height:1.2; font-weight:950; font-variant-numeric:tabular-nums; }
+    .ma-compare-overlay .value.up { color:#d92c2c; }
+    .ma-compare-overlay .value.down { color:#1f5bd8; }
+    .ma-compare-overlay .value.flat { color:#111827; }
+    .ma-compare-overlay .relation { color:#111827; font-weight:950; }
     .bond-table { table-layout:fixed; }
     .bond-table td, .bond-table th { font-size:13px; padding:8px 5px; }
     .bond-name { font-size:15px; font-weight:850; }
@@ -871,6 +880,71 @@
       return result;
     }
 
+    function formatLwMetaValue(value, inst) {
+      if (!Number.isFinite(Number(value))) return '-';
+      const n = Number(value);
+      const digits = Number.isFinite(inst?.options?.valueDigits)
+        ? inst.options.valueDigits
+        : (Math.abs(n) >= 100 ? 2 : 4);
+      return Number(n).toLocaleString('ko-KR', {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits
+      });
+    }
+
+    function latestSmaValue(smaData, latestTime) {
+      if (!Array.isArray(smaData) || !smaData.length) return null;
+      for (let i = smaData.length - 1; i >= 0; i -= 1) {
+        if (String(smaData[i].time) === String(latestTime)) return Number(smaData[i].value);
+      }
+      return Number(smaData[smaData.length - 1]?.value);
+    }
+
+    function compareSymbol(left, right) {
+      const l = Number(left);
+      const r = Number(right);
+      if (!Number.isFinite(l) || !Number.isFinite(r)) return '-';
+      if (Math.abs(l - r) < 0.000001) return '=';
+      return l < r ? '<' : '>';
+    }
+
+    function renderMaCompareOverlay(inst, chartData) {
+      const chartContainer = document.getElementById(inst.containerId || '');
+      if (!chartContainer) return;
+      let overlay = chartContainer.querySelector('.ma-compare-overlay');
+      const shouldShow = inst.options?.maCompare && inst.interval === '1d' && Array.isArray(chartData) && chartData.length >= 60;
+      if (!shouldShow) {
+        if (overlay) overlay.remove();
+        return;
+      }
+      if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.className = 'ma-compare-overlay';
+        chartContainer.appendChild(overlay);
+      }
+      const latest = chartData[chartData.length - 1];
+      const previous = chartData[chartData.length - 2] || latest;
+      const current = Number(latest.close);
+      const previousClose = Number(previous.close);
+      const ma20 = latestSmaValue(inst.smaDataMap?.[20], latest.time);
+      const ma60 = latestSmaValue(inst.smaDataMap?.[60], latest.time);
+      if (![current, previousClose, ma20, ma60].every(Number.isFinite)) {
+        overlay.innerHTML = '<span class="label">이평 비교 계산 중</span>';
+        return;
+      }
+      const currentClass = current > previousClose ? 'up' : current < previousClose ? 'down' : 'flat';
+      overlay.innerHTML = `
+        <span class="prev-price"><span class="label">직전가</span> <span class="value flat">${formatLwMetaValue(previousClose, inst)}</span></span>
+        <span class="compare-line">
+          <span class="label">20일 이평</span><span class="value flat">${formatLwMetaValue(ma20, inst)}</span>
+          <span class="relation">${compareSymbol(ma20, current)}</span>
+          <span class="label">현재가</span><span class="value ${currentClass}">${formatLwMetaValue(current, inst)}</span>
+          <span class="relation">${compareSymbol(current, ma60)}</span>
+          <span class="label">60일 이평</span><span class="value flat">${formatLwMetaValue(ma60, inst)}</span>
+        </span>
+      `;
+    }
+
     function calculateBollinger(data, period = 20, multiplier = 2) {
       const upper = [];
       const lower = [];
@@ -1153,6 +1227,7 @@
           inst.maSeries[p].setData(smaData);
           inst.smaDataMap[p] = smaData;
         });
+        renderMaCompareOverlay(inst, chartData);
         if (inst.bbSeries) {
           const bollinger = calculateBollinger(chartData, 20, 2);
           inst.bbSeries.upper.setData(bollinger.upper);
@@ -1174,7 +1249,7 @@
             : Math.abs(latest) >= 100 ? 0 : 2;
           const suffix = inst.options.valueSuffix || '';
           const formatValue = (value) => `${Number(value).toLocaleString('ko-KR', { minimumFractionDigits: digits, maximumFractionDigits: digits })}${suffix}`;
-          valuesEl.innerHTML = `<span class="chart-value-pill ${direction}">${formatValue(latest)}</span><span class="chart-value-pill previous">직전 ${formatValue(previous)}</span>`;
+          valuesEl.innerHTML = `<span class="chart-value-pill ${direction}">${formatValue(latest)}</span>${inst.options?.maCompare ? '' : `<span class="chart-value-pill previous">직전 ${formatValue(previous)}</span>`}`;
         }
 
         // MA Cross Logic
@@ -1232,7 +1307,13 @@
             }).filter((row) => [row.open, row.high, row.low, row.close].every(Number.isFinite));
             if (!daily.length) throw new Error('no fallback');
             inst.candleSeries.setData(daily);
-            [5, 10, 20, 60, 120, 240].forEach((period) => inst.maSeries[period].setData(calculateSMA(daily, period)));
+            inst.smaDataMap = {};
+            [5, 10, 20, 60, 120, 240].forEach((period) => {
+              const smaData = calculateSMA(daily, period);
+              inst.maSeries[period].setData(smaData);
+              inst.smaDataMap[period] = smaData;
+            });
+            renderMaCompareOverlay(inst, daily);
             if (inst.bbSeries) {
               const bollinger = calculateBollinger(daily, 20, 2);
               inst.bbSeries.upper.setData(bollinger.upper);
@@ -1247,6 +1328,7 @@
               statusEl.classList.remove('open');
             }
           } catch (_) {
+            renderMaCompareOverlay(inst, []);
             let warning = target.querySelector('.chart-load-warning');
             if (!warning) { warning = document.createElement('div'); warning.className = 'chart-load-warning'; target.appendChild(warning); }
             warning.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(249,251,255,.9);color:#5f6b85;font-weight:800;z-index:60;padding:20px;text-align:center;';
@@ -1433,6 +1515,7 @@
           initLwChart(item.popupKey, `lwchart-${item.popupKey}`, '1d', 120, {
             bollinger:true,
             referenceValues:true,
+            maCompare:true,
             valueSuffix:'pt'
           });
           
