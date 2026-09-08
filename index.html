@@ -106,21 +106,14 @@
     .chart-reference-values { position:absolute; top:11px; right:64px; z-index:55; display:flex; gap:6px; align-items:center; pointer-events:none; }
     .chart-value-pill { min-width:74px; padding:5px 8px; border:1px solid var(--line); border-radius:7px; background:rgba(255,255,255,.94); box-shadow:0 4px 12px rgba(16,35,70,.1); text-align:right; font-size:15px; line-height:1.15; font-weight:950; font-variant-numeric:tabular-nums; }
     .chart-value-pill.previous { color:#5f6b85; font-size:13px; }
-    .ma-compare-overlay { position:absolute; top:10px; left:12px; z-index:56; display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; max-width:calc(100% - 190px); padding:6px 8px; border:1px solid rgba(219,227,241,.82); border-radius:9px; background:rgba(255,255,255,.92); box-shadow:0 4px 12px rgba(16,35,70,.08); color:#111827; font-size:12px; line-height:1.2; font-weight:850; pointer-events:none; }
-    .ma-compare-overlay .prev-price { color:#5f6b85; }
-    .ma-compare-overlay .compare-line { display:flex; flex-wrap:wrap; align-items:center; gap:4px; }
+    .ma-compare-overlay { position:absolute; top:10px; left:12px; z-index:56; display:grid; grid-template-columns:auto auto; align-items:start; gap:5px 10px; width:max-content; padding:6px 8px; border:1px solid rgba(219,227,241,.82); border-radius:9px; background:rgba(255,255,255,.92); box-shadow:0 4px 12px rgba(16,35,70,.08); color:#111827; font-size:12px; line-height:1.2; font-weight:850; pointer-events:none; }
     .ma-compare-overlay .label { color:#111827; }
-    .ma-compare-overlay .value { font-size:12px; line-height:1.2; font-weight:950; font-variant-numeric:tabular-nums; }
-    .ma-compare-overlay .value.up { color:#d92c2c; }
-    .ma-compare-overlay .value.down { color:#1f5bd8; }
-    .ma-compare-overlay .value.flat { color:#111827; }
-    .ma-compare-overlay .relation { color:#111827; font-weight:950; }
-    .ma-compare-overlay .trend-line { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; }
+    .ma-compare-overlay .trend-line { display:flex; flex-direction:column; align-items:flex-start; gap:3px; }
     .ma-compare-overlay .trend { font-weight:950; }
     .ma-compare-overlay .trend.up { color:#d92c2c; }
     .ma-compare-overlay .trend.down { color:#1f5bd8; }
     .ma-compare-overlay .trend.flat { color:#111827; }
-    .ma-position-stack { display:flex; flex-direction:column; gap:2px; padding-left:10px; margin-left:2px; border-left:1px solid #dbe3f1; color:#111827; font-size:12px; font-weight:950; line-height:1.12; }
+    .ma-position-stack { display:flex; flex-direction:column; gap:2px; padding-right:10px; border-right:1px solid #dbe3f1; color:#111827; font-size:12px; font-weight:950; line-height:1.12; }
     .chart-rate { display:block; margin-top:2px; font-size:11px; font-weight:950; }
     .binance-change-main { display:block; font-size:18px; font-weight:950; line-height:1.05; }
     .binance-change-sub { display:block; margin-top:3px; font-size:12px; font-weight:850; opacity:.86; }
@@ -897,18 +890,6 @@
       return result;
     }
 
-    function formatLwMetaValue(value, inst) {
-      if (!Number.isFinite(Number(value))) return '-';
-      const n = Number(value);
-      const digits = Number.isFinite(inst?.options?.valueDigits)
-        ? inst.options.valueDigits
-        : (Math.abs(n) >= 100 ? 2 : 4);
-      return Number(n).toLocaleString('ko-KR', {
-        minimumFractionDigits: digits,
-        maximumFractionDigits: digits
-      });
-    }
-
     function latestSmaValue(smaData, latestTime) {
       if (!Array.isArray(smaData) || !smaData.length) return null;
       for (let i = smaData.length - 1; i >= 0; i -= 1) {
@@ -929,16 +910,8 @@
       if (!Number.isFinite(current) || !Number.isFinite(previous)) return { label: '계산중', className: 'flat' };
       if (Math.abs(current - previous) < 0.000001) return { label: '보합', className: 'flat' };
       return current > previous
-        ? { label: '상승세', className: 'up' }
-        : { label: '하락세', className: 'down' };
-    }
-
-    function compareSymbol(left, right) {
-      const l = Number(left);
-      const r = Number(right);
-      if (!Number.isFinite(l) || !Number.isFinite(r)) return '-';
-      if (Math.abs(l - r) < 0.000001) return '=';
-      return l < r ? '<' : '>';
+        ? { label: '상승', className: 'up' }
+        : { label: '하락', className: 'down' };
     }
 
     function renderMaCompareOverlay(inst, chartData) {
@@ -956,16 +929,13 @@
         chartContainer.appendChild(overlay);
       }
       const latest = chartData[chartData.length - 1];
-      const previous = chartData[chartData.length - 2] || latest;
       const current = Number(latest.close);
-      const previousClose = Number(previous.close);
       const ma20 = latestSmaValue(inst.smaDataMap?.[20], latest.time);
       const ma60 = latestSmaValue(inst.smaDataMap?.[60], latest.time);
-      if (![current, previousClose, ma20, ma60].every(Number.isFinite)) {
+      if (![current, ma20, ma60].every(Number.isFinite)) {
         overlay.innerHTML = '<span class="label">이평 비교 계산 중</span>';
         return;
       }
-      const currentClass = current > previousClose ? 'up' : current < previousClose ? 'down' : 'flat';
       const ma20Trend = getSmaTrend(inst.smaDataMap?.[20], latest.time);
       const ma60Trend = getSmaTrend(inst.smaDataMap?.[60], latest.time);
       const sortedPosition = [
@@ -974,17 +944,10 @@
         { label: '60일', value: ma60 }
       ].sort((a, b) => b.value - a.value);
       overlay.innerHTML = `
-        <span class="compare-line">
-          <span class="label">20일 이평</span><span class="value flat">${formatLwMetaValue(ma20, inst)}</span>
-          <span class="relation">${compareSymbol(ma20, current)}</span>
-          <span class="label">현재가</span><span class="value ${currentClass}">${formatLwMetaValue(current, inst)}</span>
-          <span class="relation">${compareSymbol(current, ma60)}</span>
-          <span class="label">60일 이평</span><span class="value flat">${formatLwMetaValue(ma60, inst)}</span>
-        </span>
         <span class="ma-position-stack">${sortedPosition.map((item) => `<span>${item.label}</span>`).join('')}</span>
         <span class="trend-line">
-          <span class="label">20일 이평</span><span class="trend ${ma20Trend.className}">${ma20Trend.label}</span>
-          <span class="label">60일 이평</span><span class="trend ${ma60Trend.className}">${ma60Trend.label}</span>
+          <span><span class="label">20일: </span><span class="trend ${ma20Trend.className}">${ma20Trend.label}</span></span>
+          <span><span class="label">60일: </span><span class="trend ${ma60Trend.className}">${ma60Trend.label}</span></span>
         </span>
       `;
     }
