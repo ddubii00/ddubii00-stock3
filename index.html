@@ -375,8 +375,13 @@
         <div class="mini-panel-grid" id="fearGreedPanel"><div class="panel-empty">심리지표 계산 중...</div></div>
       </section>
       <section class="card span-6 bridge-card">
-        <div class="head-row"><div class="title">ETF 자금 흐름 SOXX·ITA</div><div class="asof">원천 확인</div></div>
-        <div class="bridge-note">순유입/유출 공개 API가 막히면 가격·거래대금 프록시만 표시하고 가짜 플로우는 만들지 않습니다.</div>
+        <div class="head-row"><div class="title">ETF 자금 흐름</div><div class="asof">사용자 지정</div></div>
+        <div class="bridge-note">ETF 티커를 쉼표로 입력하세요(최대 10개). 순유입/유출 원천이 없는 경우 가격·거래대금 프록시로 표시하며 실제 순유입/유출로 오인하지 않습니다.</div>
+        <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin:0 0 10px">
+          <input id="etfInput" type="text" value="SOXX,ITA" autocomplete="off" aria-label="ETF 티커" style="flex:1;min-width:220px;border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-weight:800" />
+          <button class="btn" id="applyEtfs" type="button">적용</button>
+          <button class="btn outline" id="resetEtfs" type="button">기본값</button>
+        </div>
         <div class="bridge-table-wrap"><table class="bridge-table"><thead><tr><th>ETF</th><th>가격</th><th>등락률</th><th>거래대금</th><th>상태</th></tr></thead><tbody id="etfFlowBody"><tr><td colspan="5" class="panel-empty">ETF 확인 중...</td></tr></tbody></table></div>
       </section>
       <section class="card span-6 bridge-card">
@@ -1691,6 +1696,8 @@
 
     const DEFAULT_DASHBOARD_WATCHLIST = '012450,079550,000660,005930,NVDA,PLTR,TSM';
     const WATCHLIST_STORAGE_KEY = 'stock3-dashboard-watchlist';
+    const DEFAULT_DASHBOARD_ETFS = 'SOXX,ITA';
+    const ETF_STORAGE_KEY = 'stock3-dashboard-etfs';
     let lastDashboardSectors = [];
     let sectorSortMode = 'marketCap';
 
@@ -1698,6 +1705,34 @@
       try { return localStorage.getItem(WATCHLIST_STORAGE_KEY) || DEFAULT_DASHBOARD_WATCHLIST; }
       catch { return DEFAULT_DASHBOARD_WATCHLIST; }
     }
+
+
+    function getDashboardEtfs() {
+      try { return localStorage.getItem(ETF_STORAGE_KEY) || DEFAULT_DASHBOARD_ETFS; }
+      catch { return DEFAULT_DASHBOARD_ETFS; }
+    }
+
+    function normalizeDashboardEtfs(value = getDashboardEtfs()) {
+      const seen = new Set();
+      const rows = [];
+      String(value || '').split(/[\s,]+/).forEach((token) => {
+        const symbol = String(token || '').trim().toUpperCase();
+        if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol) || seen.has(symbol)) return;
+        seen.add(symbol);
+        rows.push(symbol);
+      });
+      return (rows.length ? rows : DEFAULT_DASHBOARD_ETFS.split(',')).slice(0, 10);
+    }
+
+    function saveDashboardEtfs(value) {
+      const symbols = normalizeDashboardEtfs(value);
+      const joined = symbols.join(',');
+      try { localStorage.setItem(ETF_STORAGE_KEY, joined); } catch {}
+      const input = document.getElementById('etfInput');
+      if (input) input.value = joined;
+      return joined;
+    }
+
 
     function parseDashboardWatchlist(value = getDashboardWatchlist()) {
       return String(value || '')
@@ -2112,8 +2147,9 @@
       refreshButton.textContent = '확인 중...';
       try {
         const watchlistSpec = getDashboardWatchlist();
+        const etfSpec = getDashboardEtfs();
         const refreshQuery = forceRefresh ? `&refresh=1&_=${Date.now()}` : '';
-        const json = await fetchJsonWithRetry(`/api/dashboard-panels?watchlist=${encodeURIComponent(watchlistSpec)}${refreshQuery}`, 1);
+        const json = await fetchJsonWithRetry(`/api/dashboard-panels?watchlist=${encodeURIComponent(watchlistSpec)}&etfs=${encodeURIComponent(etfSpec)}${refreshQuery}`, 1);
         const asOf = json.asOf ? new Date(json.asOf).toLocaleString('ko-KR') : '-';
         document.getElementById('watchlistAsOf').textContent = asOf;
         document.getElementById('sectorAsOf').textContent = asOf;
@@ -2229,6 +2265,23 @@
         refreshButton.textContent = '새로고침';
       }
     }
+
+
+    const etfInput = document.getElementById('etfInput');
+    if (etfInput) etfInput.value = getDashboardEtfs();
+    document.getElementById('applyEtfs')?.addEventListener('click', () => {
+      saveDashboardEtfs(etfInput?.value || DEFAULT_DASHBOARD_ETFS);
+      renderDashboardBridge(true);
+    });
+    document.getElementById('resetEtfs')?.addEventListener('click', () => {
+      try { localStorage.removeItem(ETF_STORAGE_KEY); } catch {}
+      if (etfInput) etfInput.value = DEFAULT_DASHBOARD_ETFS;
+      renderDashboardBridge(true);
+    });
+    etfInput?.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') document.getElementById('applyEtfs')?.click();
+    });
+
 
     const watchlistInput = document.getElementById('watchlistInput');
     watchlistInput.value = getDashboardWatchlist();

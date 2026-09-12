@@ -725,6 +725,131 @@ async function fetchPrivateCreditGdpSeries() {
   };
 }
 
+
+function extractCookieHeader(response) {
+  try {
+    if (typeof response?.headers?.getSetCookie === 'function') {
+      const values = response.headers.getSetCookie();
+      if (Array.isArray(values) && values.length) {
+        return values.map((value) => String(value).split(';')[0]).filter(Boolean).join('; ');
+      }
+    }
+  } catch {}
+  const raw = response?.headers?.get?.('set-cookie') || '';
+  return raw ? String(raw).split(';')[0] : '';
+}
+
+async function fetchKofiaFreeSisMetaRows(objName, fromYmd, toYmd) {
+  const base = 'https://freesis.kofia.or.kr';
+  const main = await fetchWithTimeout(`${base}/stat/main.do`, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36',
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7'
+    }
+  }, 15000);
+  if (!main.ok) throw new Error(`KOFIA main HTTP ${main.status}`);
+  const cookie = extractCookieHeader(main);
+  await main.arrayBuffer();
+
+  const commonHeaders = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36',
+    Accept: 'application/json, text/plain, */*',
+    'Content-Type': 'application/json; charset=UTF-8',
+    'X-Requested-With': 'XMLHttpRequest',
+    Origin: base,
+    Referer: `${base}/stat/main.do`,
+    ...(cookie ? { Cookie: cookie } : {})
+  };
+
+  // FreeSIS has used both RD and D for daily frequency in different page generations.
+  const searches = [
+    {
+      tmpV40: '1000000',
+      tmpV41: '1',
+      tmpV6: '2',
+      tmpV7: '1',
+      tmpV4: '',
+      tmpV11: '',
+      tmpV1: 'RD',
+      tmpV45: fromYmd,
+      tmpV46: toYmd,
+      OBJ_NM: objName
+    },
+    {
+      OBJ_NM: objName,
+      tmpV1: 'D',
+      tmpV45: fromYmd,
+      tmpV46: toYmd,
+      tmpV40: '1000000',
+      tmpV41: '1'
+    }
+  ];
+
+  let lastError = null;
+  for (const dmSearch of searches) {
+    try {
+      const response = await fetchWithTimeout(`${base}/meta/getMetaDataList.do`, {
+        method: 'POST',
+        headers: commonHeaders,
+        body: JSON.stringify({ dmSearch })
+      }, 18000);
+      const text = await response.text();
+      if (!response.ok) throw new Error(`KOFIA metadata HTTP ${response.status}`);
+      const json = JSON.parse(text);
+      const rows = Array.isArray(json?.ds1) ? json.ds1 : [];
+      if (rows.length) return rows;
+      lastError = new Error('KOFIA ds1 empty');
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error('KOFIA historical data unavailable');
+}
+
+async function fetchKofiaMarketFundsHistory(limit = 120) {
+  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 120));
+  const end = new Date();
+  const start = new Date(end);
+  start.setDate(start.getDate() - Math.max(120, safeLimit * 3));
+
+  const fromYmd = formatYmd(start);
+  const toYmd = formatYmd(end);
+
+  const [depositRows, creditRows] = await Promise.all([
+    fetchKofiaFreeSisMetaRows('STATSCU0100000060BO', fromYmd, toYmd),
+    fetchKofiaFreeSisMetaRows('STATSCU0100000070BO', fromYmd, toYmd)
+  ]);
+
+  const depositByDate = new Map();
+  for (const row of depositRows) {
+    const ymd = String(row?.TMPV1 || '');
+    const value = parseTrendNumber(row?.TMPV2);
+    if (/^\d{8}$/.test(ymd) && Number.isFinite(value)) depositByDate.set(ymd, value);
+  }
+
+  const creditByDate = new Map();
+  for (const row of creditRows) {
+    const ymd = String(row?.TMPV1 || '');
+    const value = parseTrendNumber(row?.TMPV2);
+    if (/^\d{8}$/.test(ymd) && Number.isFinite(value)) creditByDate.set(ymd, value);
+  }
+
+  const rows = [...depositByDate.keys()]
+    .filter((ymd) => creditByDate.has(ymd))
+    .sort()
+    .map((ymd) => ({
+      date: `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`,
+      // tmpV40=1000000 returns KRW millions; divide by 1,000,000 for KRW trillions.
+      deposit: depositByDate.get(ymd) / 1000000,
+      credit: creditByDate.get(ymd) / 1000000
+    }))
+    .slice(-safeLimit);
+
+  if (!rows.length) throw new Error('KOFIA historical market-funds rows empty');
+  return rows;
+}
+
 async function fetchKofiaMarketFundsLatest() {
   const html = await fetchTextWithRetries('https://freesis.kofia.or.kr/stat/main.do', {
     headers: {
@@ -765,34 +890,60 @@ async function fetchMarketFundsSeriesFresh(limit = 120) {
   const safeLimit = Math.max(20, Math.min(500, Number(limit) || 120));
   const rows = [];
   const seen = new Set();
-  for (let page = 1; page <= 50; page += 1) {
-    const url = `https://finance.naver.com/sise/sise_deposit.naver?&page=${page}`;
-    const html = await fetchTextWithRetries(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0',
-        Referer: 'https://finance.naver.com/sise/'
-      }
-    }, 3, 'euc-kr');
-    const tableRows = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
-    let foundInPage = 0;
-    for (const match of tableRows) {
-      const cells = [...match[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((m) => stripHtml(m[1]));
-      const dateCell = cells.find((cell) => /^\d{2}\.\d{2}\.\d{2}$/.test(cell));
-      if (!dateCell || cells.length < 4) continue;
-      const deposit = parseTrendNumber(cells[1]);
-      const credit = parseTrendNumber(cells[3]);
-      if (!Number.isFinite(deposit) || !Number.isFinite(credit)) continue;
-      const [yy, mm, dd] = dateCell.split('.');
-      const date = `20${yy}-${mm}-${dd}`;
-      if (seen.has(date)) continue;
-      seen.add(date);
-      rows.push({ date, deposit: deposit / 10000, credit: credit / 10000 });
-      foundInPage += 1;
+  let historySource = 'KOFIA FreeSIS';
+
+  // Primary source: KOFIA FreeSIS historical JSON.
+  try {
+    const officialRows = await fetchKofiaMarketFundsHistory(safeLimit);
+    for (const row of officialRows) {
+      if (!row?.date || seen.has(row.date)) continue;
+      seen.add(row.date);
+      rows.push(row);
     }
-    if (!foundInPage && page > 1) break;
-    if (rows.length >= safeLimit) break;
+    console.log(`KOFIA market-funds history: ${officialRows.length} rows`);
+  } catch (error) {
+    console.error('Failed to fetch historical market funds from KOFIA:', error.message || error);
   }
 
+  // Legacy fallback: Naver Finance HTML. Kept only as a fallback because its layout can change.
+  if (rows.length < Math.min(5, safeLimit)) {
+    historySource = 'KOFIA latest + Naver legacy fallback';
+    for (let page = 1; page <= 50; page += 1) {
+      try {
+        const url = `https://finance.naver.com/sise/sise_deposit.naver?&page=${page}`;
+        const html = await fetchTextWithRetries(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0',
+            Referer: 'https://finance.naver.com/sise/'
+          }
+        }, 3, 'euc-kr');
+        const tableRows = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
+        let foundInPage = 0;
+        for (const match of tableRows) {
+          const cells = [...match[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((m) => stripHtml(m[1]));
+          const dateCell = cells.find((cell) => /^(?:\d{2}|\d{4})\.\d{2}\.\d{2}$/.test(cell));
+          if (!dateCell || cells.length < 4) continue;
+          const deposit = parseTrendNumber(cells[1]);
+          const credit = parseTrendNumber(cells[3]);
+          if (!Number.isFinite(deposit) || !Number.isFinite(credit)) continue;
+          const [rawYear, mm, dd] = dateCell.split('.');
+          const yyyy = rawYear.length === 4 ? rawYear : `20${rawYear}`;
+          const date = `${yyyy}-${mm}-${dd}`;
+          if (seen.has(date)) continue;
+          seen.add(date);
+          rows.push({ date, deposit: deposit / 10000, credit: credit / 10000 });
+          foundInPage += 1;
+        }
+        if (!foundInPage && page > 1) break;
+        if (rows.length >= safeLimit) break;
+      } catch (error) {
+        console.error(`Naver market-funds fallback page ${page} failed:`, error.message || error);
+        if (page > 1) break;
+      }
+    }
+  }
+
+  // Always overlay the latest official FreeSIS headline value.
   try {
     const officialLatest = await fetchKofiaMarketFundsLatest();
     if (officialLatest) {
@@ -801,12 +952,14 @@ async function fetchMarketFundsSeriesFresh(limit = 120) {
       else rows.push(officialLatest);
     }
   } catch (error) {
-    console.error('Failed to fetch latest market funds from KOFIA', error.message);
+    console.error('Failed to fetch latest market funds from KOFIA', error.message || error);
   }
 
-  rows.sort((a, b) => a.date.localeCompare(b.date));
-  if (!rows.length) return null;
-  const selectedRows = rows.slice(-safeLimit);
+  const byDate = new Map(rows.map((row) => [row.date, row]));
+  const mergedRows = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+  if (!mergedRows.length) return null;
+
+  const selectedRows = mergedRows.slice(-safeLimit);
   let kospiRows = [];
   try {
     kospiRows = (await fetchChartSeries('KOSPI', '1d') || [])
@@ -815,6 +968,7 @@ async function fetchMarketFundsSeriesFresh(limit = 120) {
   } catch (error) {
     console.error('Failed to fetch KOSPI comparison series for market funds', error.message);
   }
+
   let kospiIndex = 0;
   let latestKospi = null;
   const series = selectedRows.map((row, index) => {
@@ -834,10 +988,11 @@ async function fetchMarketFundsSeriesFresh(limit = 120) {
       depositChangePercent: previous?.deposit ? depositChange / previous.deposit * 100 : null
     };
   });
+
   const latest = series[series.length - 1]?.date || '';
   return {
     unit: '조원',
-    note: `금융투자협회 최신 공표일(${latest}) 기준, 단위: 조원. KOSPI는 같은 날짜의 종가이며 점선으로 표시합니다.`,
+    note: `${historySource} 일별 자료, 최신 공표일 ${latest}. 단위: 조원. KOSPI는 같은 날짜의 종가이며 점선으로 표시합니다.`,
     series
   };
 }
@@ -1580,7 +1735,11 @@ const server = http.createServer(async (req, res) => {
   }
   if (requestPath === '/api/dashboard-panels') {
     try {
-      const payload = await fetchDashboardPanels(u.searchParams.get('watchlist') || '', u.searchParams.get('refresh') === '1');
+      const payload = await fetchDashboardPanels(
+        u.searchParams.get('watchlist') || '',
+        u.searchParams.get('refresh') === '1',
+        u.searchParams.get('etfs') || ''
+      );
       return send(res, 200, JSON.stringify({ ok: true, ...payload }), 'application/json');
     } catch (e) {
       return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');

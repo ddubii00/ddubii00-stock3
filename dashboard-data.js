@@ -43,6 +43,8 @@ const WATCHLIST_ALIASES = new Map(DEFAULT_WATCHLIST.flatMap((item) => [
   [item.name.toLowerCase(), item]
 ]));
 
+const DEFAULT_ETF_SYMBOLS = ['SOXX', 'ITA'];
+
 const BINANCE_KOREA_FUTURES = [
   { name: 'SK하이닉스', code: '000660', symbol: 'SKHYNIXUSDT' },
   { name: '삼성전자', code: '005930', symbol: 'SAMSUNGUSDT' },
@@ -109,6 +111,23 @@ function normalizeWatchlist(input) {
     if (rows.length >= 20) break;
   }
   return rows.length ? rows : DEFAULT_WATCHLIST;
+}
+
+
+function normalizeEtfSymbols(input) {
+  const tokens = Array.isArray(input)
+    ? input
+    : String(input || '').split(/[\s,]+/);
+  const rows = [];
+  const seen = new Set();
+  for (const raw of (tokens.length ? tokens : DEFAULT_ETF_SYMBOLS)) {
+    const symbol = String(raw || '').trim().toUpperCase();
+    if (!/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol) || seen.has(symbol)) continue;
+    seen.add(symbol);
+    rows.push(symbol);
+    if (rows.length >= 10) break;
+  }
+  return rows.length ? rows : DEFAULT_ETF_SYMBOLS.slice();
 }
 
 function number(value) {
@@ -482,6 +501,197 @@ async function fetchYahooHistory(symbol, range = '1y', interval = '1d') {
   }).filter((row) => Number.isFinite(row.close) && row.close > 0);
 }
 
+
+async function fetchCboeIndexRows(symbol) {
+  const clean = String(symbol || '').toUpperCase();
+  const text = await fetchText(
+    `https://cdn.cboe.com/api/global/us_indices/daily_prices/${encodeURIComponent(clean)}_History.csv`,
+    { headers: { Referer: 'https://www.cboe.com/' } },
+    10000
+  );
+  const lines = String(text || '').trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+  return lines.slice(1).map((line) => {
+    const cols = line.split(',');
+    const m = String(cols[0] || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    const close = signedNumber(cols[4]);
+    if (!m || !Number.isFinite(close) || close <= 0) return null;
+    return {
+      asOf: `${m[3]}-${m[1]}-${m[2]}`,
+      date: `${m[3]}-${m[1]}-${m[2]}`,
+      close
+    };
+  }).filter(Boolean);
+}
+
+async function fetchCboePutCallRatio() {
+  const urls = [
+    'https://www.cboe.com/markets/us/options/market-statistics/daily',
+    'https://www.cboe.com/us/options/market_statistics/daily/'
+  ];
+  let lastError = null;
+
+  for (const url of urls) {
+    try {
+      const html = await fetchText(
+        url,
+        {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36',
+            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            Referer: 'https://www.cboe.com/'
+          }
+        },
+        14000
+      );
+
+      const variants = [
+        String(html || ''),
+        String(html || '').replace(/\\"/g, '"'),
+        String(html || '').replace(/\\u0022/gi, '"').replace(/\\u002F/gi, '/'),
+        String(html || '').replace(/&quot;/gi, '"')
+      ];
+
+      const patterns = [
+        /"name"\s*:\s*"TOTAL PUT\/CALL RATIO"\s*,\s*"value"\s*:\s*"?([0-9]+(?:\.[0-9]+)?)"?/i,
+        /TOTAL PUT\/CALL RATIO[\s\S]{0,320}?<td[^>]*>\s*([0-9.]+)\s*<\/td>/i,
+        /TOTAL PUT\/CALL RATIO[\s\S]{0,240}?"value"\s*:\s*"?([0-9]+(?:\.[0-9]+)?)"?/i
+      ];
+
+      for (const text of variants) {
+        for (const pattern of patterns) {
+          const match = text.match(pattern);
+          const value = signedNumber(match?.[1]);
+          // A total-volume ratio of 0.00 is a nearby, unrelated CBOE table value,
+          // not the total put/call figure. Preserve null when CBOE omits the total.
+          if (Number.isFinite(value) && value > 0) {
+            return {
+              value,
+              asOf: new Date().toISOString().slice(0, 10),
+              source: 'CBOE Daily Market Statistics'
+            };
+          }
+        }
+      }
+      lastError = new Error('ratio not found in CBOE HTML');
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error('CBOE total put/call ratio not found');
+}
+
+function blsSeriesToMap(series) {
+  const map = new Map();
+  for (const row of (Array.isArray(series?.data) ? series.data : [])) {
+    const period = String(row.period || '');
+    if (!/^M\d{2}$/.test(period)) continue;
+    const month = period.slice(1);
+    const key = `${row.year}-${month}`;
+    const value = signedNumber(row.value);
+    if (Number.isFinite(value)) map.set(key, value);
+  }
+  return map;
+}
+
+function previousMonthKey(year, month) {
+  const d = new Date(Date.UTC(Number(year), Number(month) - 1, 1));
+  d.setUTCMonth(d.getUTCMonth() - 1);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function yearAgoKey(year, month) {
+  return `${Number(year) - 1}-${String(month).padStart(2, '0')}`;
+}
+
+function pctChange(current, previous) {
+  return Number.isFinite(current) && Number.isFinite(previous) && previous !== 0
+    ? ((current - previous) / previous) * 100
+    : null;
+}
+
+function signedPct(value) {
+  if (!Number.isFinite(value)) return '-';
+  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
+}
+
+async function fetchBlsInflationResults() {
+  const now = new Date();
+  const currentYear = now.getUTCFullYear();
+  const seriesIds = ['CUSR0000SA0', 'CUUR0000SA0', 'WPSFD4', 'WPUFD4'];
+  const json = await fetchJson(
+    'https://api.bls.gov/publicAPI/v2/timeseries/data/',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Referer: 'https://www.bls.gov/'
+      },
+      body: JSON.stringify({
+        seriesid: seriesIds,
+        startyear: String(currentYear - 1),
+        endyear: String(currentYear)
+      })
+    },
+    12000
+  );
+  if (json?.status !== 'REQUEST_SUCCEEDED') throw new Error(json?.message?.join?.('; ') || 'BLS request failed');
+
+  const byId = new Map((json?.Results?.series || []).map((series) => [series.seriesID, series]));
+  const cpiSa = blsSeriesToMap(byId.get('CUSR0000SA0'));
+  const cpiUa = blsSeriesToMap(byId.get('CUUR0000SA0'));
+  const ppiSa = blsSeriesToMap(byId.get('WPSFD4'));
+  const ppiUa = blsSeriesToMap(byId.get('WPUFD4'));
+
+  const latestKey = (map) => [...map.keys()].sort().pop() || '';
+
+  const make = (saMap, uaMap, label) => {
+    const key = latestKey(saMap);
+    if (!key) return null;
+    const [year, month] = key.split('-');
+    const currentSa = saMap.get(key);
+    const prevSa = saMap.get(previousMonthKey(year, month));
+    const currentUa = uaMap.get(key);
+    const yearAgoUa = uaMap.get(yearAgoKey(year, month));
+    const mom = pctChange(currentSa, prevSa);
+    const yoy = pctChange(currentUa, yearAgoUa);
+    return {
+      key,
+      result: `${Number(month)}월 ${label} 전월 ${signedPct(mom)}, 전년 ${signedPct(yoy)}`,
+      asOf: key
+    };
+  };
+
+  return {
+    CPI: make(cpiSa, cpiUa, 'CPI'),
+    PPI: make(ppiSa, ppiUa, 'PPI')
+  };
+}
+
+async function fetchEconomicCalendar() {
+  const events = buildCalendar();
+  let inflation = null;
+  try {
+    inflation = await fetchBlsInflationResults();
+  } catch (error) {
+    console.error('BLS inflation refresh failed:', error.message || error);
+  }
+  if (!inflation) return events;
+
+  return events.map((event) => {
+    if (event.result || Number(event.daysLeft) > 0) return event;
+    if (event.name.includes('CPI') && inflation.CPI?.result) {
+      return { ...event, result: inflation.CPI.result, source: 'BLS API' };
+    }
+    if (event.name.includes('PPI') && inflation.PPI?.result) {
+      return { ...event, result: inflation.PPI.result, source: 'BLS API' };
+    }
+    return event;
+  });
+}
+
 function daysLeftFromDate(dateText) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateText || ''))) return 9999;
   const today = new Date();
@@ -518,18 +728,152 @@ async function fetchNasdaqEarningsEvent(item) {
   }
 }
 
+
+async function fetchKoreanEarningsDisclosure(item) {
+  if (item.market !== 'KR') return null;
+  try {
+    const json = await fetchJson(
+      `https://m.stock.naver.com/front-api/stock/domestic/disclosure?code=${item.code}&page=1&pageSize=30`,
+      { headers: { Referer: `https://stock.naver.com/domestic/stock/${item.code}/disclosure` } },
+      8000
+    );
+    const rows = Array.isArray(json?.result) ? json.result : [];
+    const row = rows.find((entry) => /실적|잠정|매출액.*손익|영업.*손익/i.test(String(entry?.title || '')));
+    if (!row) return null;
+    const raw = String(row.datetime || row.date || '');
+    const digits = raw.replace(/\D/g, '');
+    const date = digits.length >= 8
+      ? `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`
+      : '';
+    return {
+      name: item.name,
+      code: item.code,
+      date,
+      daysLeft: daysLeftFromDate(date),
+      source: 'Naver/DART 최근 실적 공시',
+      status: '최근 실적 공시',
+      result: String(row.title || '')
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchYahooEarningsPage(item) {
+  if (item.market !== 'US') return null;
+  try {
+    const html = await fetchText(
+      `https://finance.yahoo.com/quote/${encodeURIComponent(item.code)}/`,
+      { headers: { Referer: 'https://finance.yahoo.com/' } },
+      9000
+    );
+    const normalized = String(html || '').replace(/&quot;/g, '"').replace(/\\"/g, '"');
+    const timestampMatch =
+      normalized.match(/"earningsTimestamp"\s*:\s*\{\s*"raw"\s*:\s*(\d+)/i) ||
+      normalized.match(/"earningsDate"\s*:\s*\[\s*\{\s*"raw"\s*:\s*(\d+)/i);
+    const ts = Number(timestampMatch?.[1]);
+    if (!Number.isFinite(ts) || ts <= 0) return null;
+    const date = new Date(ts * 1000).toISOString().slice(0, 10);
+    return {
+      name: item.name,
+      code: item.code,
+      date,
+      daysLeft: daysLeftFromDate(date),
+      source: 'Yahoo Finance page fallback',
+      status: '실적 예정',
+      result: ''
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchNasdaqLatestEarningsResult(item) {
+  if (item.market !== 'US') return null;
+  try {
+    const json = await fetchJson(
+      `https://api.nasdaq.com/api/company/${encodeURIComponent(item.code)}/earnings-surprise`,
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36',
+          Accept: 'application/json, text/plain, */*',
+          Referer: `https://www.nasdaq.com/market-activity/stocks/${String(item.code).toLowerCase()}/earnings`,
+          Origin: 'https://www.nasdaq.com'
+        }
+      },
+      14000
+    );
+
+    const rows = Array.isArray(json?.data?.earningsSurpriseTable?.rows)
+      ? json.data.earningsSurpriseTable.rows
+      : [];
+    const row = rows[0];
+    if (!row) return null;
+
+    const rawDate = String(row.dateReported || '');
+    const mdy = rawDate.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    const date = mdy
+      ? `${mdy[3]}-${String(mdy[1]).padStart(2, '0')}-${String(mdy[2]).padStart(2, '0')}`
+      : rawDate.replace(/\//g, '-');
+
+    const eps = String(row.eps ?? '').trim();
+    const forecast = String(row.consensusForecast ?? '').trim();
+    const surprise = String(row.percentageSurprise ?? '').trim();
+
+    const parts = [];
+    if (eps) parts.push(`EPS ${eps}`);
+    if (forecast) parts.push(`컨센서스 ${forecast}`);
+    if (surprise) parts.push(`서프라이즈 ${surprise}%`);
+
+    return {
+      name: item.name,
+      code: item.code,
+      date: /^(\d{4})-(\d{2})-(\d{2})$/.test(date) ? date : '',
+      daysLeft: daysLeftFromDate(date),
+      source: 'Nasdaq earnings surprise',
+      status: '최근 실적',
+      result: parts.join(' · ')
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function fetchEarningsCalendar(watchlist) {
   const targetCodes = new Set(['005930', '000660', 'NVDA', 'TSM', 'PLTR']);
   const targets = watchlist.filter((item) => targetCodes.has(item.code));
   const events = await Promise.all(targets.map(async (item) => {
-    const nasdaq = await fetchNasdaqEarningsEvent(item);
-    if (nasdaq) return nasdaq;
+    if (item.market === 'KR') {
+      const disclosure = await fetchKoreanEarningsDisclosure(item);
+      if (disclosure) return disclosure;
+    } else {
+      // The surprise endpoint provides actual EPS reliably. Fetch it first so
+      // a slower calendar or Yahoo page cannot hide confirmed results.
+      const latestResult = await fetchNasdaqLatestEarningsResult(item);
+      const settled = await withPanelTimeout(Promise.allSettled([
+        fetchNasdaqEarningsEvent(item),
+        fetchYahooEarningsPage(item),
+      ]), 4500, `${item.code} earnings schedule`).catch(() => []);
+      const nasdaq = settled[0]?.status === 'fulfilled' ? settled[0].value : null;
+      const yahooPage = settled[1]?.status === 'fulfilled' ? settled[1].value : null;
+      const scheduled = nasdaq || yahooPage;
+      if (scheduled) {
+        if (!latestResult?.result) return scheduled;
+        return {
+          ...scheduled,
+          source: `${scheduled.source} · ${latestResult.source}`,
+          status: `${scheduled.status} · 최근 actual`,
+          result: `최근 actual (${latestResult.date || '발표일 확인 필요'}): ${latestResult.result}`
+        };
+      }
+      if (latestResult) return latestResult;
+    }
     return {
       name: item.name,
       code: item.code,
       date: '',
       daysLeft: 9999,
-      source: item.market === 'KR' ? '국내 실적 캘린더 공개 API 확인 필요' : 'Nasdaq/Yahoo 응답 제한',
+      source: item.market === 'KR' ? '최근 실적 공시 원천 확인 필요' : 'Nasdaq/Yahoo 응답 제한',
       status: '원천 확인',
       result: ''
     };
@@ -614,17 +958,18 @@ async function buildSectorRelativeStrengthSnapshot(sectors) {
 }
 
 async function fetchOptionsIndicators() {
-  const [vixRows, vix3mRows] = await Promise.all([
-    fetchYahooRows('^VIX').catch(() => []),
-    fetchYahooRows('^VIX3M').catch(() => [])
+  const [vixRows, vix3mRows, putCall] = await Promise.all([
+    fetchCboeIndexRows('VIX').catch(() => fetchYahooRows('^VIX').catch(() => [])),
+    fetchCboeIndexRows('VIX3M').catch(() => fetchYahooRows('^VIX3M').catch(() => [])),
+    fetchCboePutCallRatio().catch(() => null)
   ]);
   const vix = lastChange(vixRows);
   const vix3m = lastChange(vix3mRows);
   const term = Number.isFinite(vix.value) && Number.isFinite(vix3m.value) ? vix3m.value - vix.value : null;
   return [
-    { name: 'VIX', value: vix.value, changeRate: vix.changeRate, asOf: vix.asOf, note: vix.asOf ? `최근 개장일 ${vix.asOf}` : '원천 확인 필요' },
+    { name: 'VIX', value: vix.value, changeRate: vix.changeRate, asOf: vix.asOf, note: vix.asOf ? `CBOE 최근 개장일 ${vix.asOf}` : '원천 확인 필요' },
     { name: 'VIX3M-VIX', value: term, changeRate: null, asOf: vix3m.asOf || vix.asOf, note: Number.isFinite(term) ? (term >= 0 ? '콘탱고: 공포 완화' : '백워데이션: 단기 공포') : '기간구조 원천 확인 필요' },
-    { name: 'Put/Call Ratio', value: null, changeRate: null, asOf: '', note: '무인증 공개 원천 확인 필요' }
+    { name: 'Put/Call Ratio', value: putCall?.value ?? null, changeRate: null, asOf: putCall?.asOf || '', note: Number.isFinite(putCall?.value) ? 'CBOE TOTAL PUT/CALL RATIO' : 'CBOE 원천 확인 필요' }
   ];
 }
 
@@ -639,26 +984,85 @@ function buildFearGreed(riskScore) {
   };
 }
 
-async function fetchEtfFlowProxies() {
-  const configs = [
-    { symbol: 'SOXX', name: 'SOXX 반도체' },
-    { symbol: 'ITA', name: 'ITA 방산' }
-  ];
-  const rows = await Promise.all(configs.map(async (cfg) => {
-    const history = await fetchYahooHistory(cfg.symbol, '1mo').catch(() => []);
+async function fetchNasdaqEtfSnapshot(symbol) {
+  const json = await fetchJson(
+    `https://api.nasdaq.com/api/quote/${encodeURIComponent(symbol)}/info?assetclass=etf`,
+    {
+      headers: {
+        Referer: `https://www.nasdaq.com/market-activity/etf/${String(symbol).toLowerCase()}`,
+        Origin: 'https://www.nasdaq.com',
+        Accept: 'application/json, text/plain, */*'
+      }
+    },
+    8000
+  );
+  const data = json?.data || {};
+  const primary = data?.primaryData || {};
+  const price = signedNumber(primary.lastSalePrice);
+  const changeRate = signedNumber(primary.percentageChange);
+  const volume = signedNumber(primary.volume);
+  const asOf = String(primary.lastTradeTimestamp || '').slice(0, 10);
+  if (!Number.isFinite(price)) throw new Error('Nasdaq quote empty');
+  return {
+    price,
+    changeRate,
+    volume,
+    tradeAmount: Number.isFinite(volume) ? price * volume : null,
+    asOf,
+    source: 'Nasdaq delayed quote'
+  };
+}
+
+async function fetchEtfFlowProxies(symbols = DEFAULT_ETF_SYMBOLS) {
+  const configs = normalizeEtfSymbols(symbols).map((symbol) => ({ symbol, name: symbol }));
+  return Promise.all(configs.map(async (cfg) => {
+    let history = [];
+    try {
+      history = await fetchYahooHistory(cfg.symbol, '1mo');
+    } catch {}
+
+    if (history.length < 2) {
+      try {
+        const stooqRows = await fetchStooqRows(`${cfg.symbol.toLowerCase()}.us`);
+        history = stooqRows.map((row) => ({ date: row.asOf, close: row.close, volume: null }));
+      } catch {}
+    }
+
     const last = history[history.length - 1];
     const prev = history[history.length - 2];
-    const changeRate = last?.close && prev?.close ? ((last.close - prev.close) / prev.close) * 100 : null;
-    return {
-      ...cfg,
-      price: last?.close ?? null,
-      changeRate,
-      tradeAmount: last?.close && last?.volume ? last.close * last.volume : null,
-      asOf: last?.date || '',
-      status: '순유입/유출 API 미연결, 가격·거래대금 프록시'
-    };
+    if (last?.close) {
+      const changeRate = prev?.close ? ((last.close - prev.close) / prev.close) * 100 : null;
+      return {
+        ...cfg,
+        price: last.close,
+        changeRate,
+        tradeAmount: last.volume ? last.close * last.volume : null,
+        asOf: last.date || last.asOf || '',
+        status: '가격·거래대금 프록시 (순유입/유출 아님)'
+      };
+    }
+
+    try {
+      const snap = await fetchNasdaqEtfSnapshot(cfg.symbol);
+      return {
+        ...cfg,
+        price: snap.price,
+        changeRate: snap.changeRate,
+        tradeAmount: snap.tradeAmount,
+        asOf: snap.asOf,
+        status: `${snap.source} · 가격/거래대금 프록시`
+      };
+    } catch (error) {
+      return {
+        ...cfg,
+        price: null,
+        changeRate: null,
+        tradeAmount: null,
+        asOf: '',
+        status: `ETF 원천 확인 실패: ${error.message || error}`
+      };
+    }
   }));
-  return rows;
 }
 
 async function fetchBinanceKoreaFutures() {
@@ -705,6 +1109,10 @@ async function fetchBinanceKoreaFutures() {
 
 async function fetchMarketRows(symbol) {
   const stooqSymbols = { '^VIX': '^vix', '^SOX': '^sox', 'KRW=X': 'usdkrw', US10Y: '10us.b', US2Y: '2us.b' };
+  if (symbol === '^VIX') {
+    const cboeRows = await fetchCboeIndexRows('VIX').catch(() => []);
+    if (cboeRows.length >= 5) return cboeRows;
+  }
   const yahooRows = symbol.startsWith('^') || symbol.endsWith('=X') ? await fetchYahooRows(symbol).catch(() => []) : [];
   if (yahooRows.length >= 5) return yahooRows;
   return fetchStooqRows(stooqSymbols[symbol] || symbol).catch(() => yahooRows);
@@ -939,14 +1347,26 @@ function buildReferencePanels(sectors, marketRows) {
   };
 }
 
-async function fetchDashboardPanelsFresh(watchlistConfig) {
-  const marketRows = await fetchMarketUniverse().catch(() => []);
+function withPanelTimeout(promise, timeoutMs, label) {
+  let timer = null;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out`)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+async function fetchDashboardPanelsFresh(watchlistConfig, etfSymbols = DEFAULT_ETF_SYMBOLS) {
+  // Start small, time-sensitive U.S. data calls before wide market crawls.
+  const earningsCalendarPromise = fetchEarningsCalendar(watchlistConfig);
+  const optionsIndicatorsPromise = fetchOptionsIndicators();
+  const marketRows = await withPanelTimeout(fetchMarketUniverse(), 12000, 'market universe').catch(() => []);
   const marketByCode = new Map(marketRows.map((row) => [row.code, row]));
   const watchlist = await Promise.all(watchlistConfig.map(async (item) => {
     try {
-      return item.market === 'KR'
-        ? await fetchKoreanSnapshot(item.code, item.name, marketByCode.get(item.code))
-        : await fetchUsSnapshot(item.code, item.name);
+      const snapshot = item.market === 'KR'
+        ? fetchKoreanSnapshot(item.code, item.name, marketByCode.get(item.code))
+        : fetchUsSnapshot(item.code, item.name);
+      return await withPanelTimeout(snapshot, 12000, `watchlist ${item.code}`);
     } catch (error) {
       const marketRow = marketByCode.get(item.code);
       return {
@@ -963,28 +1383,62 @@ async function fetchDashboardPanelsFresh(watchlistConfig) {
     }
   }));
   const snapshotByCode = new Map(watchlist.filter((item) => item.market === 'KR').map((item) => [item.code, item]));
-  const [sectors, disclosures, riskScore, earningsCalendar, historicalSectorRs, optionsIndicators, etfFlows, binanceKoreaStocks] = await Promise.all([
+  const panelTasks = [
     fetchSectorRows(snapshotByCode, marketByCode),
     fetchDisclosureRows(watchlist),
     fetchRiskScore(),
-    fetchEarningsCalendar(watchlist),
+    earningsCalendarPromise,
     fetchSectorRelativeStrength(),
-    fetchOptionsIndicators(),
-    fetchEtfFlowProxies(),
-    fetchBinanceKoreaFutures()
+    optionsIndicatorsPromise,
+    fetchEtfFlowProxies(etfSymbols),
+    fetchBinanceKoreaFutures(),
+    fetchEconomicCalendar()
+  ];
+  const panelResults = await Promise.allSettled(
+    panelTasks.map((task, index) => withPanelTimeout(
+      task,
+      index === 3 ? 22000 : 15000,
+      `dashboard panel ${index + 1}`
+    ))
+  );
+  const panelValue = (index, fallback) => panelResults[index].status === 'fulfilled'
+    ? panelResults[index].value
+    : fallback;
+  const sectors = panelValue(0, []);
+  const disclosures = panelValue(1, []);
+  const riskScore = panelValue(2, null);
+  const earningsCalendar = panelValue(3, []);
+  const historicalSectorRs = panelValue(4, { note: '섹터 RS 원천 확인 필요', series: [] });
+  const optionsIndicators = panelValue(5, []);
+  const etfFlows = panelValue(6, []);
+  const binanceKoreaStocks = panelValue(7, []);
+  const calendar = panelValue(8, []);
+  const koreanWatchlist = watchlist.filter((item) => item.market === 'KR');
+  const [sectorSnapshot, shortSellingResults] = await Promise.all([
+    withPanelTimeout(buildSectorRelativeStrengthSnapshot(sectors), 8000, 'sector strength snapshot').catch(() => ({})),
+    Promise.allSettled(koreanWatchlist.map((item) => withPanelTimeout(
+      fetchShortSellingSnapshot(item, marketByCode.get(item.code)),
+      12000,
+      `short-selling ${item.code}`
+    )))
   ]);
-  const sectorRs = {
-    ...historicalSectorRs,
-    ...(await buildSectorRelativeStrengthSnapshot(sectors))
-  };
-  const shortSelling = await Promise.all(watchlist.filter((item) => item.market === 'KR').map((item) => fetchShortSellingSnapshot(item, marketByCode.get(item.code))));
+  const sectorRs = { ...historicalSectorRs, ...sectorSnapshot };
+  const shortSelling = shortSellingResults.map((result, index) => result.status === 'fulfilled'
+    ? result.value
+    : {
+      name: koreanWatchlist[index].name,
+      code: koreanWatchlist[index].code,
+      shortBalanceRatio: null,
+      foreignRatio: marketByCode.get(koreanWatchlist[index].code)?.foreignRatio ?? null,
+      error: '공매도 원천 확인 필요'
+    });
   return {
     asOf: new Date().toISOString(),
     watchlist,
     sectors,
     shortSelling,
     disclosures,
-    calendar: buildCalendar(),
+    calendar,
     riskScore,
     earningsCalendar,
     sectorRs,
@@ -1001,13 +1455,14 @@ async function fetchDashboardPanelsFresh(watchlistConfig) {
   };
 }
 
-async function fetchDashboardPanels(watchlistInput, forceRefresh = false) {
+async function fetchDashboardPanels(watchlistInput, forceRefresh = false, etfInput = '') {
   const watchlist = normalizeWatchlist(watchlistInput);
-  const key = watchlist.map((item) => `${item.name}:${item.code}`).join(',');
+  const etfSymbols = normalizeEtfSymbols(etfInput);
+  const key = `${watchlist.map((item) => `${item.name}:${item.code}`).join(',')}|etfs=${etfSymbols.join(',')}`;
   const cached = cache.get(key);
   if (!forceRefresh && cached && cached.expiresAt > Date.now()) return cached.payload;
   if (!forceRefresh && inFlight.has(key)) return inFlight.get(key);
-  const request = fetchDashboardPanelsFresh(watchlist).then((payload) => {
+  const request = fetchDashboardPanelsFresh(watchlist, etfSymbols).then((payload) => {
     if (cache.size >= 20) cache.clear();
     cache.set(key, { payload, expiresAt: Date.now() + CACHE_TTL_MS });
     return payload;
