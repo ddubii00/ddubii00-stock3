@@ -2618,11 +2618,7 @@
         }
         const previousCloseValue = Number(json.previousClose ?? json.referenceValue);
         if (noteEl) {
-          const lastSeriesRow = series[series.length - 1] || {};
-          const closeMarkerNote = options.sessionAxis && series.length === 1 && lastSeriesRow.final
-            ? ' · 15:30 확정값은 세로 막대로 표시합니다.'
-            : '';
-          noteEl.textContent = `${json.note || `단위: ${json.unit || '-'}`}${closeMarkerNote}`;
+          noteEl.textContent = json.note || `단위: ${json.unit || '-'}`;
         }
         const unitForField = (field = {}) => field.unit ?? json.units?.[field.key] ?? json.unit ?? '';
         const formatChartValue = (value, unit = json.unit) => {
@@ -2753,10 +2749,7 @@
             const centerX = xFor(0);
             const x = centerX + (lineIndex - (lineFields.length - 1) / 2) * 8;
             const valueY = yForField(field, v);
-            const scale = scaleForField(field);
-            const baseY = options.zeroLine && scale.min <= 0 && scale.max >= 0 ? scale.yFor(0) : h - padB;
-            return `<line x1="${x}" y1="${baseY}" x2="${x}" y2="${valueY}" stroke="${colorForField(field, v)}" stroke-width="3" opacity=".72" />
-                    <circle cx="${x}" cy="${valueY}" r="6" fill="${colorForField(field, v)}" stroke="#fff" stroke-width="2" />`;
+            return `<circle cx="${x}" cy="${valueY}" r="6" fill="${colorForField(field, v)}" stroke="#fff" stroke-width="2" />`;
           }
           const points = series.map((row, i) => {
             const v = Number(row[field.key]);
