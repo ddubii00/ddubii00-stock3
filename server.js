@@ -258,12 +258,13 @@ async function fetchNaverInvestorTimeRows(market = 'KOSPI') {
   const koreaClock = getKoreaClock();
   const cache = investorIntradaySnapshots.get(safeMarket);
   const isLatestSession = latestDate === koreaClock.date;
+  const isTradingWindow = koreaClock.minutes >= 9 * 60 && koreaClock.minutes <= 15 * 60 + 30;
 
   // Naver retired investorDealTrendTime. Record only actual 30-second snapshots
   // from its current index-trend API while the market is open. On holidays or
   // before snapshots exist, show the latest confirmed close rather than inventing
   // an intraday path.
-  if (isLatestSession) {
+  if (isLatestSession && isTradingWindow) {
     const now = Date.now();
     if (!cache || cache.date !== latestDate || now - cache.fetchedAt >= 28000) {
       try {

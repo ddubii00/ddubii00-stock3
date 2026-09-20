@@ -2617,7 +2617,13 @@
           if (sessionRows.length) series = sessionRows;
         }
         const previousCloseValue = Number(json.previousClose ?? json.referenceValue);
-        if (noteEl) noteEl.textContent = json.note || `단위: ${json.unit || '-'}`;
+        if (noteEl) {
+          const lastSeriesRow = series[series.length - 1] || {};
+          const closeMarkerNote = options.sessionAxis && series.length === 1 && lastSeriesRow.final
+            ? ' · 15:30 확정값은 세로 막대로 표시합니다.'
+            : '';
+          noteEl.textContent = `${json.note || `단위: ${json.unit || '-'}`}${closeMarkerNote}`;
+        }
         const unitForField = (field = {}) => field.unit ?? json.units?.[field.key] ?? json.unit ?? '';
         const formatChartValue = (value, unit = json.unit) => {
           const numeric = Number(value);
@@ -2740,11 +2746,17 @@
             return `<rect x="${xFor(i) - barWidth / 2}" y="${y}" width="${barWidth}" height="${height}" fill="${colorForField(field, value)}" />`;
           }).join('');
         }).join('');
-        const lines = fields.filter((field) => field.type !== 'bar').map((field) => {
+        const lines = fields.filter((field) => field.type !== 'bar').map((field, lineIndex, lineFields) => {
           if (series.length === 1) {
             const v = Number(series[0][field.key]);
             if (!Number.isFinite(v)) return '';
-            return `<circle cx="${padL}" cy="${yForField(field, v)}" r="4" fill="${colorForField(field, v)}" />`;
+            const centerX = xFor(0);
+            const x = centerX + (lineIndex - (lineFields.length - 1) / 2) * 8;
+            const valueY = yForField(field, v);
+            const scale = scaleForField(field);
+            const baseY = options.zeroLine && scale.min <= 0 && scale.max >= 0 ? scale.yFor(0) : h - padB;
+            return `<line x1="${x}" y1="${baseY}" x2="${x}" y2="${valueY}" stroke="${colorForField(field, v)}" stroke-width="3" opacity=".72" />
+                    <circle cx="${x}" cy="${valueY}" r="6" fill="${colorForField(field, v)}" stroke="#fff" stroke-width="2" />`;
           }
           const points = series.map((row, i) => {
             const v = Number(row[field.key]);
@@ -3468,7 +3480,7 @@
       const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
       if (values.weekday === 'Sat' || values.weekday === 'Sun') return false;
       const minutes = Number(values.hour) * 60 + Number(values.minute);
-      return minutes >= 8 * 60 + 45 && minutes <= 15 * 60 + 45;
+      return minutes >= 9 * 60 && minutes <= 15 * 60 + 30;
     };
     setInterval(() => {
       if (isKoreaMarketHours()) {
