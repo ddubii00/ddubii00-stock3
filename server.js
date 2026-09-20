@@ -49,6 +49,7 @@ const chartMap = {
 const quoteCache = new Map();
 const marketFundsCache = new Map();
 const marketFundsInFlight = new Map();
+const investorIntradaySnapshots = new Map();
 const summaryItems = [
   { name: '코스피', symbol: '^KS11', popup: true, popupKey: 'KOSPI' },
   { name: '코스닥', symbol: '^KQ11', popup: true, popupKey: 'KOSDAQ' },
@@ -232,90 +233,68 @@ function parseTrendNumber(value) {
   return Number.isFinite(n) ? n : NaN;
 }
 
+async function fetchNaverIndexInvestorSnapshot(market, bizdate) {
+  const response = await fetchWithTimeout(
+    `https://m.stock.naver.com/api/index/${market}/trend?bizdate=${encodeURIComponent(bizdate)}`,
+    { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://m.stock.naver.com/' } },
+    8000
+  );
+  if (!response.ok) throw new Error(`Naver index trend HTTP ${response.status}`);
+  const json = await response.json();
+  const individual = parseTrendNumber(json?.personalValue);
+  const foreign = parseTrendNumber(json?.foreignValue);
+  const institution = parseTrendNumber(json?.institutionalValue);
+  if (![individual, foreign, institution].every(Number.isFinite)) throw new Error('Naver index trend values unavailable');
+  // Naver index trend values are in hundred-million KRW; chart unit is KRW trillions.
+  return { individual: individual / 10000, foreign: foreign / 10000, institution: institution / 10000 };
+}
+
 async function fetchNaverInvestorTimeRows(market = 'KOSPI') {
   const safeMarket = market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
-  const sosok = safeMarket === 'KOSDAQ' ? '02' : '01';
   const dayRows = await fetchDaumInvestorDays(safeMarket, 1);
   const latestDate = dayRows[dayRows.length - 1]?.date || new Date().toISOString().slice(0, 10);
   const bizdate = latestDate.replace(/-/g, '');
-  const rows = [];
-  const seen = new Set();
-
-  let emptyPages = 0;
-  for (let page = 1; page <= 40; page += 1) {
-    const url = `https://finance.naver.com/sise/investorDealTrendTime.naver?bizdate=${bizdate}&sosok=${sosok}&page=${page}`;
-    let text = '';
-    let lastError = null;
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      try {
-        const r = await fetchWithTimeout(url, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0',
-            Referer: 'https://finance.naver.com/'
-          }
-        }, 10000);
-        const buffer = Buffer.from(await r.arrayBuffer());
-        text = new TextDecoder('euc-kr').decode(buffer);
-        break;
-      } catch (e) {
-        lastError = e;
-        await new Promise((resolve) => setTimeout(resolve, 300 * attempt));
-      }
-    }
-    if (!text) {
-      if (page === 1) throw lastError || new Error('Naver investor minute fetch failed');
-      emptyPages += 1;
-      if (emptyPages >= 8) break;
-      continue;
-    }
-
-    const tableRows = [...text.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
-    let foundInPage = 0;
-    for (const match of tableRows) {
-      const cells = [...match[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((m) => stripHtml(m[1]));
-      if (cells.length < 4) continue;
-      const time = cells[0].match(/\d{2}:\d{2}/)?.[0];
-      if (!time) continue;
-      const individual = parseTrendNumber(cells[1]);
-      const foreign = parseTrendNumber(cells[2]);
-      const institution = parseTrendNumber(cells[3]);
-      if (!Number.isFinite(individual) || !Number.isFinite(foreign) || !Number.isFinite(institution)) continue;
-      const date = `${latestDate} ${time}`;
-      if (seen.has(date)) continue;
-      seen.add(date);
-      rows.push({ date, individual: individual / 10000, foreign: foreign / 10000, institution: institution / 10000 });
-      foundInPage += 1;
-    }
-    if (!foundInPage) {
-      emptyPages += 1;
-      if (emptyPages >= 8) break;
-    } else {
-      emptyPages = 0;
-    }
-  }
-
-  rows.sort((a, b) => a.date.localeCompare(b.date));
-  const regularRows = rows.filter((row) => {
-    const time = String(row.date || '').split(' ')[1] || '';
-    return time >= '09:00' && time <= '15:30';
-  });
-  const series = regularRows.length >= 5 ? regularRows : rows;
   const finalDaily = dayRows[dayRows.length - 1];
   const koreaClock = getKoreaClock();
-  const shouldAppendClose = latestDate < koreaClock.date || koreaClock.minutes >= 15 * 60 + 30;
-  if (shouldAppendClose && finalDaily && Number.isFinite(finalDaily.individual) && Number.isFinite(finalDaily.foreign) && Number.isFinite(finalDaily.institution)) {
-    const closeDate = `${latestDate} 15:30`;
-    const closeRow = { date: closeDate, individual: finalDaily.individual, foreign: finalDaily.foreign, institution: finalDaily.institution, final: true };
-    const existingIndex = series.findIndex((row) => row.date === closeDate);
-    if (existingIndex >= 0) series[existingIndex] = closeRow;
-    else series.push(closeRow);
-    series.sort((a, b) => a.date.localeCompare(b.date));
+  const cache = investorIntradaySnapshots.get(safeMarket);
+  const isLatestSession = latestDate === koreaClock.date;
+
+  // Naver retired investorDealTrendTime. Record only actual 30-second snapshots
+  // from its current index-trend API while the market is open. On holidays or
+  // before snapshots exist, show the latest confirmed close rather than inventing
+  // an intraday path.
+  if (isLatestSession) {
+    const now = Date.now();
+    if (!cache || cache.date !== latestDate || now - cache.fetchedAt >= 28000) {
+      try {
+        const values = await fetchNaverIndexInvestorSnapshot(safeMarket, bizdate);
+        const time = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+        }).format(new Date());
+        const next = cache?.date === latestDate ? cache : { date: latestDate, fetchedAt: 0, rows: [] };
+        next.rows.push({ date: `${latestDate} ${time}`, ...values, observed: true });
+        next.rows = next.rows.slice(-900);
+        next.fetchedAt = now;
+        investorIntradaySnapshots.set(safeMarket, next);
+      } catch {}
+    }
   }
-  return {
-    unit: '조원',
-    note: `${safeMarket} 최신 거래일(${latestDate}) 시간별 누적 순매수. 15:30은 확정 일봉 순매수 반영, 단위: 조원.`,
-    series
-  };
+  const sampled = investorIntradaySnapshots.get(safeMarket);
+  if (sampled?.date === latestDate && sampled.rows.length) {
+    return {
+      unit: '조원',
+      note: `${safeMarket} ${latestDate} 실제 투자자 수급 스냅샷입니다. 장중에는 30초마다 누적 순매수를 갱신합니다.`,
+      series: sampled.rows
+    };
+  }
+  if (finalDaily && Number.isFinite(finalDaily.individual) && Number.isFinite(finalDaily.foreign) && Number.isFinite(finalDaily.institution)) {
+    return {
+      unit: '조원',
+      note: `${safeMarket} 휴장 또는 장중 수급 원천 미제공: 최근 거래일(${latestDate}) 15:30 확정 순매수만 표시합니다.`,
+      series: [{ date: `${latestDate} 15:30`, individual: finalDaily.individual, foreign: finalDaily.foreign, institution: finalDaily.institution, final: true }]
+    };
+  }
+  return { unit: '조원', note: `${safeMarket} 투자자 수급 원천 확인 필요`, series: [] };
 }
 
 async function fetchInvestorSeries(market, kind, limit = 120) {
@@ -346,7 +325,9 @@ async function fetchForeignFuturesSeries(limit = 120) {
   const safeLimit = Math.max(20, Math.min(500, Number(limit) || 120));
   const rows = [];
   const seen = new Set();
-  const bizdate = formatYmd(new Date());
+  const recentSpotRows = await fetchDaumInvestorDays('KOSPI', safeLimit).catch(() => []);
+  const latestSpotDate = recentSpotRows[recentSpotRows.length - 1]?.date || '';
+  const bizdate = latestSpotDate.replace(/-/g, '') || formatYmd(new Date());
   const maxPages = Math.ceil(safeLimit / 10) + 5;
 
   for (let page = 1; page <= maxPages; page += 1) {
@@ -356,7 +337,7 @@ async function fetchForeignFuturesSeries(limit = 120) {
         'User-Agent': 'Mozilla/5.0',
         Referer: 'https://finance.naver.com/sise/'
       }
-    }, 3, 'euc-kr');
+    }, 3, 'euc-kr').catch(() => '');
     const tableRows = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
     let foundInPage = 0;
 
@@ -378,6 +359,19 @@ async function fetchForeignFuturesSeries(limit = 120) {
   }
 
   rows.sort((a, b) => a.date.localeCompare(b.date));
+  if (!rows.length && recentSpotRows.length) {
+    let cumulativeForeign = 0;
+    const series = recentSpotRows.slice(-safeLimit).map((row) => {
+      cumulativeForeign += row.foreign;
+      return { date: row.date, dailyForeign: row.foreign, foreign: cumulativeForeign };
+    });
+    return {
+      unit: '조원',
+      source: 'spot-fallback',
+      note: `선물 투자자 수급 공개 원천이 폐지되어, 최근 거래일(${latestSpotDate}) 기준 KOSPI 외국인 현물 수급으로 대체 표시합니다.`,
+      series
+    };
+  }
   if (!rows.length) return null;
   let cumulativeForeign = 0;
   const series = rows.slice(-safeLimit).map((row) => {
@@ -397,6 +391,14 @@ async function fetchForeignFuturesMinuteSeries() {
   const latestDaily = dailyPayload?.series?.[dailyPayload.series.length - 1];
   if (!latestDaily?.date) return null;
   const latestDate = latestDaily.date;
+  if (dailyPayload?.source === 'spot-fallback') {
+    return {
+      unit: dailyPayload.unit,
+      source: 'spot-fallback',
+      note: `선물 장중 투자자 원천이 폐지되어, 최근 거래일(${latestDate}) KOSPI 외국인 현물 확정 수급을 표시합니다.`,
+      series: [{ date: `${latestDate} 15:30`, foreign: Number(latestDaily.dailyForeign), final: true }]
+    };
+  }
   const bizdate = latestDate.replace(/-/g, '');
   const rows = [];
   const seen = new Set();
@@ -409,7 +411,7 @@ async function fetchForeignFuturesMinuteSeries() {
         'User-Agent': 'Mozilla/5.0',
         Referer: 'https://finance.naver.com/sise/'
       }
-    }, 3, 'euc-kr');
+    }, 3, 'euc-kr').catch(() => '');
     const tableRows = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
     let foundInPage = 0;
     for (const match of tableRows) {
