@@ -603,6 +603,25 @@ async function fetchForeignFuturesMinuteSeries() {
       series
     };
   }
+  // A deployment can temporarily lack the KIS process environment. Keep the
+  // existing public daily source as a clearly labelled final-value fallback so
+  // the minute panel is never blank; it is replaced by KIS snapshots on the
+  // next open session.
+  const dailyPayload = await fetchForeignFuturesSeries(20).catch(() => null);
+  const latestDaily = dailyPayload?.series?.at(-1);
+  const fallbackValue = Number(latestDaily?.dailyForeign ?? latestDaily?.foreign);
+  if (latestDaily?.date && Number.isFinite(fallbackValue)) {
+    const fallbackDate = String(latestDaily.date).slice(0, 10);
+    return {
+      unit: dailyPayload.unit || '계약',
+      source: dailyPayload.source || 'daily-fallback',
+      latestOpenDate: fallbackDate,
+      note: dailyPayload.source === 'spot-fallback'
+        ? `선물 시간별 원천과 KIS 설정을 확인 중입니다. 최근 거래일(${fallbackDate}) KOSPI 외국인 현물 확정값을 보조 표시합니다.`
+        : `선물 시간별 저장 데이터가 없어 최근 거래일(${fallbackDate}) 외국인 선물 확정값을 표시합니다. 다음 개장일부터 KIS 30초 수집 곡선으로 전환됩니다.`,
+      series: [{ date: `${fallbackDate} 15:30`, foreign: fallbackValue, final: true }]
+    };
+  }
   return { unit: '계약', latestOpenDate: latestDate, note: `코스피200 선물 최근 개장일(${latestDate}) 분봉 저장 데이터가 아직 없습니다.`, series: [] };
 }
 
