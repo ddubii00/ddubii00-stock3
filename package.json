@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "type": "commonjs",
   "scripts": {
-    "start": "node server.js"
+    "start": "node kis-flow-gateway.js",
+    "start:core": "node server.js",
+    "test:kis-flow": "node --test tests/kis-flow-gateway.test.js"
   },
   "engines": {
     "node": ">=18"
