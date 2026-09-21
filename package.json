@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "type": "commonjs",
   "scripts": {
-    "start": "node kis-flow-gateway.js",
+    "start": "node kis-flow-display.js",
+    "start:kis-gateway": "node kis-flow-gateway.js",
     "start:core": "node server.js",
     "test:kis-flow": "node --test tests/kis-flow-gateway.test.js"
   },
