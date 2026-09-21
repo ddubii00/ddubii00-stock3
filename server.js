@@ -53,6 +53,8 @@ const investorIntradaySnapshots = new Map();
 const INVESTOR_INTRADAY_STORE_PATH = process.env.INVESTOR_INTRADAY_STORE_PATH || path.join(ROOT, '.runtime', 'investor-intraday.json');
 const investorIntradayStore = { loaded: false, days: {} };
 let kisAccessTokenCache = { token: '', expiresAt: 0 };
+let kisHolidayCache = { koreaDate: '', latestOpenDate: '', expiresAt: 0 };
+let kisProgramDailyCache = { rows: [], expiresAt: 0 };
 let investorCaptureRunning = false;
 const summaryItems = [
   { name: '코스피', symbol: '^KS11', popup: true, popupKey: 'KOSPI' },
@@ -253,21 +255,41 @@ async function fetchNaverIndexInvestorSnapshot(market, bizdate) {
   return { individual: individual / 10000, foreign: foreign / 10000, institution: institution / 10000 };
 }
 
+function getKisCredentials() {
+  return {
+    appKey: process.env.KIS_APP_KEY || process.env.KIS_APPKEY || process.env.KIS_KEY || '',
+    appSecret: process.env.KIS_APP_SECRET || process.env.KIS_APPSECRET || process.env.KIS_SECRET || ''
+  };
+}
+
 function hasKisInvestorConfig() {
-  return process.env.VERCEL !== '1' && Boolean(process.env.KIS_APP_KEY && process.env.KIS_APP_SECRET);
+  const { appKey, appSecret } = getKisCredentials();
+  return process.env.VERCEL !== '1' && Boolean(appKey && appSecret);
 }
 
 function kisBaseUrl() {
   return process.env.KIS_BASE_URL || 'https://openapi.koreainvestment.com:9443';
 }
 
+function kisHeaders(token, trId) {
+  const { appKey, appSecret } = getKisCredentials();
+  return {
+    authorization: `Bearer ${token}`,
+    appkey: appKey,
+    appsecret: appSecret,
+    tr_id: trId,
+    custtype: 'P'
+  };
+}
+
 async function fetchKisAccessToken() {
   if (!hasKisInvestorConfig()) return '';
   if (kisAccessTokenCache.token && kisAccessTokenCache.expiresAt - Date.now() > 60_000) return kisAccessTokenCache.token;
+  const { appKey, appSecret } = getKisCredentials();
   const response = await fetchWithTimeout(`${kisBaseUrl()}/oauth2/tokenP`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ grant_type: 'client_credentials', appkey: process.env.KIS_APP_KEY, appsecret: process.env.KIS_APP_SECRET })
+    body: JSON.stringify({ grant_type: 'client_credentials', appkey: appKey, appsecret: appSecret })
   }, 10000);
   const json = await response.json().catch(() => ({}));
   if (!response.ok || !json.access_token) throw new Error(`KIS token ${json.msg_cd || response.status}`);
@@ -286,6 +308,69 @@ function toKisNumeric(value) {
   return Number.isFinite(n) ? n : NaN;
 }
 
+function ymdToDashed(value) {
+  const text = String(value || '').replace(/\D/g, '');
+  return /^\d{8}$/.test(text) ? `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}` : '';
+}
+
+function shiftKoreaDate(dateText, days) {
+  const d = new Date(`${dateText}T12:00:00+09:00`);
+  d.setUTCDate(d.getUTCDate() + days);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(d).reduce((acc, part) => {
+    acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+async function fetchLatestKisOpenDate() {
+  const clock = getKoreaClock();
+  if (kisHolidayCache.koreaDate === clock.date && kisHolidayCache.latestOpenDate && kisHolidayCache.expiresAt > Date.now()) {
+    return kisHolidayCache.latestOpenDate;
+  }
+  if (!hasKisInvestorConfig()) return '';
+  const token = await fetchKisAccessToken();
+  const start = shiftKoreaDate(clock.date, -14).replace(/-/g, '');
+  const url = new URL('/uapi/domestic-stock/v1/quotations/chk-holiday', kisBaseUrl());
+  url.searchParams.set('BASS_DT', start);
+  url.searchParams.set('CTX_AREA_FK', '');
+  url.searchParams.set('CTX_AREA_NK', '');
+  const response = await fetchWithTimeout(url, {
+    headers: kisHeaders(token, 'CTCA0903R')
+  }, 10000);
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok || json.rt_cd !== '0') throw new Error(`KIS holiday ${json.msg_cd || response.status}`);
+  const today = clock.date.replace(/-/g, '');
+  const rows = (Array.isArray(json.output) ? json.output : json.output ? [json.output] : [])
+    .filter((row) => String(row?.opnd_yn || '').toUpperCase() === 'Y')
+    .map((row) => String(row?.bass_dt || '').replace(/\D/g, ''))
+    .filter((date) => /^\d{8}$/.test(date) && date <= today)
+    .sort();
+  const latestOpenDate = ymdToDashed(rows.at(-1));
+  if (!latestOpenDate) throw new Error('KIS holiday open date unavailable');
+  kisHolidayCache = { koreaDate: clock.date, latestOpenDate, expiresAt: Date.now() + 20 * 60 * 60 * 1000 };
+  return latestOpenDate;
+}
+
+async function getLatestMarketOpenDate() {
+  const kisDate = await fetchLatestKisOpenDate().catch(() => '');
+  if (kisDate) return kisDate;
+  const rows = await fetchDaumInvestorDays('KOSPI', 1).catch(() => []);
+  return rows.at(-1)?.date || getKoreaClock().date;
+}
+
+function kisPbmnToTrillion(value) {
+  const numeric = toKisNumeric(value);
+  return Number.isFinite(numeric) ? numeric / 1_000_000 : NaN;
+}
+
+function kisPbmnToEok(value) {
+  const numeric = toKisNumeric(value);
+  return Number.isFinite(numeric) ? numeric / 100 : NaN;
+}
+
 async function fetchKisInvestorSnapshot(kind) {
   const config = KIS_INVESTOR_MARKETS[kind];
   if (!config) throw new Error(`Unknown KIS investor market: ${kind}`);
@@ -296,11 +381,7 @@ async function fetchKisInvestorSnapshot(kind) {
   url.searchParams.set('FID_INPUT_ISCD_2', config.sector);
   const response = await fetchWithTimeout(url, {
     headers: {
-      authorization: `Bearer ${token}`,
-      appkey: process.env.KIS_APP_KEY,
-      appsecret: process.env.KIS_APP_SECRET,
-      tr_id: 'FHPTJ04030000',
-      custtype: 'P'
+      ...kisHeaders(token, 'FHPTJ04030000')
     }
   }, 10000);
   const json = await response.json().catch(() => ({}));
@@ -312,9 +393,9 @@ async function fetchKisInvestorSnapshot(kind) {
     return { foreign };
   }
   // KIS amount fields are in million KRW. The dashboard chart uses trillion KRW.
-  const foreign = toKisNumeric(row.frgn_ntby_tr_pbmn) / 1_000_000;
-  const institution = toKisNumeric(row.orgn_ntby_tr_pbmn) / 1_000_000;
-  const individual = toKisNumeric(row.prsn_ntby_tr_pbmn) / 1_000_000;
+  const foreign = kisPbmnToTrillion(row.frgn_ntby_tr_pbmn);
+  const institution = kisPbmnToTrillion(row.orgn_ntby_tr_pbmn);
+  const individual = kisPbmnToTrillion(row.prsn_ntby_tr_pbmn);
   if (![foreign, institution, individual].every(Number.isFinite)) throw new Error('KIS investor amount unavailable');
   return { foreign, institution, individual };
 }
@@ -365,8 +446,9 @@ function recordInvestorSnapshot(kind, date, values) {
 
 async function captureKisInvestorSnapshots() {
   const clock = getKoreaClock();
-  const weekday = new Date(`${clock.date}T12:00:00Z`).getUTCDay();
-  if (investorCaptureRunning || weekday === 0 || weekday === 6 || clock.minutes < 9 * 60 || clock.minutes > 15 * 60 + 30 || !hasKisInvestorConfig()) return;
+  if (investorCaptureRunning || clock.minutes < 9 * 60 || clock.minutes > 15 * 60 + 30 || !hasKisInvestorConfig()) return;
+  const latestOpenDate = await getLatestMarketOpenDate().catch(() => '');
+  if (!latestOpenDate || latestOpenDate !== clock.date) return;
   investorCaptureRunning = true;
   try {
     const results = await Promise.allSettled(Object.keys(KIS_INVESTOR_MARKETS).map(async (kind) => ({ kind, values: await fetchKisInvestorSnapshot(kind) })));
@@ -387,21 +469,26 @@ function appendFinalInvestorRow(rows, date, values) {
 
 async function fetchKisInvestorTimeRows(market = 'KOSPI') {
   const safeMarket = market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
-  const dayRows = await fetchDaumInvestorDays(safeMarket, 1).catch(() => []);
-  const finalDaily = dayRows[dayRows.length - 1];
-  const latestDate = finalDaily?.date || getKoreaClock().date;
+  const latestDate = await getLatestMarketOpenDate();
+  const dayRows = await fetchDaumInvestorDays(safeMarket, 5).catch(() => []);
+  const finalDaily = dayRows.find((row) => row.date === latestDate) || dayRows.at(-1);
   const clock = getKoreaClock();
   const isLiveSession = latestDate === clock.date && clock.minutes >= 9 * 60 && clock.minutes <= 15 * 60 + 30;
   if (isLiveSession) {
     try { recordInvestorSnapshot(safeMarket, latestDate, await fetchKisInvestorSnapshot(safeMarket)); } catch {}
   }
   let series = investorRowsFor(safeMarket, latestDate);
-  if (!isLiveSession && finalDaily) series = appendFinalInvestorRow(series, latestDate, finalDaily);
-  if (series.length > 1) {
-    return { unit: '조원', source: 'kis-persisted', note: `${safeMarket} 최근 거래일(${latestDate}) KIS 실제 누적 수급입니다. 서버가 장중 30초마다 저장하며 휴장일에도 같은 거래일 곡선을 표시합니다.`, series };
+  if (!isLiveSession && finalDaily?.date === latestDate) series = appendFinalInvestorRow(series, latestDate, finalDaily);
+  if (series.length) {
+    return {
+      unit: '조원',
+      source: 'kis-persisted',
+      latestOpenDate: latestDate,
+      note: `${safeMarket} 최근 개장일(${latestDate}) KIS 실제 누적 순매수입니다. 09:00~15:30 고정 축에 장중 30초 수집값을 1분 단위로 저장합니다.`,
+      series
+    };
   }
-  if (finalDaily) return { unit: '조원', source: 'kis-close', note: `${safeMarket} 최근 거래일(${latestDate}) 15:30 KIS·거래소 확정 순매수입니다. 장중 저장된 분봉은 다음 개장일부터 전체 표시됩니다.`, series };
-  return { unit: '조원', note: `${safeMarket} 투자자 수급 원천 확인 필요`, series: [] };
+  return { unit: '조원', latestOpenDate: latestDate, note: `${safeMarket} 최근 개장일(${latestDate}) 분봉 저장 데이터가 아직 없습니다.`, series: [] };
 }
 
 async function fetchInvestorSeries(market, kind, limit = 120) {
@@ -494,24 +581,103 @@ async function fetchForeignFuturesSeries(limit = 120) {
 }
 
 async function fetchForeignFuturesMinuteSeries() {
-  const dailyRows = await fetchDaumInvestorDays('KOSPI', 1).catch(() => []);
-  const latestDate = dailyRows[dailyRows.length - 1]?.date || getKoreaClock().date;
+  const latestDate = await getLatestMarketOpenDate();
   const clock = getKoreaClock();
   const isLiveSession = latestDate === clock.date && clock.minutes >= 9 * 60 && clock.minutes <= 15 * 60 + 30;
   if (isLiveSession) {
     try { recordInvestorSnapshot('FUTURES', latestDate, await fetchKisInvestorSnapshot('FUTURES')); } catch {}
   }
   let series = investorRowsFor('FUTURES', latestDate);
-  if (series.length > 1) {
-    return { unit: '계약', source: 'kis-persisted', note: `코스피200 선물 최근 거래일(${latestDate}) 외국인 실제 누적 순매수입니다. 서버가 장중 30초마다 KIS 수급을 저장하며 휴장일에도 같은 거래일 곡선을 표시합니다.`, series };
+  if (!isLiveSession && !series.length) {
+    try {
+      const close = await fetchKisInvestorSnapshot('FUTURES');
+      series = appendFinalInvestorRow(series, latestDate, close);
+    } catch {}
   }
-  try {
-    const close = await fetchKisInvestorSnapshot('FUTURES');
-    series = appendFinalInvestorRow(series, latestDate, close);
-    return { unit: '계약', source: 'kis-close', note: `코스피200 선물 최근 거래일(${latestDate}) 15:30 KIS 확정 외국인 순매수입니다. 장중 저장된 분봉은 다음 개장일부터 전체 표시됩니다.`, series };
-  } catch {
-    return { unit: '계약', note: '코스피200 선물 투자자 수급을 불러오지 못했습니다.', series: [] };
+  if (series.length) {
+    return {
+      unit: '계약',
+      source: 'kis-persisted',
+      latestOpenDate: latestDate,
+      note: `코스피200 선물 최근 개장일(${latestDate}) 외국인 누적 순매수입니다. 09:00~15:30 고정 축에 KIS를 30초마다 수집해 1분 단위로 표시합니다.`,
+      series
+    };
   }
+  return { unit: '계약', latestOpenDate: latestDate, note: `코스피200 선물 최근 개장일(${latestDate}) 분봉 저장 데이터가 아직 없습니다.`, series: [] };
+}
+
+async function fetchKisProgramDailyRows(limit = 30) {
+  const safeLimit = Math.max(20, Math.min(60, Number(limit) || 30));
+  if (kisProgramDailyCache.rows.length >= safeLimit && kisProgramDailyCache.expiresAt > Date.now()) {
+    return kisProgramDailyCache.rows.slice(-safeLimit);
+  }
+  const token = await fetchKisAccessToken();
+  if (!token) throw new Error('KIS credentials unavailable');
+  const latestOpenDate = await getLatestMarketOpenDate();
+  const url = new URL('/uapi/domestic-stock/v1/quotations/comp-program-trade-daily', kisBaseUrl());
+  url.searchParams.set('FID_COND_MRKT_DIV_CODE', 'J');
+  url.searchParams.set('FID_MRKT_CLS_CODE', 'K');
+  url.searchParams.set('FID_INPUT_DATE_1', shiftKoreaDate(latestOpenDate, -120).replace(/-/g, ''));
+  url.searchParams.set('FID_INPUT_DATE_2', latestOpenDate.replace(/-/g, ''));
+  const response = await fetchWithTimeout(url, { headers: kisHeaders(token, 'FHPPG04600001') }, 10000);
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok || json.rt_cd !== '0') throw new Error(`KIS program daily ${json.msg_cd || response.status}`);
+  const byDate = new Map();
+  for (const row of (Array.isArray(json.output) ? json.output : [])) {
+    const date = ymdToDashed(row?.stck_bsop_date);
+    const value = kisPbmnToEok(row?.whol_smtn_ntby_tr_pbmn);
+    if (date && Number.isFinite(value)) byDate.set(date, value);
+  }
+  const rows = [...byDate.entries()].map(([date, value]) => ({ date, value })).sort((a, b) => a.date.localeCompare(b.date));
+  if (!rows.length) throw new Error('KIS program daily empty');
+  kisProgramDailyCache = { rows, expiresAt: Date.now() + 5 * 60 * 1000 };
+  return rows.slice(-safeLimit);
+}
+
+async function fetchKisProgramTodayValue() {
+  const latestOpenDate = await getLatestMarketOpenDate();
+  const clock = getKoreaClock();
+  if (latestOpenDate !== clock.date || clock.minutes < 9 * 60 || clock.minutes > 15 * 60 + 35) return null;
+  const token = await fetchKisAccessToken();
+  if (!token) return null;
+  const url = new URL('/uapi/domestic-stock/v1/quotations/comp-program-trade-today', kisBaseUrl());
+  url.searchParams.set('FID_COND_MRKT_DIV_CODE', 'J');
+  url.searchParams.set('FID_MRKT_CLS_CODE', 'K');
+  url.searchParams.set('FID_SCTN_CLS_CODE', '');
+  url.searchParams.set('FID_INPUT_ISCD', '');
+  url.searchParams.set('FID_COND_MRKT_DIV_CODE1', '');
+  url.searchParams.set('FID_INPUT_HOUR_1', '');
+  const response = await fetchWithTimeout(url, { headers: kisHeaders(token, 'FHPPG04600101') }, 10000);
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok || json.rt_cd !== '0') throw new Error(`KIS program today ${json.msg_cd || response.status}`);
+  const rows = (Array.isArray(json.output1) ? json.output1 : [])
+    .map((row) => ({
+      hour: String(row?.bsop_hour || '').replace(/\D/g, ''),
+      value: kisPbmnToEok(row?.whol_smtn_ntby_tr_pbmn)
+    }))
+    .filter((row) => /^\d{6}$/.test(row.hour) && row.hour >= '090000' && row.hour <= '153000' && Number.isFinite(row.value))
+    .sort((a, b) => a.hour.localeCompare(b.hour));
+  const latest = rows.at(-1);
+  return latest ? { date: latestOpenDate, hour: latest.hour, value: latest.value } : null;
+}
+
+async function fetchKisProgramFlowArray() {
+  const latestOpenDate = await getLatestMarketOpenDate();
+  const rows = await fetchKisProgramDailyRows(35);
+  const byDate = new Map(rows.map((row) => [row.date, row.value]));
+  const live = await fetchKisProgramTodayValue().catch(() => null);
+  if (live?.date === latestOpenDate && Number.isFinite(live.value)) byDate.set(live.date, live.value);
+  const ordered = [...byDate.entries()]
+    .map(([date, value]) => ({ date, value }))
+    .filter((row) => row.date <= latestOpenDate && Number.isFinite(row.value))
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-35);
+  if (!ordered.length) throw new Error('KIS program flow empty');
+  const values = [1, 3, 5, 10, 20].map((days) => {
+    const sample = ordered.slice(-days);
+    return sample.length ? Math.round(sample.reduce((sum, row) => sum + row.value, 0)) : null;
+  });
+  return { values, latestOpenDate, asOfHour: live?.hour || '153000', source: 'KIS' };
 }
 
 async function fetchPriceMinuteSeries(key, label, unit) {
@@ -1869,70 +2035,73 @@ const server = http.createServer(async (req, res) => {
   if (requestPath === '/api/stats') {
     try {
       const headers = { 'User-Agent': 'Mozilla/5.0', 'Referer': 'http://finance.daum.net/' };
-      
-      // Fetch Naver for Program Trading
-      const rKospi = await fetch('https://finance.naver.com/sise/sise_index.naver?code=KOSPI', { headers });
-      const bufKospi = await rKospi.arrayBuffer();
-      let textKospi = '';
-      if (typeof TextDecoder !== 'undefined') {
-        textKospi = new TextDecoder('euc-kr').decode(bufKospi);
-      } else {
-        textKospi = Buffer.from(bufKospi).toString();
-      }
-      const mProg = textKospi.match(/전체<br><span class="[^"]+">([+-]?[\d,]+)<span>억/);
-      const prog = mProg ? parseInt(mProg[1].replace(/,/g, '')) : 0;
-
-      // Fetch Daum for KOSPI / KOSDAQ turnover and foreigner net buying
-      const rKospiDaum = await fetch('https://finance.daum.net/api/market_index/days?page=1&perPage=20&market=KOSPI&pagination=true', { headers });
+      const latestOpenDate = await getLatestMarketOpenDate().catch(() => '');
+      const [rKospiDaum, rKosdaqDaum, futuresPayload, programPayload] = await Promise.all([
+        fetchWithTimeout('https://finance.daum.net/api/market_index/days?page=1&perPage=20&market=KOSPI&pagination=true', { headers }, 10000),
+        fetchWithTimeout('https://finance.daum.net/api/market_index/days?page=1&perPage=2&market=KOSDAQ&pagination=true', { headers }, 10000),
+        fetchForeignFuturesSeries(20).catch(() => null),
+        fetchKisProgramFlowArray().catch(() => null)
+      ]);
       const jsonKospi = await rKospiDaum.json();
-      const kospiData = jsonKospi.data || [];
-      
-      const rKosdaqDaum = await fetch('https://finance.daum.net/api/market_index/days?page=1&perPage=2&market=KOSDAQ&pagination=true', { headers });
       const jsonKosdaq = await rKosdaqDaum.json();
+      const kospiData = jsonKospi.data || [];
       const kosdaqData = jsonKosdaq.data || [];
-      const futuresPayload = await fetchForeignFuturesSeries(20);
-      
+
       let kospiTurnover = 0, kosdaqTurnover = 0;
       let kospiTurnoverDiff = '0', kosdaqTurnoverDiff = '0';
       let futuresArray = [0, 0, 0, 0, 0];
-      let progsArray = [prog, 0, 0, 0, 0];
 
       if (kospiData.length >= 2) {
         kospiTurnover = Math.round(kospiData[0].accTradePrice);
         const diff = ((kospiData[0].accTradePrice - kospiData[1].accTradePrice) / kospiData[1].accTradePrice) * 100;
         kospiTurnoverDiff = Math.abs(diff) < 0.005 ? '0' : diff.toFixed(2);
-        
-        const recentFutures = (futuresPayload?.series || []).slice().reverse().map((row) => Number(row.dailyForeign) || 0);
-        futuresArray = [1, 3, 5, 10, 20].map((days) => recentFutures.slice(0, days).reduce((sum, value) => sum + value, 0));
-        if (futuresArray[0] !== 0) {
-          const ratio = prog / futuresArray[0];
-          progsArray[1] = Math.round(futuresArray[1] * ratio);
-          progsArray[2] = Math.round(futuresArray[2] * ratio);
-          progsArray[3] = Math.round(futuresArray[3] * ratio);
-          progsArray[4] = Math.round(futuresArray[4] * ratio);
-        } else {
-          progsArray = [prog, prog*3, prog*5, prog*10, prog*20];
-        }
       }
-      
+
       if (kosdaqData.length >= 2) {
         kosdaqTurnover = Math.round(kosdaqData[0].accTradePrice);
         const diff = ((kosdaqData[0].accTradePrice - kosdaqData[1].accTradePrice) / kosdaqData[1].accTradePrice) * 100;
         kosdaqTurnoverDiff = Math.abs(diff) < 0.005 ? '0' : diff.toFixed(2);
       }
 
+      const historicalFutures = (futuresPayload?.series || []).map((row) => ({
+        date: String(row.date || '').slice(0, 10),
+        value: Number(row.dailyForeign)
+      })).filter((row) => row.date && Number.isFinite(row.value));
+      const clock = getKoreaClock();
+      const isLiveSession = latestOpenDate === clock.date && clock.minutes >= 9 * 60 && clock.minutes <= 15 * 60 + 30;
+      if (isLiveSession) {
+        const liveFutures = await fetchKisInvestorSnapshot('FUTURES').catch(() => null);
+        if (Number.isFinite(liveFutures?.foreign)) {
+          const index = historicalFutures.findIndex((row) => row.date === latestOpenDate);
+          const liveRow = { date: latestOpenDate, value: liveFutures.foreign };
+          if (index >= 0) historicalFutures[index] = liveRow;
+          else historicalFutures.push(liveRow);
+        }
+      }
+      historicalFutures.sort((a, b) => a.date.localeCompare(b.date));
+      if (historicalFutures.length) {
+        futuresArray = [1, 3, 5, 10, 20].map((days) => {
+          const sample = historicalFutures.slice(-days);
+          return sample.length ? Math.round(sample.reduce((sum, row) => sum + row.value, 0)) : 0;
+        });
+      }
+
       return send(res, 200, JSON.stringify({
-          ok: true,
-          kospiTurnover: kospiTurnover.toLocaleString(),
-          kosdaqTurnover: kosdaqTurnover.toLocaleString(),
-          kospiTurnoverDiff: kospiTurnoverDiff,
-          kosdaqTurnoverDiff: kosdaqTurnoverDiff,
-          futuresArray,
-          progsArray
+        ok: true,
+        latestOpenDate,
+        kisConfigured: hasKisInvestorConfig(),
+        kospiTurnover: kospiTurnover.toLocaleString(),
+        kosdaqTurnover: kosdaqTurnover.toLocaleString(),
+        kospiTurnoverDiff,
+        kosdaqTurnoverDiff,
+        futuresArray,
+        progsArray: (programPayload?.values || [0, 0, 0, 0, 0]).map((value) => Number.isFinite(Number(value)) ? Number(value) : 0),
+        programSource: programPayload?.source || 'unavailable',
+        programAsOfHour: programPayload?.asOfHour || ''
       }), 'application/json');
     } catch (e) {
       console.error(e);
-      return send(res, 500, JSON.stringify({ ok: false }), 'application/json');
+      return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');
     }
   }
 
@@ -1953,6 +2122,71 @@ const server = http.createServer(async (req, res) => {
     '.svg': 'image/svg+xml; charset=utf-8'
   };
   const type = types[ext] || 'text/plain; charset=utf-8';
+  if (ext === '.html') {
+    let html = fs.readFileSync(file, 'utf8');
+    const kisFlowRefresh = String.raw`<script id="stock3-kis-flow-refresh">
+(() => {
+  const koreaClock = () => {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Seoul', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false
+    }).formatToParts(new Date());
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return { weekday: values.weekday, minutes: Number(values.hour) * 60 + Number(values.minute) };
+  };
+  const apiStatsUrl = () => {
+    const path = location.pathname.replace(/\/index\.html$/, '').replace(/\/$/, '');
+    return (path || '') + '/api/stats';
+  };
+  const numericOrNull = (value) => Number.isFinite(Number(value)) ? Number(value) : null;
+  const color = (value) => {
+    const n = numericOrNull(value);
+    if (n === null || n === 0) return '#5f6b85';
+    return n > 0 ? '#d92c2c' : '#1f5bd8';
+  };
+  const format = (value, available = true) => {
+    const n = numericOrNull(value);
+    return available && n !== null ? Math.round(n).toLocaleString('ko-KR') : '-';
+  };
+  const update = async () => {
+    try {
+      const response = await fetch(apiStatsUrl(), { cache: 'no-store' });
+      const json = await response.json();
+      if (!response.ok || !json?.ok) return;
+      const body = document.getElementById('flowTableBody');
+      if (!body) return;
+      const futures = Array.isArray(json.futuresArray) ? json.futuresArray.slice(0, 5) : [];
+      const programs = Array.isArray(json.progsArray) ? json.progsArray.slice(0, 5) : [];
+      while (futures.length < 5) futures.push(0);
+      while (programs.length < 5) programs.push(0);
+      const programAvailable = json.programSource === 'KIS';
+      body.innerHTML = [
+        ['외국인 선물(계약)', futures, true],
+        ['프로그램(억원)', programs, programAvailable]
+      ].map(([label, values, available]) => '<tr><td>' + label + '</td>' + values.map((value) =>
+        '<td style="color:' + color(value) + '">' + format(value, available) + '</td>'
+      ).join('') + '</tr>').join('');
+      const note = document.getElementById('flowAsOf');
+      if (note) {
+        const source = programAvailable ? 'KIS' : 'KIS 프로그램 원천 확인 필요';
+        const openDate = json.latestOpenDate ? ' · 최근 개장일 ' + json.latestOpenDate : '';
+        note.textContent = '기준시각: ' + new Date().toLocaleString('ko-KR') + ' · ' + source + ' · 30초 갱신' + openDate;
+      }
+    } catch (_) {}
+  };
+  const shouldPoll = () => {
+    const clock = koreaClock();
+    if (clock.weekday === 'Sat' || clock.weekday === 'Sun') return false;
+    return clock.minutes >= 8 * 60 + 58 && clock.minutes <= 15 * 60 + 35;
+  };
+  setTimeout(update, 800);
+  setInterval(() => { if (shouldPoll()) update(); }, 30 * 1000);
+})();
+</script>`;
+    if (!html.includes('id="stock3-kis-flow-refresh"')) {
+      html = html.includes('</body>') ? html.replace('</body>', `${kisFlowRefresh}\n</body>`) : `${html}\n${kisFlowRefresh}`;
+    }
+    return send(res, 200, html, type);
+  }
   send(res, 200, fs.readFileSync(file), type);
 });
 
