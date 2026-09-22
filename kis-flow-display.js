@@ -159,6 +159,30 @@ function proxyToInternal(req, res) {
     path: req.url,
     headers,
   }, (innerRes) => {
+    const contentType = String(innerRes.headers['content-type'] || '');
+    const contentEncoding = String(innerRes.headers['content-encoding'] || '');
+
+    // stock3-7 serves the legacy index through the inner core. Inject only one
+    // small companion script into HTML so the large index.html does not need to
+    // be forked just to add the market-cap column.
+    if (req.method === 'GET' && contentType.includes('text/html') && !contentEncoding) {
+      const chunks = [];
+      innerRes.on('data', (chunk) => chunks.push(chunk));
+      innerRes.on('end', () => {
+        let html = Buffer.concat(chunks).toString('utf8');
+        if (!html.includes('breakout-marketcap.js')) {
+          const script = '<script src="breakout-marketcap.js"></script>';
+          html = html.includes('</body>') ? html.replace('</body>', `${script}\n</body>`) : `${html}\n${script}`;
+        }
+        const responseHeaders = { ...innerRes.headers };
+        delete responseHeaders['content-length'];
+        responseHeaders['cache-control'] = 'no-store';
+        res.writeHead(innerRes.statusCode || 200, responseHeaders);
+        res.end(html);
+      });
+      return;
+    }
+
     res.writeHead(innerRes.statusCode || 200, innerRes.headers);
     innerRes.pipe(res);
   });

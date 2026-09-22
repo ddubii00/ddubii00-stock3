@@ -207,6 +207,7 @@ async function fetchHighBreakoutsFresh() {
       market: marketRow.market,
       code,
       name: marketRow.itemname,
+      marketCap: toNumber(marketRow.marketSum),
       currentPrice,
       change: toNumber(marketRow.prevChangePrice),
       changeRate: toNumber(marketRow.prevChangeRate) ?? toNumber(scannerChangeRate),
