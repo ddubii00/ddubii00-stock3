@@ -1405,7 +1405,11 @@
         });
       });
 
-      const bbSeries = options.bollinger ? {
+      // Candlestick charts show Bollinger Bands by default. Plain/index
+      // charts can opt out automatically, while callers may still disable
+      // the overlay explicitly with `bollinger: false`.
+      const bollingerEnabled = options.bollinger ?? !options.plain;
+      const bbSeries = bollingerEnabled ? {
         upper: chart.addLineSeries({ color:'#d66b72', lineWidth:1, crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false }),
         lower: chart.addLineSeries({ color:'#6aa7e8', lineWidth:1, crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false })
       } : null;
