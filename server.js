@@ -650,7 +650,10 @@ async function fetchKisProgramTodayValue() {
   const response = await fetchWithTimeout(url, { headers: kisHeaders(token, 'FHPPG04600101') }, 10000);
   const json = await response.json().catch(() => ({}));
   if (!response.ok || json.rt_cd !== '0') throw new Error(`KIS program today ${json.msg_cd || response.status}`);
-  const rows = (Array.isArray(json.output1) ? json.output1 : [])
+  // The official response places program rows in `output`. Keep `output1`
+  // for older gateway payloads so a KIS schema rollout cannot blank the table.
+  const rawRows = Array.isArray(json.output) ? json.output : (Array.isArray(json.output1) ? json.output1 : []);
+  const rows = rawRows
     .map((row) => ({
       hour: String(row?.bsop_hour || '').replace(/\D/g, ''),
       value: kisPbmnToEok(row?.whol_smtn_ntby_tr_pbmn)
@@ -678,6 +681,59 @@ async function fetchKisProgramFlowArray() {
     return sample.length ? Math.round(sample.reduce((sum, row) => sum + row.value, 0)) : null;
   });
   return { values, latestOpenDate, asOfHour: live?.hour || '153000', source: 'KIS' };
+}
+
+async function fetchNaverProgramDailyRows(limit = 35) {
+  const safeLimit = Math.max(20, Math.min(120, Number(limit) || 35));
+  const latestOpenDate = await getLatestMarketOpenDate().catch(() => getKoreaClock().date);
+  const bizdate = latestOpenDate.replace(/-/g, '');
+  const rows = [];
+  const seen = new Set();
+  const maxPages = Math.ceil(safeLimit / 10) + 4;
+
+  for (let page = 1; page <= maxPages && rows.length < safeLimit; page += 1) {
+    const html = await fetchTextWithRetries(
+      `https://finance.naver.com/sise/programDealTrendDay.naver?bizdate=${bizdate}&sosok=&page=${page}`,
+      { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://finance.naver.com/sise/sise_program.naver' } },
+      3,
+      'euc-kr'
+    ).catch(() => '');
+    let found = 0;
+    for (const match of html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
+      const cells = [...match[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((cell) => stripHtml(cell[1]));
+      if (cells.length < 2 || !/^\d{2}\.\d{2}\.\d{2}$/.test(cells[0])) continue;
+      // The last numeric cell is the total program net-buying column (억원).
+      const value = parseTrendNumber(cells.at(-1));
+      if (!Number.isFinite(value)) continue;
+      const [yy, mm, dd] = cells[0].split('.');
+      const date = `20${yy}-${mm}-${dd}`;
+      if (seen.has(date)) continue;
+      seen.add(date);
+      rows.push({ date, value });
+      found += 1;
+    }
+    if (!found && page > 1) break;
+  }
+  return rows.sort((a, b) => a.date.localeCompare(b.date)).slice(-safeLimit);
+}
+
+async function fetchProgramFlowArray() {
+  try {
+    return await fetchKisProgramFlowArray();
+  } catch (kisError) {
+    const rows = await fetchNaverProgramDailyRows(35);
+    if (!rows.length) throw kisError;
+    const values = [1, 3, 5, 10, 20].map((days) => {
+      const sample = rows.slice(-days);
+      return sample.length ? Math.round(sample.reduce((sum, row) => sum + row.value, 0)) : null;
+    });
+    return {
+      values,
+      latestOpenDate: rows.at(-1)?.date || '',
+      asOfHour: '153000',
+      source: 'Naver Finance programDealTrendDay'
+    };
+  }
 }
 
 async function fetchPriceMinuteSeries(key, label, unit) {
@@ -714,9 +770,40 @@ async function fetchPriceMinuteSeries(key, label, unit) {
   };
 }
 
-async function fetchMarketTurnoverSeries(limit = 120) {
+async function fetchNaverMarketTurnoverRows(market, limit = 120) {
   const safeLimit = Math.max(20, Math.min(500, Number(limit) || 120));
-  const fetchMarket = async (market) => {
+  const code = market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
+  const rows = [];
+  const seen = new Set();
+  const maxPages = Math.ceil(safeLimit / 10) + 4;
+  for (let page = 1; page <= maxPages && rows.length < safeLimit; page += 1) {
+    const html = await fetchTextWithRetries(
+      `https://finance.naver.com/sise/sise_index_day.naver?code=${code}&page=${page}`,
+      { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://finance.naver.com/sise/' } },
+      3,
+      'euc-kr'
+    ).catch(() => '');
+    let found = 0;
+    for (const match of html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
+      const cells = [...match[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((cell) => stripHtml(cell[1]));
+      if (cells.length < 6 || !/^\d{4}\.\d{2}\.\d{2}$/.test(cells[0])) continue;
+      // Naver's index-day table ends with transaction value in KRW millions.
+      const value = parseTrendNumber(cells.at(-1));
+      if (!Number.isFinite(value) || value < 0) continue;
+      const date = cells[0].replace(/\./g, '-');
+      if (seen.has(date)) continue;
+      seen.add(date);
+      rows.push({ date, value });
+      found += 1;
+    }
+    if (!found && page > 1) break;
+  }
+  return rows.sort((a, b) => a.date.localeCompare(b.date)).slice(-safeLimit);
+}
+
+async function fetchMarketTurnoverRows(market, limit = 120) {
+  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 120));
+  try {
     const url = `https://finance.daum.net/api/market_index/days?page=1&perPage=${safeLimit}&market=${market}&pagination=true`;
     const response = await fetchWithTimeout(url, {
       headers: {
@@ -724,22 +811,40 @@ async function fetchMarketTurnoverSeries(limit = 120) {
         Referer: 'https://finance.daum.net/'
       }
     });
+    if (!response.ok) throw new Error(`Daum market turnover HTTP ${response.status}`);
     const json = await response.json();
     const rows = Array.isArray(json?.data) ? json.data : [];
     return rows.map((row) => ({
       date: String(row.date || '').slice(0, 10),
-      value: Number(row.accTradePrice) / 1000000
-    })).filter((row) => row.date && Number.isFinite(row.value));
-  };
+      value: Number(row.accTradePrice)
+    })).filter((row) => row.date && Number.isFinite(row.value))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  } catch (daumError) {
+    const naverRows = await fetchNaverMarketTurnoverRows(market, safeLimit);
+    if (naverRows.length) return naverRows;
+    throw daumError;
+  }
+}
 
-  const [kospiRows, kosdaqRows] = await Promise.all([fetchMarket('KOSPI'), fetchMarket('KOSDAQ')]);
+async function fetchMarketTurnoverSeries(limit = 120) {
+  const safeLimit = Math.max(20, Math.min(500, Number(limit) || 120));
+
+  const [kospiRows, kosdaqRows] = await Promise.all([
+    fetchMarketTurnoverRows('KOSPI', safeLimit),
+    fetchMarketTurnoverRows('KOSDAQ', safeLimit)
+  ]);
   const kospiByDate = new Map(kospiRows.map((row) => [row.date, row.value]));
   const kosdaqByDate = new Map(kosdaqRows.map((row) => [row.date, row.value]));
   const series = [...kospiByDate.keys()]
     .filter((date) => kosdaqByDate.has(date))
     .sort()
     .slice(-safeLimit)
-    .map((date) => ({ date, kospi: kospiByDate.get(date), kosdaq: kosdaqByDate.get(date) }));
+    .map((date) => ({
+      date,
+      // Both sources report turnover in KRW millions; chart unit is KRW trillions.
+      kospi: kospiByDate.get(date) / 1000000,
+      kosdaq: kosdaqByDate.get(date) / 1000000
+    }));
   if (!series.length) return null;
   const latest = series[series.length - 1]?.date || '';
   return {
@@ -2034,32 +2139,35 @@ const server = http.createServer(async (req, res) => {
   }
   if (requestPath === '/api/stats') {
     try {
-      const headers = { 'User-Agent': 'Mozilla/5.0', 'Referer': 'http://finance.daum.net/' };
       const latestOpenDate = await getLatestMarketOpenDate().catch(() => '');
-      const [rKospiDaum, rKosdaqDaum, futuresPayload, programPayload] = await Promise.all([
-        fetchWithTimeout('https://finance.daum.net/api/market_index/days?page=1&perPage=20&market=KOSPI&pagination=true', { headers }, 10000),
-        fetchWithTimeout('https://finance.daum.net/api/market_index/days?page=1&perPage=2&market=KOSDAQ&pagination=true', { headers }, 10000),
+      const [kospiResult, kosdaqResult, futuresResult, programResult] = await Promise.allSettled([
+        fetchMarketTurnoverRows('KOSPI', 20),
+        fetchMarketTurnoverRows('KOSDAQ', 20),
         fetchForeignFuturesSeries(20).catch(() => null),
-        fetchKisProgramFlowArray().catch(() => null)
+        fetchProgramFlowArray()
       ]);
-      const jsonKospi = await rKospiDaum.json();
-      const jsonKosdaq = await rKosdaqDaum.json();
-      const kospiData = jsonKospi.data || [];
-      const kosdaqData = jsonKosdaq.data || [];
+      const kospiData = kospiResult.status === 'fulfilled' ? kospiResult.value : [];
+      const kosdaqData = kosdaqResult.status === 'fulfilled' ? kosdaqResult.value : [];
+      const futuresPayload = futuresResult.status === 'fulfilled' ? futuresResult.value : null;
+      const programPayload = programResult.status === 'fulfilled' ? programResult.value : null;
 
       let kospiTurnover = 0, kosdaqTurnover = 0;
       let kospiTurnoverDiff = '0', kosdaqTurnoverDiff = '0';
       let futuresArray = [0, 0, 0, 0, 0];
 
       if (kospiData.length >= 2) {
-        kospiTurnover = Math.round(kospiData[0].accTradePrice);
-        const diff = ((kospiData[0].accTradePrice - kospiData[1].accTradePrice) / kospiData[1].accTradePrice) * 100;
+        const current = Number(kospiData.at(-1)?.value);
+        const previous = Number(kospiData.at(-2)?.value);
+        kospiTurnover = Math.round(current);
+        const diff = previous ? ((current - previous) / previous) * 100 : 0;
         kospiTurnoverDiff = Math.abs(diff) < 0.005 ? '0' : diff.toFixed(2);
       }
 
       if (kosdaqData.length >= 2) {
-        kosdaqTurnover = Math.round(kosdaqData[0].accTradePrice);
-        const diff = ((kosdaqData[0].accTradePrice - kosdaqData[1].accTradePrice) / kosdaqData[1].accTradePrice) * 100;
+        const current = Number(kosdaqData.at(-1)?.value);
+        const previous = Number(kosdaqData.at(-2)?.value);
+        kosdaqTurnover = Math.round(current);
+        const diff = previous ? ((current - previous) / previous) * 100 : 0;
         kosdaqTurnoverDiff = Math.abs(diff) < 0.005 ? '0' : diff.toFixed(2);
       }
 
@@ -2097,7 +2205,8 @@ const server = http.createServer(async (req, res) => {
         futuresArray,
         progsArray: (programPayload?.values || [0, 0, 0, 0, 0]).map((value) => Number.isFinite(Number(value)) ? Number(value) : 0),
         programSource: programPayload?.source || 'unavailable',
-        programAsOfHour: programPayload?.asOfHour || ''
+        programAsOfHour: programPayload?.asOfHour || '',
+        turnoverSource: (kospiResult.status === 'fulfilled' && kosdaqResult.status === 'fulfilled') ? 'Daum Finance / Naver Finance fallback' : 'unavailable'
       }), 'application/json');
     } catch (e) {
       console.error(e);
@@ -2158,7 +2267,7 @@ const server = http.createServer(async (req, res) => {
       const programs = Array.isArray(json.progsArray) ? json.progsArray.slice(0, 5) : [];
       while (futures.length < 5) futures.push(0);
       while (programs.length < 5) programs.push(0);
-      const programAvailable = json.programSource === 'KIS';
+      const programAvailable = Array.isArray(json.progsArray) && json.programSource && json.programSource !== 'unavailable';
       body.innerHTML = [
         ['외국인 선물(계약)', futures, true],
         ['프로그램(억원)', programs, programAvailable]
@@ -2167,7 +2276,7 @@ const server = http.createServer(async (req, res) => {
       ).join('') + '</tr>').join('');
       const note = document.getElementById('flowAsOf');
       if (note) {
-        const source = programAvailable ? 'KIS' : 'KIS 프로그램 원천 확인 필요';
+        const source = programAvailable ? json.programSource : '프로그램 원천 확인 필요';
         const openDate = json.latestOpenDate ? ' · 최근 개장일 ' + json.latestOpenDate : '';
         note.textContent = '기준시각: ' + new Date().toLocaleString('ko-KR') + ' · ' + source + ' · 30초 갱신' + openDate;
       }
