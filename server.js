@@ -2186,6 +2186,15 @@ const server = http.createServer(async (req, res) => {
           else historicalFutures.push(liveRow);
         }
       }
+      // When the public daily feed is delayed or unavailable, KIS still
+      // provides the latest foreign KOSPI200 futures net quantity. Keep that
+      // latest open-day result visible instead of rendering an empty table.
+      if (!historicalFutures.length && latestOpenDate) {
+        const latestFutures = await fetchKisInvestorSnapshot('FUTURES').catch(() => null);
+        if (Number.isFinite(latestFutures?.foreign)) {
+          historicalFutures.push({ date: latestOpenDate, value: latestFutures.foreign });
+        }
+      }
       historicalFutures.sort((a, b) => a.date.localeCompare(b.date));
       if (historicalFutures.length) {
         futuresArray = [1, 3, 5, 10, 20].map((days) => {

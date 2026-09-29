@@ -7,6 +7,7 @@ const {
   parseProgramCurrentRows,
   parseProgramDailyRows,
   sumWindows,
+  mergeWindowValues,
   pbmnToTrillion,
   pbmnToEok,
   INVESTOR_MARKETS,
@@ -49,6 +50,13 @@ test('program daily parser and window sums', () => {
   ] });
   assert.deepEqual(rows.map(r => r.value), [1, 2, -0.5]);
   assert.deepEqual(sumWindows(rows, [1, 3, 5]), [-0, 3, null]);
+});
+
+test('KIS futures windows retain an available daily fallback', () => {
+  assert.deepEqual(
+    mergeWindowValues([120, 240, null, null, null], 2, [100, 200, 300, 400, 500]),
+    [120, 200, 300, 400, 500]
+  );
 });
 
 test('unit helpers', () => {

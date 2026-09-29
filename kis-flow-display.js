@@ -208,7 +208,10 @@ async function handleChartRequest(req, res, config) {
 
   // During the live session, always show today's KIS data even if only one
   // minute has been collected so far.
-  if (live || currentRows.length > 1) {
+  // The gateway's latestOpenDate is the authoritative session choice. Keep
+  // even a single final marker for that date rather than replacing it with a
+  // prettier curve from an older session after a holiday or process restart.
+  if (live || currentRows.length) {
     return sendJson(res, inner.statusCode, payload);
   }
 

@@ -508,6 +508,12 @@ async function ensureLatestDateFallbacks() {
 
 async function buildInvestorChart(kind) {
   const latestDate = await getLatestOpenDate();
+  const clock = getKoreaClock();
+  // A page opened during the session must begin collecting the current
+  // session immediately instead of waiting for the next 30-second timer.
+  if (latestDate === clock.date && clock.minutes >= 9 * 60 && clock.minutes <= 15 * 60 + 30) {
+    await captureOnce().catch(() => {});
+  }
   let rows = getRows(kind, latestDate);
   if (!rows.length) {
     await ensureLatestDateFallbacks().catch(() => {});
@@ -528,6 +534,10 @@ async function buildInvestorChart(kind) {
 
 async function buildFuturesChart() {
   const latestDate = await getLatestOpenDate();
+  const clock = getKoreaClock();
+  if (latestDate === clock.date && clock.minutes >= 9 * 60 && clock.minutes <= 15 * 60 + 30) {
+    await captureOnce().catch(() => {});
+  }
   let rows = getRows('FUTURES', latestDate);
   if (!rows.length) {
     await ensureLatestDateFallbacks().catch(() => {});
@@ -548,11 +558,21 @@ async function buildFuturesChart() {
 async function buildFlowStats() {
   ensureStoreLoaded();
   const latestDate = await getLatestOpenDate();
+  // Persist a final futures value for the latest open day before calculating
+  // windows. This also covers a process restart after the regular session.
+  await ensureLatestDateFallbacks().catch(() => {});
 
   // Program: KIS daily history + today's live KOSPI program value when the market is open.
-  let programRows = await fetchProgramDailyRows(latestDate, 'K');
+  let programRows = [];
+  let programSource = 'unavailable';
+  try {
+    programRows = await fetchProgramDailyRows(latestDate, 'K');
+    programSource = 'KIS FHPPG04600001/FHPPG04600101';
+  } catch (error) {
+    console.error('[KIS FLOW] program history unavailable:', error.message);
+  }
   const clock = getKoreaClock();
-  if (latestDate === clock.date && clock.minutes >= 9 * 60 && clock.minutes <= 15 * 60 + 35) {
+  if (programRows.length && latestDate === clock.date && clock.minutes >= 9 * 60 && clock.minutes <= 15 * 60 + 35) {
     try {
       const liveRows = await fetchProgramCurrentRows('K');
       const latestLive = liveRows.at(-1);
@@ -575,8 +595,18 @@ async function buildFlowStats() {
     progsArray: sumWindows(programRows),
     futuresCoverageDays: futuresRows.length,
     programCoverageDays: programRows.length,
-    programSource: 'KIS FHPPG04600001/FHPPG04600101',
+    programSource,
   };
+}
+
+function mergeWindowValues(primary, coverageDays, fallback) {
+  const windows = [1, 3, 5, 10, 20];
+  return windows.map((window, index) => {
+    const value = Number(primary?.[index]);
+    if (coverageDays >= window && Number.isFinite(value)) return value;
+    const fallbackValue = Number(fallback?.[index]);
+    return Number.isFinite(fallbackValue) ? fallbackValue : (Number.isFinite(value) ? value : 0);
+  });
 }
 
 function normalizeApiPath(pathname) {
@@ -699,20 +729,24 @@ async function handleRequest(req, res) {
     }
 
     if (apiPath === '/api/stats') {
-      const [core, flow] = await Promise.all([
-        fetchCoreJson(req).catch(() => ({ ok: true })),
+      const [coreResult, flowResult] = await Promise.allSettled([
+        fetchCoreJson(req),
         buildFlowStats(),
       ]);
+      const core = coreResult.status === 'fulfilled' ? coreResult.value : { ok: true };
+      const flow = flowResult.status === 'fulfilled' ? flowResult.value : null;
+      const fallbackFutures = Array.isArray(core.futuresArray) ? core.futuresArray : [];
+      const fallbackPrograms = Array.isArray(core.progsArray) ? core.progsArray : [];
       return sendJson(res, 200, {
         ...core,
         ok: true,
         kisConfigured: hasKisCredentials(),
-        latestOpenDate: flow.latestOpenDate,
-        futuresArray: flow.futuresArray,
-        progsArray: flow.progsArray,
-        futuresCoverageDays: flow.futuresCoverageDays,
-        programCoverageDays: flow.programCoverageDays,
-        programSource: flow.programSource,
+        latestOpenDate: flow?.latestOpenDate || core.latestOpenDate || '',
+        futuresArray: mergeWindowValues(flow?.futuresArray, flow?.futuresCoverageDays || 0, fallbackFutures),
+        progsArray: mergeWindowValues(flow?.progsArray, flow?.programCoverageDays || 0, fallbackPrograms),
+        futuresCoverageDays: flow?.futuresCoverageDays || 0,
+        programCoverageDays: flow?.programCoverageDays || 0,
+        programSource: flow?.programSource || core.programSource || 'unavailable',
       });
     }
 
@@ -788,6 +822,7 @@ module.exports = {
   parseProgramCurrentRows,
   parseProgramDailyRows,
   sumWindows,
+  mergeWindowValues,
   pbmnToTrillion,
   pbmnToEok,
   INVESTOR_MARKETS,
