@@ -355,10 +355,15 @@ async function fetchLatestKisOpenDate() {
 }
 
 async function getLatestMarketOpenDate() {
-  const kisDate = await fetchLatestKisOpenDate().catch(() => '');
-  if (kisDate) return kisDate;
-  const rows = await fetchDaumInvestorDays('KOSPI', 1).catch(() => []);
-  return rows.at(-1)?.date || getKoreaClock().date;
+  const [kisDate, daumRows] = await Promise.all([
+    fetchLatestKisOpenDate().catch(() => ''),
+    fetchDaumInvestorDays('KOSPI', 1).catch(() => [])
+  ]);
+  // KIS holiday-calendar publication can lag on a fresh trading day. Daum's
+  // market row confirms that the session is publishing, so never let an older
+  // calendar date make today's intraday capture write into yesterday's bucket.
+  const latestPublished = daumRows.at(-1)?.date || '';
+  return [kisDate, latestPublished].filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)).sort().at(-1) || getKoreaClock().date;
 }
 
 function kisPbmnToTrillion(value) {
@@ -1329,7 +1334,7 @@ async function fetchMarketFundsSeriesFresh(limit = 120) {
   const latest = series[series.length - 1]?.date || '';
   return {
     unit: '조원',
-    note: `${historySource} 일별 자료, 최신 공표일 ${latest}. 단위: 조원. KOSPI는 같은 날짜의 종가이며 점선으로 표시합니다.`,
+    note: `${historySource} 일별 공표 자료, 최신 공표일 ${latest}. 예탁금·신용잔고는 장중 시세가 아니라 금융투자협회 공표 후 갱신됩니다. 단위: 조원. KOSPI는 같은 날짜의 종가이며 점선으로 표시합니다.`,
     series
   };
 }
@@ -1341,7 +1346,11 @@ async function fetchMarketFundsSeries(limit = 120) {
   if (marketFundsInFlight.has(safeLimit)) return marketFundsInFlight.get(safeLimit);
 
   const request = fetchMarketFundsSeriesFresh(safeLimit).then((payload) => {
-    if (payload) marketFundsCache.set(safeLimit, { payload, expiresAt: Date.now() + 5 * 60 * 1000 });
+    // FreeSIS publishes these balances on its own schedule. Poll more closely
+    // during the Korean daytime so a newly released official row appears soon.
+    const clock = getKoreaClock();
+    const ttl = clock.minutes >= 7 * 60 && clock.minutes <= 20 * 60 ? 60_000 : 5 * 60_000;
+    if (payload) marketFundsCache.set(safeLimit, { payload, expiresAt: Date.now() + ttl });
     return payload;
   }).finally(() => marketFundsInFlight.delete(safeLimit));
   marketFundsInFlight.set(safeLimit, request);

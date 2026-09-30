@@ -3,6 +3,8 @@
 const CACHE_TTL_MS = 3 * 60 * 1000;
 let cache = null;
 let inFlight = null;
+let breadthCache = null;
+let breadthInFlight = null;
 
 function toNumber(value) {
   const number = Number(String(value ?? '').replace(/,/g, ''));
@@ -316,4 +318,51 @@ async function fetchHighBreakouts() {
   return inFlight;
 }
 
-module.exports = { fetchHighBreakouts };
+async function fetchMarketBreadthFresh() {
+  // The detailed breakout table verifies hundreds of individual histories,
+  // which is useful for a table but can exceed the dashboard score timeout.
+  // For score breadth, count the scanner's current high/low breakouts directly.
+  const [kospiRows, kosdaqRows, scannerRows] = await Promise.all([
+    fetchMarketRows('KOSPI'),
+    fetchMarketRows('KOSDAQ'),
+    fetchTradingViewRows()
+  ]);
+  const marketByCode = new Map([...kospiRows, ...kosdaqRows].map((row) => [row.itemcode, row]));
+  let highCount = 0;
+  let lowCount = 0;
+  for (const scannerRow of scannerRows) {
+    const [code, , scannerClose, , scannerHigh, scannerLow, high20, low20, high26, low26, allHigh, allLow] = scannerRow.d || [];
+    const marketRow = marketByCode.get(code);
+    if (!marketRow) continue;
+    const todayHigh = firstPositive(marketRow.highPrice, scannerHigh, scannerClose);
+    const todayLow = firstPositive(marketRow.lowPrice, scannerLow, scannerClose);
+    const highs = [high20, high26, marketRow.week52HighPrice, allHigh].map(toNumber).filter((value) => value !== null && value > 0);
+    const lows = [low20, low26, marketRow.week52LowPrice, allLow].map(toNumber).filter((value) => value !== null && value > 0);
+    if (todayHigh !== null && highs.some((value) => todayHigh >= value)) highCount += 1;
+    if (todayLow !== null && lows.some((value) => todayLow <= value)) lowCount += 1;
+  }
+  const dates = [...kospiRows, ...kosdaqRows]
+    .map((row) => String(row.tradableStatusUpdatedAt || '').slice(0, 10))
+    .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date));
+  if (!highCount && !lowCount && scannerRows.length) throw new Error('Market breadth scanner returned no usable thresholds');
+  return {
+    highCount,
+    lowCount,
+    latestTradeDate: dates.sort().pop() || '',
+    source: 'Naver Stock KRX + TradingView Korea Scanner (fast breadth)'
+  };
+}
+
+async function fetchMarketBreadth() {
+  if (breadthCache && breadthCache.expiresAt > Date.now()) return breadthCache.payload;
+  if (breadthInFlight) return breadthInFlight;
+  breadthInFlight = fetchMarketBreadthFresh()
+    .then((payload) => {
+      breadthCache = { payload, expiresAt: Date.now() + CACHE_TTL_MS };
+      return payload;
+    })
+    .finally(() => { breadthInFlight = null; });
+  return breadthInFlight;
+}
+
+module.exports = { fetchHighBreakouts, fetchMarketBreadth };

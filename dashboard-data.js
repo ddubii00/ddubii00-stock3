@@ -1,6 +1,6 @@
 'use strict';
 
-const { fetchHighBreakouts } = require('./breakout-data');
+const { fetchHighBreakouts, fetchMarketBreadth } = require('./breakout-data');
 
 const CACHE_TTL_MS = 2 * 60 * 1000;
 const INVESTOR_TOP_SCAN_LIMIT = 500;
@@ -1172,7 +1172,7 @@ function weightedScore(normalizedComponents) {
 }
 
 async function fetchRiskScore() {
-  const [vixRows, soxRows, usdkrwRows, us10yRows, us2yRows, kospiRows, futuresRows, breakouts] = await Promise.all([
+  const [vixRows, soxRows, usdkrwRows, us10yRows, us2yRows, kospiRows, futuresRows, breadth] = await Promise.all([
     withPanelTimeout(fetchMarketRows('^VIX'), 9000, 'risk VIX').catch(() => []),
     withPanelTimeout(fetchMarketRows('^SOX'), 9000, 'risk SOX').catch(() => []),
     withPanelTimeout(fetchMarketRows('KRW=X'), 9000, 'risk USD/KRW').catch(() => []),
@@ -1180,7 +1180,7 @@ async function fetchRiskScore() {
     withPanelTimeout(fetchMarketRows('US2Y'), 9000, 'risk US2Y').catch(() => []),
     withPanelTimeout(fetchDaumMarketRows('KOSPI', 10), 9000, 'risk KOSPI').catch(() => []),
     withPanelTimeout(fetchForeignFuturesRows(20), 9000, 'risk flow').catch(() => []),
-    withPanelTimeout(fetchHighBreakouts(), 9000, 'risk breadth').catch(() => null)
+    withPanelTimeout(fetchMarketBreadth(), 9000, 'risk breadth').catch(() => null)
   ]);
 
   const vixLatest = lastChange(vixRows);
@@ -1203,9 +1203,10 @@ async function fetchRiskScore() {
   const flowThreshold = spotFlowFallback ? 0.3 : 3000;
   const flowPoint = !recentFutures.length ? 0 : futuresSum >= flowThreshold ? 2 : futuresSum <= -flowThreshold ? -2 : futuresSum > 0 ? 1 : futuresSum < 0 ? -1 : 0;
 
-  const highCount = Array.isArray(breakouts?.rows) ? breakouts.rows.length : 0;
-  const lowCount = Array.isArray(breakouts?.lowRows) ? breakouts.lowRows.length : 0;
-  const breadthPoint = highCount + lowCount === 0 ? 0 : highCount >= lowCount * 2 ? 1 : lowCount >= highCount * 2 ? -1 : 0;
+  const highCount = Number(breadth?.highCount);
+  const lowCount = Number(breadth?.lowCount);
+  const breadthAvailable = Number.isFinite(highCount) && Number.isFinite(lowCount);
+  const breadthPoint = !breadthAvailable ? 0 : highCount + lowCount === 0 ? 0 : highCount >= lowCount * 2 ? 1 : lowCount >= highCount * 2 ? -1 : 0;
 
   const sox = lastChange(soxRows);
   const soxAvg = average(soxRows.slice(-5).map((row, index, arr) => index === 0 ? null : ((row.close - arr[index - 1].close) / arr[index - 1].close) * 100));
@@ -1223,7 +1224,7 @@ async function fetchRiskScore() {
     { key: 'volatility', name: '변동성 VIX/VKOSPI', weight: 0.30, point: volatilityPoint, normalized: volatilityPoint, value: vixLatest.value, changeRate: vixLatest.changeRate, asOf: vixLatest.asOf, reason: 'VIX 최근 3~5거래일 평균을 15/20/30 기준으로 채점' },
     { key: 'ratesFx', name: '금리·환율', weight: 0.20, point: ratesFxPoint, normalized: ratesFxPoint, value: spread, unit: '스프레드', changeRate: fx.changeRate, asOf: fx.asOf || us10.asOf, reason: 'US10Y-US2Y 스프레드와 원/달러 5일 평균 급등락 반영' },
     { key: 'flow', name: spotFlowFallback ? '외국인 현물 수급' : '외국인 선물 수급', weight: 0.20, point: flowPoint, normalized: flowPoint, value: futuresSum, unit: spotFlowFallback ? '조원' : '계약', asOf: futuresRows[futuresRows.length - 1]?.date || '', reason: spotFlowFallback ? '선물 공개 원천 폐지로 최근 5거래일 KOSPI 외국인 현물 순매수 누적을 대체 반영' : '최근 5거래일 외국인 선물 순매수 누적, ±3,000계약 기준' },
-    { key: 'breadth', name: '시장폭 신고가/신저가', weight: 0.15, point: breadthPoint, normalized: breadthPoint, value: highCount - lowCount, displayValue: `신고가 ${highCount} / 신저가 ${lowCount}`, asOf: breakouts?.latestTradeDate || '', reason: `기존 14개 표기는 신고가-신저가 차이였습니다. 실제 개수는 신고가 ${highCount}개 / 신저가 ${lowCount}개입니다.` },
+    { key: 'breadth', name: '시장폭 신고가/신저가', weight: 0.15, point: breadthPoint, normalized: breadthPoint, value: breadthAvailable ? highCount - lowCount : null, displayValue: breadthAvailable ? `신고가 ${highCount} / 신저가 ${lowCount}` : '원천 확인 중', asOf: breadth?.latestTradeDate || '', reason: breadthAvailable ? `TradingView 스캐너 기준 실제 개수는 신고가 ${highCount}개 / 신저가 ${lowCount}개입니다.` : '시장폭 원천 응답이 지연되어 0으로 대체하지 않습니다.' },
     { key: 'sectorMomentum', name: '섹터모멘텀 SOX', weight: 0.10, point: sectorPoint, normalized: sectorPoint, value: sox.value, changeRate: sox.changeRate, asOf: sox.asOf, reason: 'SOX 최근 3~5거래일 평균 등락률 ±1% 기준' },
     { key: 'liquidity', name: '유동성 거래대금', weight: 0.05, point: liquidityPoint, normalized: liquidityPoint, value: latestKospi.turnover ? latestKospi.turnover / 1000000 : null, unit: '조원', changeRate: turnoverAvg, asOf: latestKospi.date || '', reason: 'KOSPI 거래대금 전일비 3~5거래일 평균' }
   ];

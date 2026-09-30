@@ -51,6 +51,8 @@ const state = {
   holidayDate: '',
   latestOpenDate: '',
   holidayExpiresAt: 0,
+  publishedMarketDate: '',
+  publishedMarketDateExpiresAt: 0,
   pollRunning: false,
   lastPollAt: '',
   lastSuccessAt: '',
@@ -274,23 +276,50 @@ async function kisGet(apiPath, trId, params) {
 
 async function getLatestOpenDate(force = false) {
   const clock = getKoreaClock();
-  if (!force && state.holidayDate === clock.date && state.latestOpenDate && state.holidayExpiresAt > Date.now()) {
-    return state.latestOpenDate;
+  let calendarLatest = (!force && state.holidayDate === clock.date && state.latestOpenDate && state.holidayExpiresAt > Date.now())
+    ? state.latestOpenDate
+    : '';
+  if (!calendarLatest) {
+    try {
+      const baseDate = shiftKoreaDate(clock.date, -14).replace(/-/g, '');
+      const json = await kisGet('/uapi/domestic-stock/v1/quotations/chk-holiday', 'CTCA0903R', {
+        BASS_DT: baseDate,
+        CTX_AREA_FK: '',
+        CTX_AREA_NK: '',
+      });
+      const rows = Array.isArray(json.output) ? json.output : (json.output ? [json.output] : []);
+      const openDates = rows
+        .filter((row) => String(row?.opnd_yn || '').toUpperCase() === 'Y')
+        .map((row) => String(row?.bass_dt || '').replace(/\D/g, ''))
+        .filter((date) => /^\d{8}$/.test(date) && date <= clock.ymd)
+        .sort();
+      calendarLatest = ymdToDashed(openDates.at(-1));
+    } catch (_) {}
   }
-  const baseDate = shiftKoreaDate(clock.date, -14).replace(/-/g, '');
-  const json = await kisGet('/uapi/domestic-stock/v1/quotations/chk-holiday', 'CTCA0903R', {
-    BASS_DT: baseDate,
-    CTX_AREA_FK: '',
-    CTX_AREA_NK: '',
-  });
-  const rows = Array.isArray(json.output) ? json.output : (json.output ? [json.output] : []);
-  const today = clock.ymd;
-  const openDates = rows
-    .filter((row) => String(row?.opnd_yn || '').toUpperCase() === 'Y')
-    .map((row) => String(row?.bass_dt || '').replace(/\D/g, ''))
-    .filter((date) => /^\d{8}$/.test(date) && date <= today)
-    .sort();
-  const latest = ymdToDashed(openDates.at(-1));
+
+  // The KIS holiday calendar can lag at the start of a new session. The
+  // public KOSPI market feed is an independent proof that today's market is
+  // publishing, so choose the newer of the two dates.
+  let publishedLatest = (!force && state.publishedMarketDate && state.publishedMarketDateExpiresAt > Date.now())
+    ? state.publishedMarketDate
+    : '';
+  if (!publishedLatest) {
+    try {
+      const response = await fetch('https://finance.daum.net/api/market_index/days?page=1&perPage=1&market=KOSPI&pagination=true', {
+        headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://finance.daum.net/' },
+        signal: AbortSignal.timeout(8_000),
+      });
+      const json = await response.json().catch(() => ({}));
+      const date = String(json?.data?.[0]?.date || '').slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(date) && date <= clock.date) publishedLatest = date;
+    } catch (_) {}
+    if (publishedLatest) {
+      state.publishedMarketDate = publishedLatest;
+      state.publishedMarketDateExpiresAt = Date.now() + (clock.minutes >= 9 * 60 && clock.minutes <= 15 * 60 + 35 ? 60_000 : 15 * 60_000);
+    }
+  }
+
+  const latest = [calendarLatest, publishedLatest].filter(Boolean).sort().at(-1);
   if (!latest) throw new Error('KIS holiday API returned no recent open date');
   state.holidayDate = clock.date;
   state.latestOpenDate = latest;
