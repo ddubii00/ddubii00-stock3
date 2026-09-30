@@ -86,6 +86,28 @@ function hasKisCredentials() {
   return Boolean(appKey && appSecret);
 }
 
+function loadKisCredentials() {
+  if (hasKisCredentials()) return;
+  // stock5 keeps the shared Oracle KIS credentials outside the Git checkout.
+  // Only import the two required fields; never log or persist their values.
+  const envPath = process.env.KIS_ENV_FILE || '/var/www/stock5-8/.env.local';
+  let contents;
+  try {
+    contents = fs.readFileSync(envPath, 'utf8');
+  } catch (error) {
+    console.warn(`[KIS FLOW] credential file unavailable (${envPath}): ${error.code || error.message}`);
+    return;
+  }
+  for (const key of ['KIS_APP_KEY', 'KIS_APP_SECRET']) {
+    if (process.env[key]) continue;
+    const match = contents.match(new RegExp(`^\\s*(?:export\\s+)?${key}\\s*=\\s*(.+?)\\s*$`, 'm'));
+    if (!match) continue;
+    const raw = match[1].trim();
+    const value = raw.match(/^(["'])(.*)\1$/)?.[2] || raw.replace(/\s+#.*$/, '').trim();
+    if (value) process.env[key] = value;
+  }
+}
+
 function getKoreaClock(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Seoul',
@@ -509,6 +531,10 @@ async function ensureLatestDateFallbacks() {
   if (!hasKisCredentials()) return;
   ensureStoreLoaded();
   const latestDate = await getLatestOpenDate();
+  const clock = getKoreaClock();
+  // A daily closing value is not an intraday minute and must never be placed
+  // at 15:30 before the current session has actually closed.
+  if (latestDate === clock.date && clock.minutes < 15 * 60 + 30) return;
   let changed = false;
 
   for (const kind of ['KOSPI', 'KOSDAQ']) {
@@ -815,6 +841,7 @@ let fallbackTimer = null;
 let gatewayServer = null;
 
 function start() {
+  loadKisCredentials();
   ensureStoreLoaded();
   child = spawnCore();
   gatewayServer = http.createServer((req, res) => void handleRequest(req, res));

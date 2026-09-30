@@ -39,25 +39,6 @@ let child = null;
 let shuttingDown = false;
 let server = null;
 
-function getKoreaClock(date = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Seoul',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    weekday: 'short', hour: '2-digit', minute: '2-digit',
-    hour12: false,
-  }).formatToParts(date).reduce((acc, part) => {
-    acc[part.type] = part.value;
-    return acc;
-  }, {});
-  const hour = Number(parts.hour);
-  const minute = Number(parts.minute);
-  return {
-    date: `${parts.year}-${parts.month}-${parts.day}`,
-    weekday: parts.weekday,
-    minutes: hour * 60 + minute,
-  };
-}
-
 function normalizeApiPath(pathname) {
   const match = String(pathname || '').match(/^\/[^/]+(\/api\/.*)$/);
   return match ? match[1] : pathname;
@@ -116,15 +97,6 @@ function findLatestStoredCurve(storeKind, notAfterDate) {
     if (!partial && quality === 1) partial = { date, rows, quality };
   }
   return partial;
-}
-
-function isLiveRegularSession(payload) {
-  const clock = getKoreaClock();
-  const isWeekday = !['Sat', 'Sun'].includes(clock.weekday);
-  return isWeekday
-    && payload?.latestOpenDate === clock.date
-    && clock.minutes >= 9 * 60
-    && clock.minutes <= 15 * 60 + 30;
 }
 
 function internalRequest(req) {
@@ -204,19 +176,13 @@ async function handleChartRequest(req, res, config) {
   }
 
   const currentRows = Array.isArray(payload?.series) ? payload.series : [];
-  const live = isLiveRegularSession(payload);
-
-  // During the live session, always show today's KIS data even if only one
-  // minute has been collected so far.
-  // The gateway's latestOpenDate is the authoritative session choice. Keep
-  // even a single final marker for that date rather than replacing it with a
-  // prettier curve from an older session after a holiday or process restart.
-  if (live || currentRows.length) {
+  // Keep even one real point from the latest trading session. If the gateway
+  // has none yet, show a previously collected curve instead of "no data".
+  if (currentRows.length) {
     return sendJson(res, inner.statusCode, payload);
   }
 
-  // After close / before open / holiday / weekend: prefer the most recent
-  // persisted session that has an actual intraday curve.
+  // Prefer the most recent persisted session with an actual intraday curve.
   const stored = findLatestStoredCurve(config.storeKind, payload?.latestOpenDate || '');
   if (!stored) {
     return sendJson(res, inner.statusCode, {
