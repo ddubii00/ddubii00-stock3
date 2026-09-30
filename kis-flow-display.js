@@ -63,12 +63,14 @@ function readStore() {
   }
 }
 
-function normalizeRows(rows, date) {
+function normalizeRows(rows, date, storeKind = '') {
+  const start = storeKind === 'FUTURES' ? '08:45' : '09:00';
+  const end = storeKind === 'FUTURES' ? '15:45' : '15:30';
   return (Array.isArray(rows) ? rows : [])
     .filter((row) => row && typeof row === 'object' && String(row.date || '').startsWith(`${date} `))
     .filter((row) => {
       const hhmm = String(row.date || '').slice(11, 16);
-      return hhmm >= '09:00' && hhmm <= '15:30';
+      return hhmm >= start && hhmm <= end;
     })
     .sort((a, b) => String(a.date).localeCompare(String(b.date)));
 }
@@ -91,7 +93,7 @@ function findLatestStoredCurve(storeKind, notAfterDate) {
 
   let partial = null;
   for (const date of dates) {
-    const rows = normalizeRows(store.days?.[date]?.[storeKind], date);
+    const rows = normalizeRows(store.days?.[date]?.[storeKind], date, storeKind);
     const quality = curveQuality(rows);
     if (quality >= 2) return { date, rows, quality };
     if (!partial && quality === 1) partial = { date, rows, quality };

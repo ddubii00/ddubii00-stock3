@@ -12,7 +12,9 @@ const {
   pbmnToEok,
   INVESTOR_MARKETS,
   normalizeBackfillRows,
+  captureMarketsForMinute,
 } = require('../kis-flow-gateway');
+const { normalizeRows } = require('../kis-flow-display');
 
 test('backfill keeps only actual KIS minute rows for the requested session', () => {
   const rows = normalizeBackfillRows({ unit: '조원', source: 'kis-persisted', series: [
@@ -23,6 +25,24 @@ test('backfill keeps only actual KIS minute rows for the requested session', () 
   ] }, 'KOSPI', '2026-09-30');
   assert.deepEqual(rows.map((row) => row.date), ['2026-09-30 09:00', '2026-09-30 10:00']);
   assert.equal(normalizeBackfillRows({ unit: '조원', source: 'other', series: rows }, 'KOSPI', '2026-09-30').length, 0);
+});
+
+test('spot and futures have independent regular-session boundaries', () => {
+  assert.deepEqual(captureMarketsForMinute(8 * 60 + 44, true), []);
+  assert.deepEqual(captureMarketsForMinute(8 * 60 + 45, true), ['FUTURES']);
+  assert.deepEqual(captureMarketsForMinute(9 * 60, true), ['KOSPI', 'KOSDAQ', 'FUTURES']);
+  assert.deepEqual(captureMarketsForMinute(15 * 60 + 31, true), ['FUTURES']);
+  assert.deepEqual(captureMarketsForMinute(15 * 60 + 45, true), ['FUTURES']);
+  assert.deepEqual(captureMarketsForMinute(15 * 60 + 46, true), []);
+  assert.deepEqual(captureMarketsForMinute(10 * 60, false), []);
+});
+
+test('futures minute rows retain 08:45 and 15:45 but spot rows do not', () => {
+  const series = ['08:44', '08:45', '09:00', '15:30', '15:45', '15:46'].map((time) => ({ date: `2026-09-30 ${time}`, foreign: 1 }));
+  const payload = { unit: '계약', source: 'kis-persisted', series };
+  assert.deepEqual(normalizeBackfillRows(payload, 'FUTURES', '2026-09-30').map((row) => row.date.slice(11)), ['08:45', '09:00', '15:30', '15:45']);
+  assert.deepEqual(normalizeRows(series, '2026-09-30', 'FUTURES').map((row) => row.date.slice(11)), ['08:45', '09:00', '15:30', '15:45']);
+  assert.deepEqual(normalizeRows(series, '2026-09-30', 'KOSPI').map((row) => row.date.slice(11)), ['09:00', '15:30']);
 });
 
 test('official KIS market codes are used', () => {

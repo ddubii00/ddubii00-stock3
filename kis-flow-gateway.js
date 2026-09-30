@@ -69,6 +69,8 @@ const state = {
   backfillDate: '',
   backfillAt: 0,
   backfillPromise: null,
+  closingPromise: null,
+  lastClosingPollAt: {},
 };
 
 const store = {
@@ -230,7 +232,9 @@ function upsertMinute(kind, date, values, minuteText = null, extra = {}) {
   ensureStoreLoaded();
   const clock = getKoreaClock();
   const hhmm = minuteText || clock.hhmm;
-  if (hhmm < '09:00' || hhmm > '15:30') return;
+  const start = kind === 'FUTURES' ? '08:45' : '09:00';
+  const end = kind === 'FUTURES' ? '15:45' : '15:30';
+  if (hhmm < start || hhmm > end) return;
   const row = { date: `${date} ${hhmm}`, ...values, ...extra };
   if (!store.days[date]) store.days[date] = {};
   const rows = Array.isArray(store.days[date][kind]) ? store.days[date][kind] : [];
@@ -238,7 +242,7 @@ function upsertMinute(kind, date, values, minuteText = null, extra = {}) {
   if (idx >= 0) rows[idx] = row;
   else rows.push(row);
   store.days[date][kind] = rows
-    .filter((item) => item.date >= `${date} 09:00` && item.date <= `${date} 15:30`)
+    .filter((item) => item.date >= `${date} ${start}` && item.date <= `${date} ${end}`)
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(-450);
   if (kind === 'FUTURES' && Number.isFinite(Number(values.foreign))) {
@@ -257,16 +261,26 @@ function getRows(kind, date) {
 function normalizeBackfillRows(payload, kind, date) {
   if (payload?.unit !== (kind === 'FUTURES' ? '계약' : '조원') || !String(payload?.source || '').includes('kis-persisted')) return [];
   const values = kind === 'FUTURES' ? ['foreign'] : ['foreign', 'institution', 'individual'];
+  const start = kind === 'FUTURES' ? '08:45' : '09:00';
+  const end = kind === 'FUTURES' ? '15:45' : '15:30';
   const seen = new Map();
   for (const row of Array.isArray(payload.series) ? payload.series : []) {
     const timestamp = String(row?.date || '');
-    if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(timestamp) || timestamp < `${date} 09:00` || timestamp > `${date} 15:30`) continue;
+    if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(timestamp) || timestamp < `${date} ${start}` || timestamp > `${date} ${end}`) continue;
     if (values.some((field) => row[field] === null || row[field] === undefined || row[field] === '')) continue;
     const numeric = Object.fromEntries(values.map((field) => [field, Number(row[field])]));
     if (!Object.values(numeric).every(Number.isFinite)) continue;
     seen.set(timestamp, { date: timestamp, ...numeric, observed: true });
   }
   return [...seen.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function captureMarketsForMinute(minutes, isOpenToday) {
+  if (!isOpenToday) return [];
+  return [
+    ...(minutes >= 9 * 60 && minutes <= 15 * 60 + 30 ? ['KOSPI', 'KOSDAQ'] : []),
+    ...(minutes >= 8 * 60 + 45 && minutes <= 15 * 60 + 45 ? ['FUTURES'] : []),
+  ];
 }
 
 async function backfillIntradayRows(date) {
@@ -462,7 +476,7 @@ async function fetchSpotDailyFinal(kind, date) {
     FID_INPUT_ISCD_2: cfg.code,
   });
   const rows = Array.isArray(json.output) ? json.output : (json.output ? [json.output] : []);
-  const row = rows.find((item) => String(item?.stck_bsop_date || '').replace(/\D/g, '') === ymd) || rows[0];
+  const row = rows.find((item) => String(item?.stck_bsop_date || '').replace(/\D/g, '') === ymd);
   if (!row) throw new Error(`KIS ${kind} daily final unavailable`);
   const values = {
     foreign: pbmnToTrillion(row.frgn_ntby_tr_pbmn),
@@ -538,14 +552,14 @@ async function captureOnce() {
     const clock = getKoreaClock();
     const latestOpenDate = await getLatestOpenDate();
     const isOpenToday = latestOpenDate === clock.date;
-    const inRegularSession = isOpenToday && clock.minutes >= 9 * 60 && clock.minutes <= 15 * 60 + 30;
-    if (!inRegularSession) return;
+    const activeKinds = captureMarketsForMinute(clock.minutes, isOpenToday);
+    const inSpotSession = activeKinds.includes('KOSPI');
+    if (isOpenToday && clock.minutes >= 15 * 60 + 32) {
+      await refreshClosingAuction(latestOpenDate);
+    }
+    if (!activeKinds.length) return;
 
-    const tasks = [
-      ['KOSPI', () => fetchInvestorSnapshot('KOSPI')],
-      ['KOSDAQ', () => fetchInvestorSnapshot('KOSDAQ')],
-      ['FUTURES', () => fetchInvestorSnapshot('FUTURES')],
-    ];
+    const tasks = activeKinds.map((kind) => [kind, () => fetchInvestorSnapshot(kind)]);
     const results = {};
     for (const [kind, fn] of tasks) {
       try {
@@ -559,15 +573,17 @@ async function captureOnce() {
     }
 
     // Program API returns the most recent ~30 minutes. Upsert every row so a short outage can be backfilled.
-    try {
-      const programRows = await fetchProgramCurrentRows('K');
-      for (const row of programRows) upsertMinute('PROGRAM', latestOpenDate, { value: row.value }, row.hhmm);
-      results.PROGRAM = { ok: true, rows: programRows.length, latest: programRows.at(-1) || null };
-    } catch (error) {
-      results.PROGRAM = { ok: false, error: error.message };
+    if (inSpotSession) {
+      try {
+        const programRows = await fetchProgramCurrentRows('K');
+        for (const row of programRows) upsertMinute('PROGRAM', latestOpenDate, { value: row.value }, row.hhmm);
+        results.PROGRAM = { ok: true, rows: programRows.length, latest: programRows.at(-1) || null };
+      } catch (error) {
+        results.PROGRAM = { ok: false, error: error.message };
+      }
     }
 
-    state.lastResults = results;
+    state.lastResults = { ...state.lastResults, ...results };
     const anySuccess = Object.values(results).some((item) => item?.ok);
     if (anySuccess) {
       state.lastSuccessAt = nowIso();
@@ -583,6 +599,46 @@ async function captureOnce() {
   }
 }
 
+async function refreshClosingAuction(date) {
+  const clock = getKoreaClock();
+  if (!hasKisCredentials() || date !== clock.date || clock.minutes < 15 * 60 + 32) return;
+  if (state.closingPromise) return state.closingPromise;
+  const rules = [
+    { kind: 'KOSPI', close: '15:30', begin: 15 * 60 + 32, settle: '15:35' },
+    { kind: 'KOSDAQ', close: '15:30', begin: 15 * 60 + 32, settle: '15:35' },
+    { kind: 'FUTURES', close: '15:45', begin: 15 * 60 + 47, settle: '15:50' },
+  ];
+  const due = rules.filter(({ kind, close, begin, settle }) => {
+    if (clock.minutes < begin) return false;
+    const row = getRows(kind, date).find((item) => item.date === `${date} ${close}`);
+    if (row?.final && Date.parse(row.confirmedAt || '') >= new Date(`${date}T${settle}:00+09:00`).getTime()) return false;
+    const interval = clock.hhmm <= settle ? 30_000 : 5 * 60_000;
+    return Date.now() - (state.lastClosingPollAt[kind] || 0) >= interval;
+  });
+  if (!due.length) return;
+  for (const { kind } of due) state.lastClosingPollAt[kind] = Date.now();
+  state.closingPromise = (async () => {
+    // Acquire one token first so parallel KIS requests do not issue three tokens.
+    await getAccessToken();
+    const results = await Promise.allSettled(due.map(async ({ kind, close }) => {
+      const values = await fetchInvestorSnapshot(kind);
+      upsertMinute(kind, date, values, close, { final: true, confirmedAt: nowIso() });
+      return { kind, values };
+    }));
+    const succeeded = results.filter((result) => result.status === 'fulfilled');
+    if (succeeded.length) {
+      persistStore();
+      state.lastSuccessAt = nowIso();
+    }
+    state.lastResults.CLOSING = Object.fromEntries(results.map((result, index) => [
+      due[index].kind, result.status === 'fulfilled'
+        ? { ok: true, confirmedAt: nowIso() }
+        : { ok: false, error: result.reason?.message || 'closing snapshot failed' },
+    ]));
+  })().finally(() => { state.closingPromise = null; });
+  return state.closingPromise;
+}
+
 async function ensureLatestDateFallbacks() {
   if (!hasKisCredentials()) return;
   ensureStoreLoaded();
@@ -590,11 +646,13 @@ async function ensureLatestDateFallbacks() {
   const clock = getKoreaClock();
   // A daily closing value is not an intraday minute and must never be placed
   // at 15:30 before the current session has actually closed.
-  if (latestDate === clock.date && clock.minutes < 15 * 60 + 30) return;
+  if (latestDate === clock.date && clock.minutes < 15 * 60 + 32) return;
+  if (latestDate === clock.date) await refreshClosingAuction(latestDate).catch(() => {});
   let changed = false;
 
   for (const kind of ['KOSPI', 'KOSDAQ']) {
-    if (getRows(kind, latestDate).length) continue;
+    const closingRow = getRows(kind, latestDate).find((row) => row.date === `${latestDate} 15:30`);
+    if (closingRow?.final || (latestDate === clock.date && getRows(kind, latestDate).length)) continue;
     try {
       const values = await fetchSpotDailyFinal(kind, latestDate);
       upsertMinute(kind, latestDate, values, '15:30', { final: true, fallback: 'KIS daily final' });
@@ -604,10 +662,10 @@ async function ensureLatestDateFallbacks() {
     }
   }
 
-  if (!getRows('FUTURES', latestDate).length) {
+  if (latestDate === clock.date && clock.minutes >= 15 * 60 + 47 && !getRows('FUTURES', latestDate).length) {
     try {
       const values = await fetchInvestorSnapshot('FUTURES');
-      upsertMinute('FUTURES', latestDate, values, '15:30', { final: true, fallback: 'KIS latest snapshot' });
+      upsertMinute('FUTURES', latestDate, values, '15:45', { final: true, fallback: 'KIS latest snapshot' });
       changed = true;
     } catch (error) {
       console.error('[KIS FLOW] FUTURES fallback failed:', error.message);
@@ -621,6 +679,9 @@ async function buildInvestorChart(kind) {
   const latestDate = await getLatestOpenDate();
   await backfillIntradayRows(latestDate).catch(() => {});
   const clock = getKoreaClock();
+  if (latestDate === clock.date && clock.minutes >= 15 * 60 + 32) {
+    await refreshClosingAuction(latestDate).catch(() => {});
+  }
   // A page opened during the session must begin collecting the current
   // session immediately instead of waiting for the next 30-second timer.
   if (latestDate === clock.date && clock.minutes >= 9 * 60 && clock.minutes <= 15 * 60 + 30) {
@@ -638,7 +699,7 @@ async function buildInvestorChart(kind) {
     source: 'KIS FHPTJ04030000',
     latestOpenDate: latestDate,
     note: rows.length > 1
-      ? `${label} KIS 실제 누적 순매수 · 최근 개장일 ${latestDate} · 장중 30초 조회/1분 저장 · 09:00~15:30`
+      ? `${label} KIS 실제 누적 순매수 · 최근 개장일 ${latestDate} · 장중 30초 조회/1분 저장 · 09:00~15:30${rows.at(-1)?.confirmedAt ? ' · 15:30 값은 동시호가 반영 후 재조회' : ''}`
       : `${label} KIS 최근 개장일 ${latestDate} 종가 수급입니다. 완전한 분봉 곡선은 장중 30초 수집 후 누적 저장됩니다.`,
     series: rows,
   };
@@ -648,7 +709,10 @@ async function buildFuturesChart() {
   const latestDate = await getLatestOpenDate();
   await backfillIntradayRows(latestDate).catch(() => {});
   const clock = getKoreaClock();
-  if (latestDate === clock.date && clock.minutes >= 9 * 60 && clock.minutes <= 15 * 60 + 30) {
+  if (latestDate === clock.date && clock.minutes >= 15 * 60 + 32) {
+    await refreshClosingAuction(latestDate).catch(() => {});
+  }
+  if (latestDate === clock.date && clock.minutes >= 8 * 60 + 45 && clock.minutes <= 15 * 60 + 45) {
     await captureOnce().catch(() => {});
   }
   let rows = getRows('FUTURES', latestDate);
@@ -662,7 +726,7 @@ async function buildFuturesChart() {
     source: 'KIS FHPTJ04030000 K2I/F001',
     latestOpenDate: latestDate,
     note: rows.length > 1
-      ? `KOSPI200 선물 외국인 누적 순매수 · 최근 개장일 ${latestDate} · 장중 30초 조회/1분 저장 · 09:00~15:30`
+      ? `KOSPI200 선물 외국인 누적 순매수 · 최근 개장일 ${latestDate} · 장중 30초 조회/1분 저장 · 08:45~15:45${rows.at(-1)?.confirmedAt ? ' · 15:45 값은 장마감 반영 후 재조회' : ''}`
       : `KOSPI200 선물 최근 개장일 ${latestDate} KIS 최종 수급입니다. 완전한 분봉 곡선은 장중 30초 수집 후 누적 저장됩니다.`,
     series: rows,
   };
@@ -933,6 +997,7 @@ if (require.main === module) start();
 
 module.exports = {
   backfillIntradayRows,
+  captureMarketsForMinute,
   getRows,
   normalizeBackfillRows,
   parseInvestorSnapshot,

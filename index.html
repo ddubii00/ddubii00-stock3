@@ -3395,7 +3395,7 @@
       'note-foreign-futures-minute',
       'foreign-futures-minute',
       [{ key: 'foreign', label: '외국인', color: '#d92c2c' }],
-      { zeroLine: true, intraday: true, sessionAxis: { start: 540, end: 930 }, tooltip: true, cumulative: true, showLastValues: true }
+      { zeroLine: true, intraday: true, sessionAxis: { start: 525, end: 945 }, tooltip: true, cumulative: true, showLastValues: true }
     );
     const renderKospiFuturesMinute = () => renderExtraChart(
       'chart-kospi-futures-minute',
@@ -3468,7 +3468,7 @@
       const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
       if (values.weekday === 'Sat' || values.weekday === 'Sun') return false;
       const minutes = Number(values.hour) * 60 + Number(values.minute);
-      return minutes >= 9 * 60 && minutes <= 15 * 60 + 33;
+      return minutes >= 9 * 60 && minutes <= 15 * 60 + 36;
     };
     const isKoreaFuturesHours = () => {
       const parts = new Intl.DateTimeFormat('en-US', {
@@ -3477,8 +3477,9 @@
       const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
       if (values.weekday === 'Sat' || values.weekday === 'Sun') return false;
       const minutes = Number(values.hour) * 60 + Number(values.minute);
-      return minutes >= 9 * 60 && minutes <= 15 * 60 + 30;
+      return minutes >= 8 * 60 + 45 && minutes <= 15 * 60 + 51;
     };
+    let flowCloseRefreshDate = '';
     setInterval(() => {
       if (isKoreaMarketHours()) {
         renderKospiInvestorMinute();
@@ -3487,6 +3488,15 @@
       if (isKoreaFuturesHours()) {
         renderForeignFuturesMinute();
         renderKospiFuturesMinute();
+        const koreaTime = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', hour12: false
+        }).format(new Date());
+        const [date, time] = koreaTime.split(', ');
+        if (time >= '15:50' && flowCloseRefreshDate !== date) {
+          flowCloseRefreshDate = date;
+          refreshFlowTable();
+        }
       }
       renderUsdkrwMinute();
     }, 30 * 1000);
