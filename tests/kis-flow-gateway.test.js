@@ -11,7 +11,19 @@ const {
   pbmnToTrillion,
   pbmnToEok,
   INVESTOR_MARKETS,
+  normalizeBackfillRows,
 } = require('../kis-flow-gateway');
+
+test('backfill keeps only actual KIS minute rows for the requested session', () => {
+  const rows = normalizeBackfillRows({ unit: '조원', source: 'kis-persisted', series: [
+    { date: '2026-09-30 09:00', foreign: 0, institution: 0, individual: 0 },
+    { date: '2026-09-30 10:00', foreign: -0.1, institution: 0.2, individual: -0.1 },
+    { date: '2026-09-29 10:00', foreign: 2, institution: 2, individual: 2 },
+    { date: '2026-09-30 11:00', foreign: null, institution: 1, individual: 1 },
+  ] }, 'KOSPI', '2026-09-30');
+  assert.deepEqual(rows.map((row) => row.date), ['2026-09-30 09:00', '2026-09-30 10:00']);
+  assert.equal(normalizeBackfillRows({ unit: '조원', source: 'other', series: rows }, 'KOSPI', '2026-09-30').length, 0);
+});
 
 test('official KIS market codes are used', () => {
   assert.deepEqual(INVESTOR_MARKETS.KOSPI, { market: 'KSP', subCode: '0001', unit: '조원' });

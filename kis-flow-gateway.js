@@ -44,6 +44,12 @@ const STORE_PATH = process.env.KIS_FLOW_STORE_PATH || path.join(ROOT, '.runtime'
 const LEGACY_STORE_PATH = process.env.INVESTOR_INTRADAY_STORE_PATH || path.join(ROOT, '.runtime', 'investor-intraday.json');
 const KIS_BASE_URL = process.env.KIS_BASE_URL || 'https://openapi.koreainvestment.com:9443';
 const POLL_MS = Math.max(30_000, Number(process.env.KIS_FLOW_POLL_MS || 30_000));
+const BACKFILL_BASE_URL = process.env.KIS_FLOW_BACKFILL_URL || 'https://158.179.192.139/stock3-7';
+const BACKFILL_KINDS = {
+  KOSPI: 'kospi-investor-minute',
+  KOSDAQ: 'kosdaq-investor-minute',
+  FUTURES: 'foreign-futures-minute',
+};
 
 const state = {
   token: '',
@@ -60,6 +66,9 @@ const state = {
   lastError: '',
   lastResults: {},
   coreReady: false,
+  backfillDate: '',
+  backfillAt: 0,
+  backfillPromise: null,
 };
 
 const store = {
@@ -243,6 +252,53 @@ function getRows(kind, date) {
   return Array.isArray(store.days?.[date]?.[kind])
     ? [...store.days[date][kind]].sort((a, b) => a.date.localeCompare(b.date))
     : [];
+}
+
+function normalizeBackfillRows(payload, kind, date) {
+  if (payload?.unit !== (kind === 'FUTURES' ? '계약' : '조원') || !String(payload?.source || '').includes('kis-persisted')) return [];
+  const values = kind === 'FUTURES' ? ['foreign'] : ['foreign', 'institution', 'individual'];
+  const seen = new Map();
+  for (const row of Array.isArray(payload.series) ? payload.series : []) {
+    const timestamp = String(row?.date || '');
+    if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(timestamp) || timestamp < `${date} 09:00` || timestamp > `${date} 15:30`) continue;
+    if (values.some((field) => row[field] === null || row[field] === undefined || row[field] === '')) continue;
+    const numeric = Object.fromEntries(values.map((field) => [field, Number(row[field])]));
+    if (!Object.values(numeric).every(Number.isFinite)) continue;
+    seen.set(timestamp, { date: timestamp, ...numeric, observed: true });
+  }
+  return [...seen.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+async function backfillIntradayRows(date) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+  const needsBackfill = Object.keys(BACKFILL_KINDS).some((kind) => {
+    const rows = getRows(kind, date);
+    return !rows.length || rows[0].date > `${date} 09:01`;
+  });
+  if (!needsBackfill) return;
+  if (state.backfillPromise) return state.backfillPromise;
+  if (state.backfillDate === date && Date.now() - state.backfillAt < 5 * 60_000) return;
+  state.backfillDate = date;
+  state.backfillAt = Date.now();
+  state.backfillPromise = (async () => {
+    const results = await Promise.allSettled(Object.entries(BACKFILL_KINDS).map(async ([kind, apiKind]) => {
+      const url = `${BACKFILL_BASE_URL.replace(/\/$/, '')}/api/extra-chart?kind=${apiKind}`;
+      const response = await fetch(url, { signal: AbortSignal.timeout(6_000) });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const rows = normalizeBackfillRows(await response.json(), kind, date);
+      if (rows.length < 2) return false;
+      const existing = getRows(kind, date);
+      // Locally observed values take precedence at matching timestamps.
+      const merged = new Map([...rows, ...existing].map((row) => [row.date, row]));
+      if (merged.size === existing.length) return false;
+      if (!store.days[date]) store.days[date] = {};
+      store.days[date][kind] = [...merged.values()].sort((a, b) => a.date.localeCompare(b.date)).slice(-450);
+      if (kind === 'FUTURES') store.daily.FUTURES[date] = Number(store.days[date][kind].at(-1).foreign);
+      return true;
+    }));
+    if (results.some((result) => result.status === 'fulfilled' && result.value)) persistStore();
+  })().finally(() => { state.backfillPromise = null; });
+  return state.backfillPromise;
 }
 
 async function fetchJson(url, options = {}, timeoutMs = 10_000) {
@@ -563,6 +619,7 @@ async function ensureLatestDateFallbacks() {
 
 async function buildInvestorChart(kind) {
   const latestDate = await getLatestOpenDate();
+  await backfillIntradayRows(latestDate).catch(() => {});
   const clock = getKoreaClock();
   // A page opened during the session must begin collecting the current
   // session immediately instead of waiting for the next 30-second timer.
@@ -589,6 +646,7 @@ async function buildInvestorChart(kind) {
 
 async function buildFuturesChart() {
   const latestDate = await getLatestOpenDate();
+  await backfillIntradayRows(latestDate).catch(() => {});
   const clock = getKoreaClock();
   if (latestDate === clock.date && clock.minutes >= 9 * 60 && clock.minutes <= 15 * 60 + 30) {
     await captureOnce().catch(() => {});
@@ -874,6 +932,9 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 if (require.main === module) start();
 
 module.exports = {
+  backfillIntradayRows,
+  getRows,
+  normalizeBackfillRows,
   parseInvestorSnapshot,
   parseProgramCurrentRows,
   parseProgramDailyRows,
