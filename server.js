@@ -1302,17 +1302,25 @@ async function fetchMarketFundsSeriesFresh(limit = 120) {
   if (!mergedRows.length) return null;
 
   const selectedRows = mergedRows.slice(-safeLimit);
-  let kospiRows = [];
-  try {
-    kospiRows = (await fetchChartSeries('KOSPI', '1d') || [])
-      .filter((row) => row?.date && Number.isFinite(Number(row.close)))
-      .sort((a, b) => String(a.date).localeCompare(String(b.date)));
-  } catch (error) {
-    console.error('Failed to fetch KOSPI comparison series for market funds', error.message);
-  }
+  const loadComparisonRows = async (market) => {
+    try {
+      return (await fetchChartSeries(market, '1d') || [])
+        .filter((row) => row?.date && Number.isFinite(Number(row.close)))
+        .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    } catch (error) {
+      console.error(`Failed to fetch ${market} comparison series for market funds`, error.message);
+      return [];
+    }
+  };
+  const [kospiRows, kosdaqRows] = await Promise.all([
+    loadComparisonRows('KOSPI'),
+    loadComparisonRows('KOSDAQ')
+  ]);
 
   let kospiIndex = 0;
+  let kosdaqIndex = 0;
   let latestKospi = null;
+  let latestKosdaq = null;
   const series = selectedRows.map((row, index) => {
     const previous = selectedRows[index - 1];
     const creditChange = previous ? row.credit - previous.credit : null;
@@ -1321,9 +1329,14 @@ async function fetchMarketFundsSeriesFresh(limit = 120) {
       latestKospi = Number(kospiRows[kospiIndex].close);
       kospiIndex += 1;
     }
+    while (kosdaqIndex < kosdaqRows.length && String(kosdaqRows[kosdaqIndex].date).slice(0, 10) <= row.date) {
+      latestKosdaq = Number(kosdaqRows[kosdaqIndex].close);
+      kosdaqIndex += 1;
+    }
     return {
       ...row,
       kospi: latestKospi,
+      kosdaq: latestKosdaq,
       creditChange,
       creditChangePercent: previous?.credit ? creditChange / previous.credit * 100 : null,
       depositChange,
@@ -1334,7 +1347,7 @@ async function fetchMarketFundsSeriesFresh(limit = 120) {
   const latest = series[series.length - 1]?.date || '';
   return {
     unit: '조원',
-    note: `${historySource} 일별 공표 자료, 최신 공표일 ${latest}. 예탁금·신용잔고는 장중 시세가 아니라 금융투자협회 공표 후 갱신됩니다. 단위: 조원. KOSPI는 같은 날짜의 종가이며 점선으로 표시합니다.`,
+    note: `${historySource} 일별 공표 자료, 최신 공표일 ${latest}. 예탁금·신용잔고는 시장 전체 수치이며 금융투자협회 공표 후 갱신됩니다. 단위: 조원. 비교용 지수는 해당 날짜 종가이며 점선으로 표시합니다.`,
     series
   };
 }

@@ -562,13 +562,24 @@
 
       <div class="card span-6">
         <div class="head-row">
-          <div class="title">신용잔고 일봉</div>
+          <div class="title">신용잔고 일봉 · KOSPI 비교</div>
           <label class="chart-control">거래일
             <input id="days-credit-balance" type="number" min="20" max="500" value="120" />
           </label>
         </div>
         <div class="chart-note" id="note-credit-balance"></div>
         <div class="chart" id="chart-credit-balance"></div>
+      </div>
+
+      <div class="card span-6">
+        <div class="head-row">
+          <div class="title">신용잔고 일봉 · KOSDAQ 비교</div>
+          <label class="chart-control">거래일
+            <input id="days-credit-balance-kosdaq" type="number" min="20" max="500" value="120" />
+          </label>
+        </div>
+        <div class="chart-note" id="note-credit-balance-kosdaq"></div>
+        <div class="chart" id="chart-credit-balance-kosdaq"></div>
       </div>
 
       <div class="card span-6">
@@ -673,33 +684,6 @@
         <div class="chart lw-chart plain-chart" id="lwchart-NASDAQ_FUTURES"></div>
       </div>
 
-      <section class="card span-12">
-        <div class="head-row">
-          <div>
-            <div class="title">참고 데이터</div>
-            <div class="chart-note">첨부 화면 형태를 참고해 실제 시세·섹터·국채 데이터를 표로 정리합니다.</div>
-          </div>
-        </div>
-        <div class="reference-data-grid">
-          <div class="reference-panel">
-            <div class="reference-panel-head"><span>KOSPI 시총 상위</span><span class="asof">네이버 증권</span></div>
-            <div class="reference-panel-body"><table class="reference-table"><thead><tr><th>종목</th><th>현재가</th><th>등락률</th><th>시총</th></tr></thead><tbody id="kospiReferenceBody"><tr><td colspan="4" class="panel-empty">확인 중...</td></tr></tbody></table></div>
-          </div>
-          <div class="reference-panel">
-            <div class="reference-panel-head"><span>KOSDAQ 시총 상위</span><span class="asof">네이버 증권</span></div>
-            <div class="reference-panel-body"><table class="reference-table"><thead><tr><th>종목</th><th>현재가</th><th>등락률</th><th>시총</th></tr></thead><tbody id="kosdaqReferenceBody"><tr><td colspan="4" class="panel-empty">확인 중...</td></tr></tbody></table></div>
-          </div>
-          <div class="reference-panel">
-            <div class="reference-panel-head"><span>국채수익률 요약</span><span class="asof">실시간/장마감</span></div>
-            <div class="reference-panel-body"><table class="reference-table"><thead><tr><th>채권명</th><th>현재가</th><th>전일대비</th><th>기준</th></tr></thead><tbody id="bondReferenceBody"><tr><td colspan="4" class="panel-empty">확인 중...</td></tr></tbody></table></div>
-          </div>
-          <div class="reference-panel">
-            <div class="reference-panel-head"><span>테마·섹터 리스트</span><span class="asof">등락률순</span></div>
-            <div class="reference-panel-body"><table class="reference-table"><thead><tr><th>순위</th><th>섹터</th><th>평균등락률</th><th>상승비율</th><th>강도</th></tr></thead><tbody id="themeReferenceBody"><tr><td colspan="5" class="panel-empty">확인 중...</td></tr></tbody></table></div>
-          </div>
-        </div>
-      </section>
-
       <section class="card span-6">
         <div class="head-row">
           <div>
@@ -746,6 +730,32 @@
         <div class="chart" id="chart-private-credit-gdp"></div>
       </section>
 
+      <section class="card span-12">
+        <div class="head-row">
+          <div>
+            <div class="title">참고 데이터</div>
+            <div class="chart-note">첨부 화면 형태를 참고해 실제 시세·섹터·국채 데이터를 표로 정리합니다.</div>
+          </div>
+        </div>
+        <div class="reference-data-grid">
+          <div class="reference-panel">
+            <div class="reference-panel-head"><span>KOSPI 시총 상위</span><span class="asof">네이버 증권</span></div>
+            <div class="reference-panel-body"><table class="reference-table"><thead><tr><th>종목</th><th>현재가</th><th>등락률</th><th>시총</th></tr></thead><tbody id="kospiReferenceBody"><tr><td colspan="4" class="panel-empty">확인 중...</td></tr></tbody></table></div>
+          </div>
+          <div class="reference-panel">
+            <div class="reference-panel-head"><span>KOSDAQ 시총 상위</span><span class="asof">네이버 증권</span></div>
+            <div class="reference-panel-body"><table class="reference-table"><thead><tr><th>종목</th><th>현재가</th><th>등락률</th><th>시총</th></tr></thead><tbody id="kosdaqReferenceBody"><tr><td colspan="4" class="panel-empty">확인 중...</td></tr></tbody></table></div>
+          </div>
+          <div class="reference-panel">
+            <div class="reference-panel-head"><span>국채수익률 요약</span><span class="asof">실시간/장마감</span></div>
+            <div class="reference-panel-body"><table class="reference-table"><thead><tr><th>채권명</th><th>현재가</th><th>전일대비</th><th>기준</th></tr></thead><tbody id="bondReferenceBody"><tr><td colspan="4" class="panel-empty">확인 중...</td></tr></tbody></table></div>
+          </div>
+          <div class="reference-panel">
+            <div class="reference-panel-head"><span>테마·섹터 리스트</span><span class="asof">등락률순</span></div>
+            <div class="reference-panel-body"><table class="reference-table"><thead><tr><th>순위</th><th>섹터</th><th>평균등락률</th><th>상승비율</th><th>강도</th></tr></thead><tbody id="themeReferenceBody"><tr><td colspan="5" class="panel-empty">확인 중...</td></tr></tbody></table></div>
+          </div>
+        </div>
+      </section>
     </div>
 
     <div class="grid" style="margin-top: 14px;">
@@ -3400,15 +3410,23 @@
     const renderCreditBalance = () => renderExtraChart('chart-credit-balance', 'note-credit-balance', 'market-funds', [
       { key: 'credit', label: '신용잔고', color: '#f59e0b', axis: 'left' },
       { key: 'creditChange', label: '일별 증감', type: 'bar', axis: 'change', positiveColor: 'rgba(217,44,44,.34)', negativeColor: 'rgba(31,91,216,.34)' },
-      { key: 'kospi', label: 'KOSPI(우)', color: '#475569', axis: 'right', dasharray: '6 5' }
+      { key: 'kospi', label: 'KOSPI(우)', color: '#475569', axis: 'right', dasharray: '6 5', unit: 'pt' }
     ], {
       dualAxis: true, changeZeroLine: true, daysInputId: 'days-credit-balance', tooltip: true, showLastValues: true,
+      latestSummary: { label: '신용잔고', key: 'credit', changeKey: 'creditChange', percentKey: 'creditChangePercent', color: '#d97706' }
+    });
+    const renderCreditBalanceKosdaq = () => renderExtraChart('chart-credit-balance-kosdaq', 'note-credit-balance-kosdaq', 'market-funds', [
+      { key: 'credit', label: '신용잔고', color: '#f59e0b', axis: 'left' },
+      { key: 'creditChange', label: '일별 증감', type: 'bar', axis: 'change', positiveColor: 'rgba(217,44,44,.34)', negativeColor: 'rgba(31,91,216,.34)' },
+      { key: 'kosdaq', label: 'KOSDAQ(우)', color: '#475569', axis: 'right', dasharray: '6 5', unit: 'pt' }
+    ], {
+      dualAxis: true, changeZeroLine: true, daysInputId: 'days-credit-balance-kosdaq', tooltip: true, showLastValues: true,
       latestSummary: { label: '신용잔고', key: 'credit', changeKey: 'creditChange', percentKey: 'creditChangePercent', color: '#d97706' }
     });
     const renderDepositBalance = () => renderExtraChart('chart-deposit-balance', 'note-deposit-balance', 'market-funds', [
       { key: 'deposit', label: '예탁금', color: '#10b981', axis: 'left' },
       { key: 'depositChange', label: '일별 증감', type: 'bar', axis: 'change', positiveColor: 'rgba(217,44,44,.34)', negativeColor: 'rgba(31,91,216,.34)' },
-      { key: 'kospi', label: 'KOSPI(우)', color: '#475569', axis: 'right', dasharray: '6 5' }
+      { key: 'kospi', label: 'KOSPI(우)', color: '#475569', axis: 'right', dasharray: '6 5', unit: 'pt' }
     ], {
       dualAxis: true, changeZeroLine: true, daysInputId: 'days-deposit-balance', tooltip: true, showLastValues: true,
       latestSummary: { label: '예탁금', key: 'deposit', changeKey: 'depositChange', percentKey: 'depositChangePercent', color: '#059669' }
@@ -3494,6 +3512,7 @@
     renderKosdaqInvestorDaily();
     renderKosdaqInvestorMinute();
     renderCreditBalance();
+    renderCreditBalanceKosdaq();
     renderDepositBalance();
     renderVkospi();
     renderForeignFutures();
@@ -3509,6 +3528,7 @@
     bindInvestorDaysInput('days-kospi-investor-daily', renderKospiInvestorDaily);
     bindInvestorDaysInput('days-kosdaq-investor-daily', renderKosdaqInvestorDaily);
     bindInvestorDaysInput('days-credit-balance', renderCreditBalance);
+    bindInvestorDaysInput('days-credit-balance-kosdaq', renderCreditBalanceKosdaq);
     bindInvestorDaysInput('days-deposit-balance', renderDepositBalance);
     bindInvestorDaysInput('days-vkospi', renderVkospi);
     bindInvestorDaysInput('days-foreign-futures', renderForeignFutures);
