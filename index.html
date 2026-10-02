@@ -134,6 +134,11 @@
     .breakout-table-wrap { max-height:390px; overflow:auto; border:1px solid var(--line); border-radius:12px; }
     .breakout-table { min-width:920px; }
     .breakout-table th { position:sticky; top:0; z-index:2; background:#f7f9fd; white-space:nowrap; }
+    .breakout-sort-button { border:0; background:transparent; color:inherit; font:inherit; font-weight:inherit; padding:0; cursor:pointer; white-space:nowrap; }
+    .breakout-sort-button:hover, .breakout-sort-button:focus-visible { color:var(--accent); text-decoration:underline; }
+    .breakout-sort-button::after { content:' ↕'; color:#8490a5; }
+    th[aria-sort="ascending"] .breakout-sort-button::after { content:' ▲'; color:var(--accent); }
+    th[aria-sort="descending"] .breakout-sort-button::after { content:' ▼'; color:var(--accent); }
     .breakout-table tbody tr { height:68px; }
     .breakout-table td { white-space:nowrap; font-variant-numeric:tabular-nums; }
     .breakout-stock { color:var(--text); font-weight:900; text-decoration:none; }
@@ -503,7 +508,7 @@
       </div>
 
       <div class="card span-6">
-        <div class="head-row"><div class="title">KOSPI 선물 하루 외국인 시세</div></div>
+        <div class="head-row"><div class="title">KOSPI200 선물 가격 분봉</div></div>
         <div class="chart-note" id="note-kospi-futures-minute"></div>
         <div class="chart" id="chart-kospi-futures-minute"></div>
       </div>
@@ -772,9 +777,9 @@
         <div class="breakout-table-wrap">
           <table class="breakout-table">
             <thead>
-              <tr><th>시장</th><th>종목</th><th>현재가</th><th>등락률</th><th>최근 거래일 고가</th><th>20일 최고</th><th>26주 최고</th><th>52주 최고</th><th>역대 최고</th><th>돌파 구분</th></tr>
+              <tr><th>시장</th><th>종목</th><th><button class="breakout-sort-button" type="button" data-breakout-sort="marketCap">시가총액(조)</button></th><th><button class="breakout-sort-button" type="button" data-breakout-sort="currentPrice">현재가</button></th><th><button class="breakout-sort-button" type="button" data-breakout-sort="changeRate">등락률</button></th><th>최근 거래일 고가</th><th>20일 최고</th><th>26주 최고</th><th>52주 최고</th><th>역대 최고</th><th>돌파 구분</th></tr>
             </thead>
-            <tbody id="breakoutTableBody"><tr><td colspan="10" class="breakout-loading">신고가 종목 확인 중...</td></tr></tbody>
+            <tbody id="breakoutTableBody"><tr><td colspan="11" class="breakout-loading">신고가 종목 확인 중...</td></tr></tbody>
           </table>
         </div>
       </section>
@@ -806,9 +811,9 @@
         <div class="breakout-table-wrap">
           <table class="breakout-table">
             <thead>
-              <tr><th>시장</th><th>종목</th><th>현재가</th><th>등락률</th><th>최근 거래일 저가</th><th>20일 최저</th><th>26주 최저</th><th>52주 최저</th><th>역대 최저</th><th>돌파 구분</th></tr>
+              <tr><th>시장</th><th>종목</th><th><button class="breakout-sort-button" type="button" data-low-breakout-sort="marketCap">시가총액(조)</button></th><th><button class="breakout-sort-button" type="button" data-low-breakout-sort="currentPrice">현재가</button></th><th><button class="breakout-sort-button" type="button" data-low-breakout-sort="changeRate">등락률</button></th><th>최근 거래일 저가</th><th>20일 최저</th><th>26주 최저</th><th>52주 최저</th><th>역대 최저</th><th>돌파 구분</th></tr>
             </thead>
-            <tbody id="lowBreakoutTableBody"><tr><td colspan="10" class="breakout-loading">신저가 종목 확인 중...</td></tr></tbody>
+            <tbody id="lowBreakoutTableBody"><tr><td colspan="11" class="breakout-loading">신저가 종목 확인 중...</td></tr></tbody>
           </table>
         </div>
       </section>
@@ -3076,6 +3081,37 @@
     let lowBreakoutRows = [];
     let lowBreakoutMarket = 'ALL';
     let lowBreakoutPeriod = '52';
+    let breakoutSort = null;
+    let lowBreakoutSort = null;
+
+    function sortBreakoutRows(rows, sort) {
+      if (!sort) return rows;
+      const direction = sort.direction === 'ascending' ? 1 : -1;
+      return [...rows].sort((a, b) => {
+        const left = Number(a[sort.key]);
+        const right = Number(b[sort.key]);
+        const leftMissing = a[sort.key] == null || a[sort.key] === '' || !Number.isFinite(left) || (sort.key === 'marketCap' && left <= 0);
+        const rightMissing = b[sort.key] == null || b[sort.key] === '' || !Number.isFinite(right) || (sort.key === 'marketCap' && right <= 0);
+        if (leftMissing !== rightMissing) return leftMissing ? 1 : -1;
+        return (left - right) * direction || String(a.code || '').localeCompare(String(b.code || ''));
+      });
+    }
+
+    function updateBreakoutSortHeaders(selector, sort) {
+      document.querySelectorAll(selector).forEach((button) => {
+        const key = button.dataset.breakoutSort || button.dataset.lowBreakoutSort;
+        const header = button.closest('th');
+        if (header) header.setAttribute('aria-sort', sort?.key === key ? sort.direction : 'none');
+        button.title = sort?.key === key
+          ? `현재 ${sort.direction === 'ascending' ? '오름차순' : '내림차순'} · 클릭하여 반대로 정렬`
+          : '클릭하여 내림차순 정렬';
+      });
+    }
+
+    function formatBreakoutMarketCap(value) {
+      const number = Number(value);
+      return Number.isFinite(number) && number > 0 ? (number / 1e12).toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-';
+    }
 
     function renderBreakoutRelativeReturns(row) {
       const relativeReturns = row?.relativeReturns || {};
@@ -3102,12 +3138,12 @@
       const periodKey = breakoutPeriod === '20' ? 'day20Breakout' : breakoutPeriod === '26' ? 'week26Breakout' : breakoutPeriod === '52' ? 'week52Breakout' : 'allTimeBreakout';
       const periodLabel = breakoutPeriod === '20' ? '20일 신고가' : breakoutPeriod === '26' ? '26주 신고가' : breakoutPeriod === '52' ? '52주 신고가' : '역대 신고가';
       const periodRows = breakoutRows.filter((row) => row[periodKey]);
-      const rows = periodRows.filter((row) => breakoutMarket === 'ALL' || row.market === breakoutMarket);
+      const rows = sortBreakoutRows(periodRows.filter((row) => breakoutMarket === 'ALL' || row.market === breakoutMarket), breakoutSort);
       const kospiCount = periodRows.filter((row) => row.market === 'KOSPI').length;
       const kosdaqCount = periodRows.filter((row) => row.market === 'KOSDAQ').length;
       summary.innerHTML = `<span class="breakout-count">${periodLabel} ${rows.length}종목</span><span class="breakout-count">KOSPI ${kospiCount}종목</span><span class="breakout-count">KOSDAQ ${kosdaqCount}종목</span>`;
       if (!rows.length) {
-        body.innerHTML = '<tr><td colspan="10" class="breakout-loading">현재 선택 조건을 충족한 종목이 없습니다.</td></tr>';
+        body.innerHTML = '<tr><td colspan="11" class="breakout-loading">현재 선택 조건을 충족한 종목이 없습니다.</td></tr>';
         return;
       }
       const formatPrice = (value) => Number.isFinite(Number(value)) ? `${Number(value).toLocaleString('ko-KR')}원` : '-';
@@ -3123,6 +3159,7 @@
         return `<tr>
           <td class="breakout-market">${row.market}</td>
           <td><a class="breakout-stock" href="https://stock.naver.com/domestic/stock/${encodeURIComponent(row.code)}/price" target="_blank" rel="noopener">${row.name}</a><div class="kicker">${row.code}</div></td>
+          <td>${formatBreakoutMarketCap(row.marketCap)}</td>
           <td>${formatPrice(row.currentPrice)}</td>
           <td class="${rateClass}">${rate > 0 ? '+' : ''}${rate.toFixed(2)}%</td>
           <td>${formatPrice(row.todayHigh)}</td>
@@ -3142,12 +3179,12 @@
       const periodKey = lowBreakoutPeriod === '20' ? 'day20LowBreakout' : lowBreakoutPeriod === '26' ? 'week26LowBreakout' : lowBreakoutPeriod === '52' ? 'week52LowBreakout' : 'allTimeLowBreakout';
       const periodLabel = lowBreakoutPeriod === '20' ? '20일 신저가' : lowBreakoutPeriod === '26' ? '26주 신저가' : lowBreakoutPeriod === '52' ? '52주 신저가' : '역대 신저가';
       const periodRows = lowBreakoutRows.filter((row) => row[periodKey]);
-      const rows = periodRows.filter((row) => lowBreakoutMarket === 'ALL' || row.market === lowBreakoutMarket);
+      const rows = sortBreakoutRows(periodRows.filter((row) => lowBreakoutMarket === 'ALL' || row.market === lowBreakoutMarket), lowBreakoutSort);
       const kospiCount = periodRows.filter((row) => row.market === 'KOSPI').length;
       const kosdaqCount = periodRows.filter((row) => row.market === 'KOSDAQ').length;
       summary.innerHTML = `<span class="breakout-count">${periodLabel} ${rows.length}종목</span><span class="breakout-count">KOSPI ${kospiCount}종목</span><span class="breakout-count">KOSDAQ ${kosdaqCount}종목</span>`;
       if (!rows.length) {
-        body.innerHTML = '<tr><td colspan="10" class="breakout-loading">현재 선택 조건을 충족한 종목이 없습니다.</td></tr>';
+        body.innerHTML = '<tr><td colspan="11" class="breakout-loading">현재 선택 조건을 충족한 종목이 없습니다.</td></tr>';
         return;
       }
       const formatPrice = (value) => Number.isFinite(Number(value)) ? `${Number(value).toLocaleString('ko-KR')}원` : '-';
@@ -3163,6 +3200,7 @@
         return `<tr>
           <td class="breakout-market">${row.market}</td>
           <td><a class="breakout-stock" href="https://stock.naver.com/domestic/stock/${encodeURIComponent(row.code)}/price" target="_blank" rel="noopener">${row.name}</a><div class="kicker">${row.code}</div></td>
+          <td>${formatBreakoutMarketCap(row.marketCap)}</td>
           <td>${formatPrice(row.currentPrice)}</td>
           <td class="${rateClass}">${rate > 0 ? '+' : ''}${rate.toFixed(2)}%</td>
           <td>${formatPrice(row.todayLow)}</td>
@@ -3211,8 +3249,8 @@
         asOf.textContent = '기준시각: -';
         lowAsOf.textContent = '기준시각: -';
         const message = error.message || '신고가·신저가 데이터를 불러오지 못했습니다.';
-        body.innerHTML = `<tr><td colspan="10" class="breakout-loading">${message}</td></tr>`;
-        lowBody.innerHTML = `<tr><td colspan="10" class="breakout-loading">${message}</td></tr>`;
+        body.innerHTML = `<tr><td colspan="11" class="breakout-loading">${message}</td></tr>`;
+        lowBody.innerHTML = `<tr><td colspan="11" class="breakout-loading">${message}</td></tr>`;
       } finally {
         button.disabled = false;
         button.textContent = '새로고침';
@@ -3241,6 +3279,20 @@
       document.querySelectorAll('[data-low-period]').forEach((item) => item.classList.toggle('active', item === button));
       renderLowBreakoutRows();
     }));
+    document.querySelectorAll('[data-breakout-sort]').forEach((button) => button.addEventListener('click', () => {
+      const key = button.dataset.breakoutSort;
+      breakoutSort = { key, direction: breakoutSort?.key === key && breakoutSort.direction === 'descending' ? 'ascending' : 'descending' };
+      updateBreakoutSortHeaders('[data-breakout-sort]', breakoutSort);
+      renderHighBreakoutRows();
+    }));
+    document.querySelectorAll('[data-low-breakout-sort]').forEach((button) => button.addEventListener('click', () => {
+      const key = button.dataset.lowBreakoutSort;
+      lowBreakoutSort = { key, direction: lowBreakoutSort?.key === key && lowBreakoutSort.direction === 'descending' ? 'ascending' : 'descending' };
+      updateBreakoutSortHeaders('[data-low-breakout-sort]', lowBreakoutSort);
+      renderLowBreakoutRows();
+    }));
+    updateBreakoutSortHeaders('[data-breakout-sort]', breakoutSort);
+    updateBreakoutSortHeaders('[data-low-breakout-sort]', lowBreakoutSort);
     document.getElementById('refreshBreakouts').addEventListener('click', renderHighBreakouts);
     document.getElementById('refreshLowBreakouts').addEventListener('click', renderHighBreakouts);
             document.getElementById('refreshFlow').addEventListener('click', refreshFlowTable);
@@ -3402,7 +3454,7 @@
       'note-kospi-futures-minute',
       'kospi-futures-minute',
       [{ key: 'close', label: 'KOSPI200 선물', color: '#d92c2c' }],
-      { intraday: true, sessionAxis: { start: 540, end: 930 }, tooltip: true, showLastValues: true, previousCloseLine: true }
+      { intraday: true, sessionAxis: { start: 525, end: 945 }, tooltip: true, showLastValues: true, previousCloseLine: true }
     );
     const renderUsdkrwMinute = () => renderExtraChart(
       'chart-usdkrw-minute',
