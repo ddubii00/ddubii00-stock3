@@ -749,18 +749,19 @@ async function fetchPriceMinuteSeries(key, label, unit) {
   }
   if (!Array.isArray(rows) || !rows.length) return null;
   let series = rows.slice(key === 'KOSPI_FUTURES' ? -3200 : -5000).map((row) => {
-    const timestamp = Number(row.date);
+    // fetchUnifiedSeries shifts KOSPI futures minute timestamps by nine hours;
+    // undo that shift before formatKoreaMinute applies the timezone.
+    const timestamp = Number(row.date) - (key === 'KOSPI_FUTURES' ? 9 * 3600 : 0);
     const close = Number(row.close);
     if (!Number.isFinite(timestamp) || !Number.isFinite(close)) return null;
     const date = formatKoreaMinute(timestamp);
     return { date, close };
   }).filter(Boolean);
   if (key === 'KOSPI_FUTURES') {
-    const regularSession = series.filter((row) => {
+    series = series.filter((row) => {
       const time = row.date.slice(11, 16);
       return time >= '08:45' && time <= '15:45';
     });
-    if (regularSession.length) series = regularSession;
   }
   if (!series.length) return null;
   const latestDate = series[series.length - 1].date.slice(0, 10);
@@ -769,7 +770,9 @@ async function fetchPriceMinuteSeries(key, label, unit) {
   const latestSeries = series.filter((row) => row.date.startsWith(latestDate));
   return {
     unit,
-    note: `${label} 최신 거래일(${latestDate}) 1분봉, 1분마다 갱신.`,
+    note: key === 'KOSPI_FUTURES'
+      ? `${label} 정규장(${latestDate} 08:45~15:45) 1분봉 · TradingView KRX:K2I1! · 야간거래 제외.`
+      : `${label} 최신 거래일(${latestDate}) 1분봉, 1분마다 갱신.`,
     previousClose,
     series: latestSeries.length ? latestSeries : series
   };
