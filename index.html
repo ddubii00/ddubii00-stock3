@@ -672,14 +672,14 @@
       </div>
 
       <div class="card span-6 night-card">
-        <div class="head-row"><div class="title">KOSPI200 야간선물</div><div class="market-state" id="state-kospi-night">장상태 확인 중</div></div>
-        <div class="chart-note">KOSPI200 선물 최근 1분봉 · 장 종료 시 최근 거래일 표시</div>
+        <div class="head-row"><div class="title">코스피 선물</div><div class="market-state" id="state-kospi-night">장상태 확인 중</div></div>
+        <div class="chart-note">KOSPI200 선물 최근 36시간 1분봉 · 주간·야간 거래 포함</div>
         <div class="asset-legend"><span style="color:#d92c2c">5분</span><span style="color:#1f5bd8">10분</span><span style="color:#0a9d58">20분</span><span style="color:#e4a11b">60분</span></div>
         <div class="chart lw-chart plain-chart" id="lwchart-KOSPI_NIGHT_FUTURES"></div>
       </div>
       <div class="card span-6 night-card">
-        <div class="head-row"><div class="title">나스닥100 야간선물</div><div class="market-state" id="state-nasdaq-night">장상태 확인 중</div></div>
-        <div class="chart-note">CME E-mini Nasdaq-100 최근 1분봉 · 장 종료 시 최근 거래일 표시</div>
+        <div class="head-row"><div class="title">나스닥100 선물</div><div class="market-state" id="state-nasdaq-night">장상태 확인 중</div></div>
+        <div class="chart-note">CME E-mini Nasdaq-100 최근 36시간 1분봉 · 거래소 현지 시각</div>
         <div class="asset-legend"><span style="color:#d92c2c">5분</span><span style="color:#1f5bd8">10분</span><span style="color:#0a9d58">20분</span><span style="color:#e4a11b">60분</span></div>
         <div class="chart lw-chart plain-chart" id="lwchart-NASDAQ_FUTURES"></div>
       </div>
@@ -999,6 +999,63 @@
       return result;
     }
 
+    function buildMinuteWindow(chartData, hours) {
+      const end = Math.floor(Number(chartData.at(-1)?.time) / 60) * 60;
+      if (!Number.isFinite(end)) return null;
+      const start = end - hours * 60 * 60;
+      const byMinute = new Map(chartData
+        .filter((row) => Number.isFinite(row.time) && row.time >= start && row.time <= end)
+        .map((row) => [row.time, row]));
+      const entries = Array.from({ length: hours * 60 + 1 }, (_, index) => {
+        const time = start + index * 60;
+        return byMinute.get(time) || { time };
+      });
+      return { start, end, entries };
+    }
+
+    function drawFuturesDateBoundaries(inst, minuteWindow) {
+      const container = document.getElementById(inst.containerId);
+      if (!container || !minuteWindow) return;
+      let canvas = container.querySelector('.futures-date-boundaries');
+      if (!canvas) {
+        canvas = document.createElement('canvas');
+        canvas.className = 'futures-date-boundaries';
+        canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:3;';
+        container.appendChild(canvas);
+      }
+      const scale = inst.chart.timeScale();
+      if (inst._drawDateBoundaries) {
+        scale.unsubscribeVisibleLogicalRangeChange(inst._drawDateBoundaries);
+        scale.unsubscribeSizeChange(inst._drawDateBoundaries);
+      }
+      const draw = () => {
+        canvas.width = container.clientWidth;
+        canvas.height = container.clientHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.strokeStyle = '#dc2626';
+        ctx.fillStyle = '#b91c1c';
+        ctx.lineWidth = 1.5;
+        ctx.font = 'bold 11px sans-serif';
+        ctx.setLineDash([5, 4]);
+        for (let midnight = Math.floor(minuteWindow.start / 86400) * 86400 + 86400;
+          midnight < minuteWindow.end; midnight += 86400) {
+          const x = scale.timeToCoordinate(midnight);
+          if (!Number.isFinite(x) || x < 0 || x > canvas.width) continue;
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, canvas.height);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillText(new Date(midnight * 1000).toISOString().slice(5, 10), x + 4, 14);
+          ctx.setLineDash([5, 4]);
+        }
+      };
+      inst._drawDateBoundaries = draw;
+      scale.subscribeVisibleLogicalRangeChange(draw);
+      scale.subscribeSizeChange(draw);
+      requestAnimationFrame(draw);
+    }
+
 
     async function loadLwChart(key) {
       const inst = lwChartInstances[key];
@@ -1011,26 +1068,29 @@
         const oldWarning = document.getElementById(inst.containerId || ('lwchart-' + key))?.querySelector('.chart-load-warning');
         if (oldWarning) oldWarning.remove();
         let series = json.series;
-        const requiredLength = inst.visibleCount + 250;
-        if (series.length > Math.max(1000, requiredLength)) series = series.slice(-Math.max(1000, requiredLength));
+        const requiredLength = inst.options?.visibleHours ? 5000 : Math.max(1000, inst.visibleCount + 250);
+        if (series.length > requiredLength) series = series.slice(-requiredLength);
 
         const normalizedData = series.map((x) => {
           const close = Number(x.close);
           return {
-            time: x.date,
+            time: inst.options?.visibleHours ? Math.floor(Number(x.date) / 60) * 60 : x.date,
             open: Number.isFinite(Number(x.open)) ? Number(x.open) : close,
             high: Number.isFinite(Number(x.high)) ? Number(x.high) : close,
             low: Number.isFinite(Number(x.low)) ? Number(x.low) : close,
             close
           };
-        }).filter((row) => row.time !== null && row.time !== undefined && [row.open,row.high,row.low,row.close].every(Number.isFinite));
+        }).filter((row) => row.time !== null && row.time !== undefined && (typeof row.time !== 'number' || Number.isFinite(row.time)) && [row.open,row.high,row.low,row.close].every(Number.isFinite));
         const chartData = [...new Map(normalizedData.map((row) => [String(row.time), row])).values()]
           .sort((a, b) => typeof a.time === 'number' && typeof b.time === 'number'
             ? a.time - b.time
             : String(a.time).localeCompare(String(b.time)));
         if (!chartData.length) throw new Error('no valid chart data');
 
-        inst.candleSeries.setData(chartData);
+        const minuteWindow = inst.options?.visibleHours && inst.interval === '1m'
+          ? buildMinuteWindow(chartData, inst.options.visibleHours)
+          : null;
+        inst.candleSeries.setData(minuteWindow ? minuteWindow.entries : chartData);
         if (inst.options?.statusId && chartData.length) {
           const statusEl = document.getElementById(inst.options.statusId);
           if (statusEl) {
@@ -1042,7 +1102,8 @@
             const minutes = Number(values.hour) * 60 + Number(values.minute);
             let open = false;
             if (key === 'KOSPI_NIGHT_FUTURES') {
-              open = ((['Mon','Tue','Wed','Thu','Fri'].includes(weekday) && minutes >= 18 * 60) ||
+              open = ((['Mon','Tue','Wed','Thu','Fri'].includes(weekday) && minutes >= 8 * 60 + 45 && minutes <= 15 * 60 + 45) ||
+                (['Mon','Tue','Wed','Thu','Fri'].includes(weekday) && minutes >= 18 * 60) ||
                 (['Tue','Wed','Thu','Fri','Sat'].includes(weekday) && minutes < 6 * 60));
             } else {
               open = (weekday === 'Mon' && minutes >= 7 * 60) ||
@@ -1251,7 +1312,11 @@
         inst.smaDataMap = {};
         [5, 10, 20, 60, 120, 240].forEach(p => {
           const smaData = calculateSMA(chartData, p);
-          inst.maSeries[p].setData(smaData);
+          const smaByTime = minuteWindow ? new Map(smaData.map((row) => [row.time, row.value])) : null;
+          const visibleSma = minuteWindow
+            ? minuteWindow.entries.map(({ time }) => smaByTime.has(time) ? { time, value: smaByTime.get(time) } : { time })
+            : smaData;
+          inst.maSeries[p].setData(visibleSma);
           inst.smaDataMap[p] = smaData;
         });
         renderMaCompareOverlay(inst, chartData);
@@ -1312,12 +1377,11 @@
         inst.candleSeries.setMarkers(inst.options?.noMarkers ? [] : markers);
 
         if (chartData.length > 0) {
-          const to = chartData.length - 1;
-          const from = Math.max(0, to - inst.visibleCount + 1);
           inst.chart.timeScale().setVisibleRange({
-            from: chartData[from].time,
-            to: chartData[to].time
+            from: minuteWindow ? minuteWindow.start : chartData[Math.max(0, chartData.length - inst.visibleCount)].time,
+            to: minuteWindow ? minuteWindow.end : chartData[chartData.length - 1].time
           });
+          if (minuteWindow) drawFuturesDateBoundaries(inst, minuteWindow);
         }
       } catch (e) {
         console.error(e);
@@ -1326,18 +1390,24 @@
           try {
             const apiKey = inst.options?.apiKey || key;
             const fallback = await fetchJsonWithRetry(`/api/chart?key=${encodeURIComponent(apiKey)}&interval=${encodeURIComponent(inst.interval)}`, 2);
-            const daily = (fallback.series || []).map((row) => {
+            const fallbackRows = (fallback.series || []).map((row) => {
               const close = Number(row.close);
               return {
-                time: row.date,
+                time: inst.options?.visibleHours ? Math.floor(Number(row.date) / 60) * 60 : row.date,
                 open: Number.isFinite(Number(row.open)) ? Number(row.open) : close,
                 high: Number.isFinite(Number(row.high)) ? Number(row.high) : close,
                 low: Number.isFinite(Number(row.low)) ? Number(row.low) : close,
                 close
               };
-            }).filter((row) => [row.open, row.high, row.low, row.close].every(Number.isFinite));
+            }).filter((row) => (typeof row.time !== 'number' || Number.isFinite(row.time)) && [row.open, row.high, row.low, row.close].every(Number.isFinite));
+            const daily = inst.options?.visibleHours
+              ? [...new Map(fallbackRows.map((row) => [row.time, row])).values()].sort((a, b) => a.time - b.time)
+              : fallbackRows;
             if (!daily.length) throw new Error('no fallback');
-            inst.candleSeries.setData(daily);
+            const fallbackWindow = inst.options?.visibleHours && inst.interval === '1m'
+              ? buildMinuteWindow(daily, inst.options.visibleHours)
+              : null;
+            inst.candleSeries.setData(fallbackWindow ? fallbackWindow.entries : daily);
             inst.smaDataMap = {};
             [5, 10, 20, 60, 120, 240].forEach((period) => {
               const smaData = calculateSMA(daily, period);
@@ -1350,7 +1420,12 @@
               inst.bbSeries.upper.setData(bollinger.upper);
               inst.bbSeries.lower.setData(bollinger.lower);
             }
-            inst.chart.timeScale().fitContent();
+            if (fallbackWindow) {
+              inst.chart.timeScale().setVisibleRange({ from: fallbackWindow.start, to: fallbackWindow.end });
+              drawFuturesDateBoundaries(inst, fallbackWindow);
+            } else {
+              inst.chart.timeScale().fitContent();
+            }
             const warning = target.querySelector('.chart-load-warning');
             if (warning) warning.remove();
             const statusEl = inst.options?.statusId ? document.getElementById(inst.options.statusId) : null;
@@ -1384,11 +1459,11 @@
             return Number(price).toLocaleString('ko-KR', { minimumFractionDigits:digits, maximumFractionDigits:digits });
           }
         },
-        handleScale: { mouseWheel: false, pinch: false, axisPressedMouseMove: false },
+        handleScale: { mouseWheel: !!options.visibleHours, pinch: !!options.visibleHours, axisPressedMouseMove: false },
         handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
         grid: { vertLines: { visible: false }, horzLines: { visible: false } },
         rightPriceScale: { borderColor: '#dbe3f1' },
-        timeScale: { borderColor: '#dbe3f1' },
+        timeScale: { borderColor: '#dbe3f1', minBarSpacing: options.visibleHours ? 0.05 : 0.5, lockVisibleTimeRangeOnResize: !!options.visibleHours },
       });
       new ResizeObserver(entries => {
         if (entries.length === 0 || entries[0].target !== el) return;
@@ -3355,8 +3430,8 @@
       apiKey:'USDJPY', plain:true, noMarkers:true, bollinger:true, visibleMa:[20,60,120],
       referenceValues:true, valueSuffix:'엔', valueDigits:2, axisDigits:2, periodControl:true
     });
-    initLwChart('NASDAQ_FUTURES', 'lwchart-NASDAQ_FUTURES', '1m', 390, { plain: true, noMarkers: true, statusId: 'state-nasdaq-night' });
-    initLwChart('KOSPI_NIGHT_FUTURES', 'lwchart-KOSPI_NIGHT_FUTURES', '1m', 390, { plain: true, noMarkers: true, statusId: 'state-kospi-night' });
+    initLwChart('NASDAQ_FUTURES', 'lwchart-NASDAQ_FUTURES', '1m', 390, { plain: true, noMarkers: true, visibleHours: 36, statusId: 'state-nasdaq-night' });
+    initLwChart('KOSPI_NIGHT_FUTURES', 'lwchart-KOSPI_NIGHT_FUTURES', '1m', 390, { plain: true, noMarkers: true, visibleHours: 36, statusId: 'state-kospi-night' });
     renderMiniChart('chart-btc', 'BTC', { previousCloseLine: true });
     renderBondYields();
     const investorFields = [
