@@ -1,6 +1,9 @@
 'use strict';
 
 const { fetchHighBreakouts, fetchMarketBreadth } = require('./breakout-data');
+const risk = require('./risk-score');
+const fs = require('fs');
+const path = require('path');
 
 const CACHE_TTL_MS = 2 * 60 * 1000;
 const INVESTOR_TOP_SCAN_LIMIT = 500;
@@ -84,8 +87,6 @@ const cache = new Map();
 const inFlight = new Map();
 let marketUniverseCache = null;
 let marketUniverseInFlight = null;
-let investorTopCache = null;
-let investorTopInFlight = null;
 
 function normalizeWatchlist(input) {
   const tokens = Array.isArray(input)
@@ -189,10 +190,10 @@ async function fetchText(url, options = {}, timeoutMs = 12000) {
   }
 }
 
-async function fetchMarketUniverse() {
-  if (marketUniverseCache && marketUniverseCache.expiresAt > Date.now()) return marketUniverseCache.rows;
-  if (marketUniverseInFlight) return marketUniverseInFlight;
-  marketUniverseInFlight = (async () => {
+async function fetchMarketUniverse(forceRefresh = false) {
+  if (!forceRefresh && marketUniverseCache && marketUniverseCache.expiresAt > Date.now()) return marketUniverseCache.rows;
+  if (!forceRefresh && marketUniverseInFlight) return marketUniverseInFlight;
+  const request = (async () => {
     const fetchMarket = async (marketType) => {
       const params = new URLSearchParams({
         tradeType: 'KRX',
@@ -202,6 +203,7 @@ async function fetchMarketUniverse() {
         pageSize: '2500'
       });
       const json = await fetchJson(`https://stock.naver.com/api/domestic/market/stock/default?${params}`, {
+        cache: forceRefresh ? 'no-store' : 'default',
         headers: { Referer: 'https://stock.naver.com/' }
       });
       return Array.isArray(json) ? json.map((row) => ({ ...row, marketType })) : [];
@@ -222,7 +224,10 @@ async function fetchMarketUniverse() {
     })).filter((row) => /^\d{6}$/.test(row.code));
     marketUniverseCache = { rows: mapped, expiresAt: Date.now() + 5 * 60 * 1000 };
     return mapped;
-  })().finally(() => { marketUniverseInFlight = null; });
+  })();
+  // A fresh visitor must not join a scan started before their request.
+  if (forceRefresh) return request;
+  marketUniverseInFlight = request.finally(() => { marketUniverseInFlight = null; });
   return marketUniverseInFlight;
 }
 
@@ -277,41 +282,82 @@ async function mapWithConcurrency(items, limit, mapper) {
   return results;
 }
 
-async function fetchStockInvestorFlow(row) {
+function investorDate(value) {
+  const text = String(value || '');
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  if (/^\d{8}$/.test(text)) return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}`;
+  return '';
+}
+
+function investorKoreaDate(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(date).reduce((result, part) => ({ ...result, [part.type]: part.value }), {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+async function fetchLatestInvestorTradingDate(today) {
+  // Actual index sessions include exchange holidays and year-end closures.
+  // An untraded pre-open row must not replace the previous trading session.
+  const start = new Date(`${today}T00:00:00+09:00`);
+  start.setUTCDate(start.getUTCDate() - 60);
+  const startYmd = investorKoreaDate(start).replace(/-/g, '');
+  const endYmd = today.replace(/-/g, '');
+  const json = await fetchJson(`https://api.stock.naver.com/chart/domestic/index/KOSPI/day?startDateTime=${startYmd}0000&endDateTime=${endYmd}2359`, {
+    cache: 'no-store', headers: { Referer: 'https://stock.naver.com/' }
+  });
+  const dates = (Array.isArray(json) ? json : [])
+    .filter((row) => number(row.accumulatedTradingVolume) > 0)
+    .map((row) => investorDate(row.localDate))
+    .filter((date) => date && date <= today)
+    .sort();
+  if (!dates.length) throw new Error('최근 개장일을 확인할 수 없습니다. 잠시 후 새로고침해주세요.');
+  return dates.at(-1);
+}
+
+async function fetchStockInvestorFlow(row, tradingDate) {
   if (!row?.code || !Number.isFinite(Number(row.price))) return null;
   const json = await fetchJson(`https://m.stock.naver.com/front-api/stock/domestic/trend?code=${row.code}`, {
+    cache: 'no-store',
     headers: { Referer: `https://stock.naver.com/domestic/stock/${row.code}/price` }
   }, 7000);
-  const latest = Array.isArray(json?.result?.items)
-    ? json.result.items[0]
-    : (Array.isArray(json?.result) ? json.result[0] : null);
+  const history = Array.isArray(json?.result?.items)
+    ? json.result.items
+    : (Array.isArray(json?.result) ? json.result : []);
+  // Never rank a suspended stock's old flow alongside today's flow.
+  const latest = history.find((item) => investorDate(item.localTradedAt) === tradingDate);
   if (!latest) return null;
   const krx = latest.krx || latest;
-  const foreignQty = signedNumber(krx.foreignNetVolume ?? latest.foreignerPureBuyQuant);
-  const institutionQty = signedNumber(krx.organizationNetVolume ?? latest.organPureBuyQuant);
-  const price = signedNumber(krx.closingPrice) ?? Number(row.price);
+  const foreignQty = number(krx.foreignNetVolume ?? latest.foreignerPureBuyQuant);
+  const institutionQty = number(krx.organizationNetVolume ?? latest.organPureBuyQuant);
+  if (foreignQty === null && institutionQty === null) return null;
+  const price = number(krx.closingPrice ?? latest.closePrice)
+    ?? (row.asOf === tradingDate ? number(row.price) : null);
+  if (!(price > 0)) return null;
   return {
     code: row.code,
     name: row.name,
     marketType: row.marketType,
     price,
-    changeRate: signedNumber(krx.changeRate) ?? row.changeRate,
+    changeRate: number(krx.changeRate) ?? (row.asOf === tradingDate ? row.changeRate : null),
     foreignValue: Number.isFinite(foreignQty) ? foreignQty * price : null,
     institutionValue: Number.isFinite(institutionQty) ? institutionQty * price : null,
     foreignQty: Number.isFinite(foreignQty) ? foreignQty : null,
     institutionQty: Number.isFinite(institutionQty) ? institutionQty : null,
     tradeAmount: row.tradeAmount,
     marketCap: row.marketCap,
-    asOf: String(latest.localTradedAt || row.asOf || '').slice(0, 10),
+    asOf: tradingDate,
     url: `https://stock.naver.com/domestic/stock/${row.code}/price`
   };
 }
 
-async function fetchInvestorTopFlows(marketRowsInput = null, forceRefresh = false) {
-  if (!forceRefresh && investorTopCache && investorTopCache.expiresAt > Date.now()) return investorTopCache.payload;
-  if (!forceRefresh && investorTopInFlight) return investorTopInFlight;
-  investorTopInFlight = (async () => {
-  const marketRows = Array.isArray(marketRowsInput) ? marketRowsInput : await fetchMarketUniverse();
+async function fetchInvestorTopFlows(marketRowsInput = null) {
+  const requestedAt = new Date().toISOString();
+  const today = investorKoreaDate(new Date(requestedAt));
+  const [tradingDate, marketRows] = await Promise.all([
+    fetchLatestInvestorTradingDate(today),
+    Array.isArray(marketRowsInput) ? marketRowsInput : fetchMarketUniverse(true)
+  ]);
   const byCode = new Map();
   const addRows = (rows) => rows.forEach((row) => {
     if (row?.code && !byCode.has(row.code)) byCode.set(row.code, row);
@@ -320,24 +366,28 @@ async function fetchInvestorTopFlows(marketRowsInput = null, forceRefresh = fals
     .filter((row) => row.code && Number.isFinite(Number(row.price)) && Number(row.price) > 0);
   addRows(tradableRows.slice().sort((a, b) => (Number(b.tradeAmount) || 0) - (Number(a.tradeAmount) || 0)).slice(0, INVESTOR_TOP_SCAN_LIMIT));
   addRows(tradableRows.slice().sort((a, b) => (Number(b.marketCap) || 0) - (Number(a.marketCap) || 0)).slice(0, 150));
-  const flows = (await mapWithConcurrency([...byCode.values()], INVESTOR_TOP_CONCURRENCY, fetchStockInvestorFlow))
+  const flows = (await mapWithConcurrency([...byCode.values()], INVESTOR_TOP_CONCURRENCY, (row) => fetchStockInvestorFlow(row, tradingDate)))
     .filter(Boolean);
+  if (!flows.length) throw new Error(`${tradingDate} 기준 투자자 수급이 아직 제공되지 않거나 조회에 실패했습니다. 잠시 후 새로고침해주세요.`);
   const pick = (key, direction) => flows
-    .filter((row) => Number.isFinite(Number(row[key])) && Number(row[key]) !== 0)
+    .filter((row) => Number.isFinite(row[key]) && (direction === 'buy' ? row[key] > 0 : row[key] < 0))
     .sort((a, b) => direction === 'buy' ? Number(b[key]) - Number(a[key]) : Number(a[key]) - Number(b[key]))
     .slice(0, 20);
   const payload = {
-    asOf: flows.find((row) => row.asOf)?.asOf || '',
+    asOf: tradingDate,
+    requestedAt,
+    fetchedAt: new Date().toISOString(),
+    latestOpenDate: tradingDate,
+    note: tradingDate === today
+      ? '오늘 개장일의 원천 제공 최신 수급입니다.'
+      : `휴장일 또는 개장 전에는 최근 개장일(${tradingDate}) 수급을 표시합니다.`,
     source: `네이버 종목별 투자자 수급, 거래대금 상위 ${INVESTOR_TOP_SCAN_LIMIT}개+시총 상위 150개 스캔`,
     foreignBuy: pick('foreignValue', 'buy'),
     foreignSell: pick('foreignValue', 'sell'),
     institutionBuy: pick('institutionValue', 'buy'),
     institutionSell: pick('institutionValue', 'sell')
   };
-  investorTopCache = { payload, expiresAt: Date.now() + 60 * 1000 };
   return payload;
-  })().finally(() => { investorTopInFlight = null; });
-  return investorTopInFlight;
 }
 
 async function fetchUsSnapshot(symbol, name) {
@@ -976,17 +1026,6 @@ async function fetchOptionsIndicators() {
   ];
 }
 
-function buildFearGreed(riskScore) {
-  const score = Number(riskScore?.score);
-  const safeScore = Number.isFinite(score) ? score : 50;
-  const state = safeScore >= 70 ? 'Greed' : safeScore >= 55 ? 'Neutral+' : safeScore >= 40 ? 'Neutral-' : 'Fear';
-  return {
-    score: safeScore,
-    state,
-    note: 'CNN 원천이 봇 차단될 때도 대시보드 내 실제 지표 6개로 산출합니다.'
-  };
-}
-
 async function fetchNasdaqEtfSnapshot(symbol) {
   const json = await fetchJson(
     `https://api.nasdaq.com/api/quote/${encodeURIComponent(symbol)}/info?assetclass=etf`,
@@ -1128,24 +1167,14 @@ async function fetchDaumMarketRows(market = 'KOSPI', perPage = 10) {
   const rows = Array.isArray(json?.data) ? json.data : [];
   return rows.reverse().map((row) => ({
     date: String(row.date || '').slice(0, 10),
-    close: signedNumber(row.tradePrice),
-    turnover: signedNumber(row.accTradePrice),
-    foreign: signedNumber(row.foreignStraightPurchasePrice),
-    institution: signedNumber(row.institutionStraightPurchasePrice)
+    close: number(row.tradePrice),
+    // TODO: verify Daum raw units with scripts/check-daum-units.js on the server.
+    // Turnover /1e6 and foreign /1e12 both claim trillion KRW; keep existing
+    // conversions until source units are confirmed.
+    turnover: number(row.accTradePrice),
+    foreign: number(row.foreignStraightPurchasePrice),
+    institution: number(row.institutionStraightPurchasePrice)
   })).filter((row) => row.date);
-}
-
-async function fetchForeignFuturesRows(limit = 20) {
-  const safeLimit = Math.max(5, Math.min(60, Number(limit) || 20));
-  const rows = await fetchDaumMarketRows('KOSPI', safeLimit);
-  // Naver's public futures-investor page was retired. Keep the risk score
-  // available on holidays with actual latest KOSPI foreign spot flow, clearly
-  // tagged so it is never represented as a futures-contract figure.
-  return rows.map((row) => ({
-    date: row.date,
-    foreign: Number.isFinite(row.foreign) ? row.foreign / 1e12 : null,
-    source: 'spot-fallback'
-  })).filter((row) => Number.isFinite(row.foreign));
 }
 
 function lastChange(rows) {
@@ -1164,78 +1193,21 @@ function average(values) {
   return valid.length ? valid.reduce((sum, value) => sum + value, 0) / valid.length : null;
 }
 
-function weightedScore(normalizedComponents) {
-  const weighted = normalizedComponents.reduce((sum, item) => sum + item.normalized * item.weight, 0);
-  const score = Math.max(0, Math.min(100, Math.round(50 + weighted * 25)));
-  const scale = Math.round((score - 50) / 5) / 2;
-  return { score, scale };
-}
-
 async function fetchRiskScore() {
-  const [vixRows, soxRows, usdkrwRows, us10yRows, us2yRows, kospiRows, futuresRows, breadth] = await Promise.all([
+  const [vixRows, soxRows, usdkrwRows, us10yRows, us2yRows, kospiRows, breadth, vkospi] = await Promise.all([
     withPanelTimeout(fetchMarketRows('^VIX'), 9000, 'risk VIX').catch(() => []),
     withPanelTimeout(fetchMarketRows('^SOX'), 9000, 'risk SOX').catch(() => []),
     withPanelTimeout(fetchMarketRows('KRW=X'), 9000, 'risk USD/KRW').catch(() => []),
     withPanelTimeout(fetchMarketRows('US10Y'), 9000, 'risk US10Y').catch(() => []),
     withPanelTimeout(fetchMarketRows('US2Y'), 9000, 'risk US2Y').catch(() => []),
-    withPanelTimeout(fetchDaumMarketRows('KOSPI', 10), 9000, 'risk KOSPI').catch(() => []),
-    withPanelTimeout(fetchForeignFuturesRows(20), 9000, 'risk flow').catch(() => []),
-    withPanelTimeout(fetchMarketBreadth(), 9000, 'risk breadth').catch(() => null)
+    // One shared history supplies foreign flow, liquidity and price trend.
+    withPanelTimeout(fetchDaumMarketRows('KOSPI', 130), 9000, 'risk KOSPI').catch(() => []),
+    withPanelTimeout(fetchMarketBreadth(), 9000, 'risk breadth').catch(() => null),
+    fs.promises.readFile(path.join(__dirname, 'data', 'vkospi.json'), 'utf8')
+      .then((text) => JSON.parse(text))
+      .catch(() => { console.warn('[시황 점수] VKOSPI 저장 자료를 사용할 수 없습니다.'); return null; })
   ]);
-
-  const vixLatest = lastChange(vixRows);
-  const vixAvg = average(vixRows.slice(-5).map((row) => row.close));
-  const volatilityPoint = vixAvg === null ? 0 : vixAvg <= 15 ? 2 : vixAvg <= 20 ? 1 : vixAvg <= 30 ? 0 : -2;
-
-  const us10 = lastChange(us10yRows);
-  const us2 = lastChange(us2yRows);
-  const fx = lastChange(usdkrwRows);
-  const fxAvg = average(usdkrwRows.slice(-5).map((row, index, arr) => index === 0 ? null : ((row.close - arr[index - 1].close) / arr[index - 1].close) * 100));
-  const spread = Number.isFinite(us10.value) && Number.isFinite(us2.value) ? us10.value - us2.value : null;
-  let ratesFxPoint = 0;
-  if (Number.isFinite(spread)) ratesFxPoint += spread >= 0 ? 0.5 : -0.5;
-  if (Number.isFinite(fxAvg)) ratesFxPoint += fxAvg <= -0.25 ? 0.5 : fxAvg >= 0.5 ? -1 : 0;
-  ratesFxPoint = Math.max(-2, Math.min(2, ratesFxPoint));
-
-  const recentFutures = futuresRows.slice(-5).map((row) => row.foreign).filter(Number.isFinite);
-  const futuresSum = recentFutures.reduce((sum, value) => sum + value, 0);
-  const spotFlowFallback = futuresRows.some((row) => row.source === 'spot-fallback');
-  const flowThreshold = spotFlowFallback ? 0.3 : 3000;
-  const flowPoint = !recentFutures.length ? 0 : futuresSum >= flowThreshold ? 2 : futuresSum <= -flowThreshold ? -2 : futuresSum > 0 ? 1 : futuresSum < 0 ? -1 : 0;
-
-  const highCount = Number(breadth?.highCount);
-  const lowCount = Number(breadth?.lowCount);
-  const breadthAvailable = Number.isFinite(highCount) && Number.isFinite(lowCount);
-  const breadthPoint = !breadthAvailable ? 0 : highCount + lowCount === 0 ? 0 : highCount >= lowCount * 2 ? 1 : lowCount >= highCount * 2 ? -1 : 0;
-
-  const sox = lastChange(soxRows);
-  const soxAvg = average(soxRows.slice(-5).map((row, index, arr) => index === 0 ? null : ((row.close - arr[index - 1].close) / arr[index - 1].close) * 100));
-  const sectorPoint = !Number.isFinite(soxAvg) ? 0 : soxAvg >= 1 ? 1 : soxAvg <= -1 ? -1 : 0;
-
-  const turnoverChanges = kospiRows.slice(-5).map((row, index, arr) => {
-    if (index === 0 || !arr[index - 1]?.turnover) return null;
-    return ((row.turnover - arr[index - 1].turnover) / arr[index - 1].turnover) * 100;
-  });
-  const turnoverAvg = average(turnoverChanges);
-  const liquidityPoint = !Number.isFinite(turnoverAvg) ? 0 : turnoverAvg >= 0 ? 1 : turnoverAvg <= -10 ? -1 : 0;
-  const latestKospi = kospiRows[kospiRows.length - 1] || {};
-
-  const components = [
-    { key: 'volatility', name: '변동성 VIX/VKOSPI', weight: 0.30, point: volatilityPoint, normalized: volatilityPoint, value: vixLatest.value, changeRate: vixLatest.changeRate, asOf: vixLatest.asOf, reason: 'VIX 최근 3~5거래일 평균을 15/20/30 기준으로 채점' },
-    { key: 'ratesFx', name: '금리·환율', weight: 0.20, point: ratesFxPoint, normalized: ratesFxPoint, value: spread, unit: '스프레드', changeRate: fx.changeRate, asOf: fx.asOf || us10.asOf, reason: 'US10Y-US2Y 스프레드와 원/달러 5일 평균 급등락 반영' },
-    { key: 'flow', name: spotFlowFallback ? '외국인 현물 수급' : '외국인 선물 수급', weight: 0.20, point: flowPoint, normalized: flowPoint, value: futuresSum, unit: spotFlowFallback ? '조원' : '계약', asOf: futuresRows[futuresRows.length - 1]?.date || '', reason: spotFlowFallback ? '선물 공개 원천 폐지로 최근 5거래일 KOSPI 외국인 현물 순매수 누적을 대체 반영' : '최근 5거래일 외국인 선물 순매수 누적, ±3,000계약 기준' },
-    { key: 'breadth', name: '시장폭 신고가/신저가', weight: 0.15, point: breadthPoint, normalized: breadthPoint, value: breadthAvailable ? highCount - lowCount : null, displayValue: breadthAvailable ? `신고가 ${highCount} / 신저가 ${lowCount}` : '원천 확인 중', asOf: breadth?.latestTradeDate || '', reason: breadthAvailable ? `TradingView 스캐너 기준 실제 개수는 신고가 ${highCount}개 / 신저가 ${lowCount}개입니다.` : '시장폭 원천 응답이 지연되어 0으로 대체하지 않습니다.' },
-    { key: 'sectorMomentum', name: '섹터모멘텀 SOX', weight: 0.10, point: sectorPoint, normalized: sectorPoint, value: sox.value, changeRate: sox.changeRate, asOf: sox.asOf, reason: 'SOX 최근 3~5거래일 평균 등락률 ±1% 기준' },
-    { key: 'liquidity', name: '유동성 거래대금', weight: 0.05, point: liquidityPoint, normalized: liquidityPoint, value: latestKospi.turnover ? latestKospi.turnover / 1000000 : null, unit: '조원', changeRate: turnoverAvg, asOf: latestKospi.date || '', reason: 'KOSPI 거래대금 전일비 3~5거래일 평균' }
-  ];
-  const { score } = weightedScore(components);
-  const state = score >= 70 ? '우호' : score >= 55 ? '중립' : score >= 40 ? '경계' : '위험';
-  return {
-    score,
-    state,
-    components: components.map((item) => ({ ...item, point: Math.round(item.point * 10) / 10, weight: Math.round(item.weight * 100) })),
-    method: '기존 대시보드 지표 6개를 3~5거래일 흐름으로 가중합해 계산합니다. 변동성 30%, 금리·환율 20%, 수급 20%, 시장폭 15%, SOX 10%, 유동성 5%.'
-  };
+  return risk.buildRiskScore({ vixRows, soxRows, usdkrwRows, us10yRows, us2yRows, kospiRows, breadth, vkospi });
 }
 
 async function fetchShortSellingSnapshot(item, marketRow) {
@@ -1432,7 +1404,6 @@ async function fetchDashboardPanelsFresh(watchlistConfig, etfSymbols = DEFAULT_E
     earningsCalendar,
     sectorRs,
     optionsIndicators,
-    fearGreed: buildFearGreed(riskScore),
     etfFlows,
     binanceKoreaStocks,
     referencePanels: buildReferencePanels(sectors, marketRows),

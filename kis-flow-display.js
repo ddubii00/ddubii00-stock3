@@ -172,6 +172,12 @@ async function handleChartRequest(req, res, config) {
     return res.end(inner.body);
   }
 
+  // A spot fallback must keep its own source and unit. Never substitute a
+  // stored contract curve into a spot response, even when its series is empty.
+  if (payload?.source === 'spot-fallback' || (payload?.unit && payload.unit !== config.unit)) {
+    return sendJson(res, inner.statusCode, payload);
+  }
+
   const currentRows = Array.isArray(payload?.series) ? payload.series : [];
   // Keep even one real point from the latest trading session. If the gateway
   // has none yet, show a previously collected curve instead of "no data".

@@ -4,6 +4,7 @@
 // 2) 시장 거래대금
 
 const { fetchForeignFuturesSeries } = require('../server');
+const { futuresStats, sumWindows, nullableArray } = require('../flow-stats');
 
 function sendJson(res, statusCode, body) {
   res.statusCode = statusCode;
@@ -32,15 +33,6 @@ function pctChange(current, previous) {
   if (!p) return '0';
   const percent = ((c - p) / p) * 100;
   return Math.abs(percent) < 0.005 ? '0' : percent.toFixed(2);
-}
-
-function cumulative(values, days) {
-  const out = [];
-  for (const d of days) {
-    const sum = values.slice(0, d).reduce((acc, v) => acc + numberOrZero(v), 0);
-    out.push(Math.round(sum));
-  }
-  return out;
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = 9000) {
@@ -147,12 +139,17 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const [kospiData, kosdaqData, programRows, futuresPayload] = await Promise.all([
+    const results = await Promise.allSettled([
       fetchDaumMarketDays('KOSPI', 20),
       fetchDaumMarketDays('KOSDAQ', 20),
       fetchProgramTradingDays(20),
       fetchForeignFuturesSeries(20)
     ]);
+    const value = (index, fallback) => results[index].status === 'fulfilled' ? results[index].value : fallback;
+    const kospiData = value(0, []);
+    const kosdaqData = value(1, []);
+    const programRows = value(2, []);
+    const futuresPayload = value(3, null);
 
     const kospiToday = kospiData[0] || {};
     const kospiPrev = kospiData[1] || {};
@@ -162,11 +159,9 @@ module.exports = async function handler(req, res) {
     const kospiTurnover = numberOrZero(kospiToday.accTradePrice);
     const kosdaqTurnover = numberOrZero(kosdaqToday.accTradePrice);
 
-    const days = [1, 3, 5, 10, 20];
-    const recentFutures = (futuresPayload?.series || []).slice().reverse().map((row) => row.dailyForeign);
-    const futuresArray = cumulative(recentFutures, days);
-
-    const progsArray = cumulative(programRows.map((row) => row.net), days);
+    const flowSummary = futuresStats(futuresPayload);
+    const progsArray = nullableArray(sumWindows(programRows.map((row) => ({ date: row.date, value: row.net }))));
+    const programSource = progsArray ? 'Naver Finance programDealTrendDay' : 'unavailable';
 
     return sendJson(res, 200, {
       ok: true,
@@ -179,27 +174,32 @@ module.exports = async function handler(req, res) {
       kospiTurnoverDiff: pctChange(kospiToday.accTradePrice, kospiPrev.accTradePrice),
       kosdaqTurnoverDiff: pctChange(kosdaqToday.accTradePrice, kosdaqPrev.accTradePrice),
 
-      futuresArray,
+      ...flowSummary,
       progsArray,
+      programSource,
+      latestOpenDate: String(futuresPayload?.series?.at(-1)?.date || kospiData[0]?.date || '').slice(0, 10),
 
       asOf: new Date().toISOString(),
       source: {
         turnover: 'Daum Finance market_index/days',
-        foreignFlow: 'Naver Finance futures investorDealTrendDay, sosok=03, contracts',
-        program: 'Naver Finance programDealTrendDay, actual daily total net purchases',
+        foreignFlow: flowSummary.futuresArray === null ? 'unavailable' : flowSummary.futuresMode === 'spot-fallback' ? 'Daum Finance KOSPI foreign spot fallback, 억원' : 'Naver Finance futures investorDealTrendDay, sosok=03, contracts',
+        program: programSource,
         programAsOf: programRows[0]?.date || null
       }
     });
   } catch (error) {
-    // Return ok:true with zero-filled values so the dashboard table does not remain blank.
+    // Preserve missing flow data instead of presenting failures as real zeroes.
     return sendJson(res, 200, {
       ok: true,
       kospiTurnover: '0',
       kosdaqTurnover: '0',
       kospiTurnoverDiff: '0.00',
       kosdaqTurnoverDiff: '0.00',
-      futuresArray: [0, 0, 0, 0, 0],
-      progsArray: [0, 0, 0, 0, 0],
+      futuresArray: null,
+      futuresMode: 'futures',
+      futuresUnit: '계약',
+      progsArray: null,
+      programSource: 'unavailable',
       asOf: new Date().toISOString(),
       warning: String(error.message || error)
     });

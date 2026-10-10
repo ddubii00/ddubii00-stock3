@@ -3,11 +3,13 @@
   "version": "1.0.0",
   "type": "commonjs",
   "scripts": {
+    "test": "node --test tests/",
     "start": "node kis-flow-display.js",
     "start:kis-relay": "node kis-relay.mjs",
     "start:kis-gateway": "node kis-flow-gateway.js",
     "start:core": "node server.js",
-    "test:kis-flow": "node --test tests/kis-flow-gateway.test.js"
+    "test:kis-flow": "node --test tests/kis-flow-gateway.test.js",
+    "test:investor-top": "node --test tests/investor-top-flows.test.js"
   },
   "engines": {
     "node": ">=18"

@@ -330,26 +330,38 @@ async function fetchMarketBreadthFresh() {
   const marketByCode = new Map([...kospiRows, ...kosdaqRows].map((row) => [row.itemcode, row]));
   let highCount = 0;
   let lowCount = 0;
+  let high20Count = 0;
+  let low20Count = 0;
+  let usableThresholds = 0;
   for (const scannerRow of scannerRows) {
     const [code, , scannerClose, , scannerHigh, scannerLow, high20, low20, high26, low26, allHigh, allLow] = scannerRow.d || [];
     const marketRow = marketByCode.get(code);
     if (!marketRow) continue;
     const todayHigh = firstPositive(marketRow.highPrice, scannerHigh, scannerClose);
     const todayLow = firstPositive(marketRow.lowPrice, scannerLow, scannerClose);
-    const highs = [high20, high26, marketRow.week52HighPrice, allHigh].map(toNumber).filter((value) => value !== null && value > 0);
-    const lows = [low20, low26, marketRow.week52LowPrice, allLow].map(toNumber).filter((value) => value !== null && value > 0);
-    if (todayHigh !== null && highs.some((value) => todayHigh >= value)) highCount += 1;
-    if (todayLow !== null && lows.some((value) => todayLow <= value)) lowCount += 1;
+    const high52 = firstPositive(marketRow.week52HighPrice);
+    const low52 = firstPositive(marketRow.week52LowPrice);
+    if (todayHigh !== null && high52 !== null && todayLow !== null && low52 !== null) {
+      usableThresholds += 1;
+      if (todayHigh >= high52) highCount += 1;
+      if (todayLow <= low52) lowCount += 1;
+    }
+    const threshold20High = firstPositive(high20);
+    const threshold20Low = firstPositive(low20);
+    if (todayHigh !== null && threshold20High !== null && todayHigh >= threshold20High) high20Count += 1;
+    if (todayLow !== null && threshold20Low !== null && todayLow <= threshold20Low) low20Count += 1;
   }
   const dates = [...kospiRows, ...kosdaqRows]
     .map((row) => String(row.tradableStatusUpdatedAt || '').slice(0, 10))
     .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date));
-  if (!highCount && !lowCount && scannerRows.length) throw new Error('Market breadth scanner returned no usable thresholds');
+  if (!usableThresholds) throw new Error('Market breadth scanner returned no usable 52-week thresholds');
   return {
     highCount,
     lowCount,
+    high20Count,
+    low20Count,
     latestTradeDate: dates.sort().pop() || '',
-    source: 'Naver Stock KRX + TradingView Korea Scanner (fast breadth)'
+    source: 'Naver Stock KRX 52-week thresholds + TradingView Korea Scanner (20-day counts separate)'
   };
 }
 

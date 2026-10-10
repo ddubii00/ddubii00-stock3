@@ -35,6 +35,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { sumWindows, mergeWindowValues, mergeFlowStats, numericOrNull } = require('./flow-stats');
 
 const ROOT = __dirname;
 const PORT = Number(process.env.PORT || 8000);
@@ -224,7 +225,7 @@ function persistStore() {
     fs.writeFileSync(tmp, JSON.stringify({ version: store.version, days: store.days, daily: store.daily }));
     fs.renameSync(tmp, STORE_PATH);
   } catch (error) {
-    console.error('[KIS FLOW] persist failed:', error.message);
+    console.warn('[KIS FLOW] persist failed:', error.message);
   }
 }
 
@@ -536,14 +537,6 @@ async function fetchProgramDailyRows(endDate, marketClass = 'K') {
   return parseProgramDailyRows(json);
 }
 
-function sumWindows(rows, windows = [1, 3, 5, 10, 20]) {
-  const cleaned = rows.filter((row) => row && row.date && Number.isFinite(Number(row.value))).sort((a, b) => a.date.localeCompare(b.date));
-  return windows.map((days) => {
-    if (cleaned.length < days) return null;
-    return Math.round(cleaned.slice(-days).reduce((sum, row) => sum + Number(row.value), 0));
-  });
-}
-
 async function captureOnce() {
   if (state.pollRunning || !hasKisCredentials()) return;
   state.pollRunning = true;
@@ -762,28 +755,20 @@ async function buildFlowStats() {
   }
 
   const futuresRows = Object.entries(store.daily.FUTURES || {})
-    .map(([date, value]) => ({ date, value: Number(value) }))
-    .filter((row) => row.date <= latestDate && Number.isFinite(row.value))
+    .map(([date, value]) => ({ date, value: numericOrNull(value) }))
+    .filter((row) => row.date <= latestDate && row.value !== null && Number.isFinite(row.value))
     .sort((a, b) => a.date.localeCompare(b.date));
 
   return {
     latestOpenDate: latestDate,
+    futuresMode: 'futures',
+    futuresUnit: '계약',
     futuresArray: sumWindows(futuresRows),
     progsArray: sumWindows(programRows),
     futuresCoverageDays: futuresRows.length,
     programCoverageDays: programRows.length,
     programSource,
   };
-}
-
-function mergeWindowValues(primary, coverageDays, fallback) {
-  const windows = [1, 3, 5, 10, 20];
-  return windows.map((window, index) => {
-    const value = Number(primary?.[index]);
-    if (coverageDays >= window && Number.isFinite(value)) return value;
-    const fallbackValue = Number(fallback?.[index]);
-    return Number.isFinite(fallbackValue) ? fallbackValue : (Number.isFinite(value) ? value : 0);
-  });
 }
 
 function normalizeApiPath(pathname) {
@@ -912,18 +897,13 @@ async function handleRequest(req, res) {
       ]);
       const core = coreResult.status === 'fulfilled' ? coreResult.value : { ok: true };
       const flow = flowResult.status === 'fulfilled' ? flowResult.value : null;
-      const fallbackFutures = Array.isArray(core.futuresArray) ? core.futuresArray : [];
-      const fallbackPrograms = Array.isArray(core.progsArray) ? core.progsArray : [];
       return sendJson(res, 200, {
-        ...core,
+        ...mergeFlowStats(core, flow),
         ok: true,
         kisConfigured: hasKisCredentials(),
-        latestOpenDate: flow?.latestOpenDate || core.latestOpenDate || '',
-        futuresArray: mergeWindowValues(flow?.futuresArray, flow?.futuresCoverageDays || 0, fallbackFutures),
-        progsArray: mergeWindowValues(flow?.progsArray, flow?.programCoverageDays || 0, fallbackPrograms),
-        futuresCoverageDays: flow?.futuresCoverageDays || 0,
-        programCoverageDays: flow?.programCoverageDays || 0,
-        programSource: flow?.programSource || core.programSource || 'unavailable',
+        latestOpenDate: core.futuresMode === 'spot-fallback'
+          ? core.latestOpenDate || flow?.latestOpenDate || ''
+          : flow?.latestOpenDate || core.latestOpenDate || '',
       });
     }
 

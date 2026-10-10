@@ -169,12 +169,16 @@
     .score-shell { display:grid; grid-template-columns:180px 1fr; gap:22px; align-items:center; }
     .score-orb { width:148px; height:148px; border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center; border:9px solid #dbe5f3; background:#fff; box-shadow:inset 0 0 0 1px #cdd9ea; }
     .score-orb.friendly { border-color:#39b980; background:#effcf6; }
-    .score-orb.neutral { border-color:#e3ae42; background:#fff9eb; }
+    .score-orb.neutral { border-color:#7693b5; background:#f3f7fc; }
+    .score-orb.caution { border-color:#e3ae42; background:#fff9eb; }
+    .score-orb.insufficient { border-color:#a5adba; background:#f4f5f7; }
     .score-orb.risk { border-color:#e15757; background:#fff2f2; }
     .score-number { font-size:42px; font-weight:950; line-height:1; }
     .score-state { margin-top:7px; font-size:16px; font-weight:900; }
     .score-components { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
     .score-component { border:1px solid var(--line); border-radius:12px; padding:12px; background:#f8faff; }
+    .score-coverage { grid-column:1/-1; font-size:12px; color:var(--muted); }
+    .score-component.unavailable { background:#f4f5f7; color:var(--muted); }
     .score-component-name { color:var(--muted); font-size:11px; font-weight:850; }
     .score-component-value { margin-top:5px; font-size:21px; font-weight:950; }
     .score-component-rate { margin-top:3px; font-size:15px; font-weight:950; }
@@ -315,7 +319,7 @@
           <div><div class="title">종합 시황 스코어</div><div class="chart-note" id="scoreMethod">실제 지표를 불러오는 중입니다.</div></div>
           <button class="btn" id="refreshDashboardBridge">새로고침</button>
         </div>
-        <div class="score-shell" id="riskScorePanel"><div class="panel-empty">시황 신호 계산 중...</div></div>
+        <div class="score-shell" id="riskScorePanel"><div class="score-orb insufficient"><div class="score-number">-</div><div class="score-state">확인 중</div></div></div>
       </section>
       <section class="card span-6 bridge-card">
         <div class="head-row"><div class="title">관심종목 트래커</div><div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><button class="btn" id="openWatchlistAdd">종목추가</button><button class="btn outline" id="resetWatchlist">기본값</button><button class="btn outline" id="toggleWatchlistEditor">직접편집</button><div class="asof" id="watchlistAsOf">-</div></div></div>
@@ -373,11 +377,6 @@
         <div class="head-row"><div class="title">옵션 시장 지표</div><div class="asof">VIX 구조</div></div>
         <div class="bridge-note">VIX·VIX3M 기반으로 단기 공포와 기간구조를 봅니다. Put/Call은 공개 원천이 확인될 때만 표시합니다.</div>
         <div class="mini-panel-grid" id="optionsPanel"><div class="panel-empty">옵션 지표 확인 중...</div></div>
-      </section>
-      <section class="card span-6 bridge-card">
-        <div class="head-row"><div class="title">Fear & Greed Index</div><div class="asof">대시보드 산출</div></div>
-        <div class="bridge-note">VIX·금리·환율·수급·시장폭·거래대금 기반 종합 심리지표입니다.</div>
-        <div class="mini-panel-grid" id="fearGreedPanel"><div class="panel-empty">심리지표 계산 중...</div></div>
       </section>
       <section class="card span-6 bridge-card">
         <div class="head-row"><div class="title">ETF 자금 흐름</div><div class="asof">사용자 지정</div></div>
@@ -632,7 +631,6 @@
         </div>
         <div class="memo">단일 수치보다 3~5일 누적 흐름이 중요 (현물 시장 선행지표)
 
-- 외국인 선물 순매수(계약): ±3,000 이상이면 방향성 신호
 - 프로그램 순매수(억원): 차익거래 vs 비차익거래 구분이 더 정밀</div>
         <div class="asof" id="flowAsOf">기준시각: -</div>
         <table>
@@ -1764,13 +1762,13 @@
       };
     }
 
-    async function fetchJsonWithRetry(url, retries = 2) {
+    async function fetchJsonWithRetry(url, retries = 2, options = {}) {
       let lastError = null;
       for (let attempt = 0; attempt <= retries; attempt += 1) {
         try {
           const resolvedUrl = apiUrl(url);
           const cacheBustedUrl = `${resolvedUrl}${resolvedUrl.includes('?') ? '&' : '?'}_=${Date.now()}`;
-          const res = await fetch(cacheBustedUrl);
+          const res = await fetch(cacheBustedUrl, options);
           const json = await res.json();
           if (res.ok && json?.ok) return json;
           lastError = new Error(json?.error || `HTTP ${res.status}`);
@@ -2034,7 +2032,7 @@
       if (!body) return;
       body.innerHTML = Array.isArray(rows) && rows.length ? rows.map((item, index) => {
         const value = Number(item[valueKey]);
-        const rate = Number(item.changeRate);
+        const rate = item.changeRate == null ? NaN : Number(item.changeRate);
         const rateClass = amountClass(rate);
         return `<tr>
           <td>${index + 1}</td>
@@ -2051,9 +2049,10 @@
       renderInvestorTopTable('institutionBuyTopBody', payload.institutionBuy, 'institutionValue');
       renderInvestorTopTable('institutionSellTopBody', payload.institutionSell, 'institutionValue');
       const asOfEl = document.getElementById('investorTopAsOf');
-      if (asOfEl) asOfEl.textContent = payload.asOf || '-';
+      const fetchedAt = payload.fetchedAt ? new Date(payload.fetchedAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : '';
+      if (asOfEl) asOfEl.textContent = `기준일 ${payload.asOf || '-'}${fetchedAt ? ` · 조회 ${fetchedAt}` : ''}`;
       const noteEl = document.getElementById('investorTopNote');
-      if (noteEl) noteEl.textContent = payload.source || '네이버 종목별 투자자 수급 기준입니다.';
+      if (noteEl) noteEl.textContent = [payload.note, payload.source].filter(Boolean).join(' · ') || '네이버 종목별 투자자 수급 기준입니다.';
     }
 
     function colorizeResultText(text) {
@@ -2233,6 +2232,28 @@
       }
     }
 
+    function renderRiskScore(payload) {
+      const score = payload || {};
+      const components = Array.isArray(score.components) ? score.components : [];
+      const hasScore = typeof score.score === 'number' && Number.isFinite(score.score);
+      const state = payload ? score.state || '확인 중' : '확인 중';
+      const scoreClass = ({ '우호': 'friendly', '중립': 'neutral', '경계': 'caution', '위험': 'risk', '데이터부족': 'insufficient' })[state] || 'insufficient';
+      const missing = (score.coverage?.missing || []).map((key) => components.find((item) => item.key === key)?.name || key);
+      document.getElementById('scoreMethod').textContent = score.method || '실제 지표를 불러오는 중입니다.';
+      document.getElementById('riskScorePanel').innerHTML = `
+        <div class="score-orb ${scoreClass}"><div class="score-number">${hasScore ? score.score : '-'}</div><div class="score-state">${escapeDashboard(state)}</div></div>
+        <div class="score-components"><div class="score-coverage">반영 ${score.coverage?.available ?? 0}/${score.coverage?.total ?? 7}${missing.length ? ` · 결측: ${escapeDashboard(missing.join(', '))}` : ''}</div>${components.map((item) => {
+          const available = item.available === true;
+          const pointClass = available && item.point > 0 ? 'up' : available && item.point < 0 ? 'down' : 'flat';
+          const rawValue = item.displayValue || (typeof item.value === 'number' && Number.isFinite(item.value) ? item.value.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) : '-');
+          const valueUnit = item.displayValue ? '' : (item.unit ? ` ${escapeDashboard(item.unit)}` : '');
+          const hasRate = typeof item.changeRate === 'number' && Number.isFinite(item.changeRate);
+          const rateClass = hasRate && item.changeRate > 0 ? 'up' : hasRate && item.changeRate < 0 ? 'down' : 'flat';
+          const point = available ? `${item.point > 0 ? '우호 +' : item.point < 0 ? '부담 ' : '중립 '}${item.point.toFixed(2)}` : '미반영';
+          return `<div class="score-component${available ? '' : ' unavailable'}"><div class="score-component-name">${escapeDashboard(item.name)} · ${Math.round(item.weight * 100)}%</div><div class="score-component-value ${rateClass}">${escapeDashboard(rawValue)}${valueUnit}</div><div class="score-point ${pointClass}">${point}</div>${hasRate ? `<div class="score-component-rate ${rateClass}">${item.changeRate >= 0 ? '+' : ''}${item.changeRate.toFixed(2)}%</div>` : ''}${item.asOf ? `<div class="stock-symbol">최근 개장일 ${escapeDashboard(item.asOf)}</div>` : ''}${item.reason ? `<div class="score-reason">${escapeDashboard(item.reason)}</div>` : ''}</div>`;
+        }).join('')}</div>`;
+    }
+
     async function renderDashboardBridge(eventOrForce = false) {
       const refreshButton = document.getElementById('refreshDashboardBridge');
       if (!refreshButton) return;
@@ -2252,19 +2273,7 @@
         document.getElementById('shortSellingNote').textContent = json.notes?.shortSelling || '';
         document.getElementById('disclosureNote').textContent = json.notes?.disclosures || '';
 
-        const score = json.riskScore || {};
-        const scoreClass = score.state === '우호' ? 'friendly' : score.state === '위험' ? 'risk' : 'neutral';
-        document.getElementById('scoreMethod').textContent = score.method || '규칙 기반 시황 점수';
-        document.getElementById('riskScorePanel').innerHTML = `
-          <div class="score-orb ${scoreClass}"><div class="score-number">${Number(score.score || 0)}</div><div class="score-state">${escapeDashboard(score.state || '확인 중')}</div></div>
-          <div class="score-components">${(score.components || []).map((item) => {
-            const pointClass = Number(item.point) > 0 ? 'up' : Number(item.point) < 0 ? 'down' : 'flat';
-            const rawValue = item.displayValue || (Number.isFinite(Number(item.value)) ? Number(item.value).toLocaleString('ko-KR', { maximumFractionDigits: 2 }) : '-');
-            const valueUnit = item.displayValue ? '' : (item.unit ? ` ${escapeDashboard(item.unit)}` : '');
-            const rate = Number.isFinite(Number(item.changeRate)) ? ` · ${Number(item.changeRate) >= 0 ? '+' : ''}${Number(item.changeRate).toFixed(2)}%` : '';
-            const rateClass = Number(item.changeRate) > 0 ? 'up' : Number(item.changeRate) < 0 ? 'down' : 'flat';
-            return `<div class="score-component"><div class="score-component-name">${escapeDashboard(item.name)}${Number.isFinite(Number(item.weight)) ? ` · ${Number(item.weight)}%` : ''}</div><div class="score-component-value ${rateClass}">${escapeDashboard(rawValue)}${valueUnit}</div><div class="score-point ${pointClass}">${Number(item.point) > 0 ? '우호' : Number(item.point) < 0 ? '부담' : '중립'} ${Number(item.point) > 0 ? '+' : ''}${Number(item.point) || 0}</div>${rate ? `<div class="score-component-rate ${rateClass}">${rate.slice(3)}</div>` : ''}${item.asOf ? `<div class="stock-symbol">최근 개장일 ${escapeDashboard(item.asOf)}</div>` : ''}${item.reason ? `<div class="score-reason">${escapeDashboard(item.reason)}</div>` : ''}</div>`;
-          }).join('')}</div>`;
+        renderRiskScore(json.riskScore);
 
         const watchlist = Array.isArray(json.watchlist) ? json.watchlist : [];
         document.getElementById('watchlistBody').innerHTML = watchlist.length ? watchlist.map((item) => {
@@ -2335,12 +2344,6 @@
           const cls = rate > 0 ? 'up' : rate < 0 ? 'down' : 'flat';
           return `<div class="mini-panel"><div class="mini-panel-title">${escapeDashboard(item.name)}</div><div class="mini-panel-value ${cls}">${Number.isFinite(Number(item.value)) ? Number(item.value).toLocaleString('ko-KR', { maximumFractionDigits: 2 }) : '-'}</div><div class="mini-panel-note">${Number.isFinite(rate) ? `${rate > 0 ? '+' : ''}${rate.toFixed(2)}% · ` : ''}${escapeDashboard(item.note || item.asOf || '')}</div></div>`;
         });
-        const fear = json.fearGreed || {};
-        renderMiniPanels('fearGreedPanel', [fear], (item) => {
-          const scoreValue = Number(item.score);
-          const cls = scoreValue >= 65 ? 'up' : scoreValue <= 40 ? 'down' : 'flat';
-          return `<div class="mini-panel" style="grid-column:1/-1"><div class="mini-panel-title">현재 심리</div><div class="mini-panel-value ${cls}">${Number.isFinite(scoreValue) ? scoreValue : '-'} · ${escapeDashboard(item.state || '-')}</div><div class="mini-panel-note">${escapeDashboard(item.note || '')}</div></div>`;
-        });
         const etfFlows = Array.isArray(json.etfFlows) ? json.etfFlows : [];
         const etfBody = document.getElementById('etfFlowBody');
         if (etfBody) {
@@ -2353,7 +2356,8 @@
         const binanceRows = Array.isArray(json.binanceKoreaStocks) ? json.binanceKoreaStocks : [];
         renderBinanceKoreaRows(binanceRows, asOf);
       } catch (error) {
-        document.getElementById('riskScorePanel').innerHTML = `<div class="panel-empty">${escapeDashboard(error.message || '상단 패널 데이터를 불러오지 못했습니다.')}</div>`;
+        renderRiskScore(null);
+        document.getElementById('scoreMethod').textContent = error.message || '상단 패널 데이터를 불러오지 못했습니다.';
       } finally {
         refreshButton.disabled = false;
         refreshButton.textContent = '새로고침';
@@ -2454,22 +2458,27 @@
         document.getElementById('sectorDetailPanel')?.classList.remove('open');
       });
     });
-    async function refreshInvestorTopFlows(forceRefresh = false) {
+    let investorTopRefreshing = false;
+    async function refreshInvestorTopFlows() {
+      if (investorTopRefreshing) return;
+      investorTopRefreshing = true;
       const button = document.getElementById('refreshInvestorTop20');
       if (button) {
         button.disabled = true;
         button.textContent = '확인 중...';
       }
       try {
-        const refreshQuery = forceRefresh ? `?refresh=1&_=${Date.now()}` : '';
-        const json = await fetchJsonWithRetry(`/api/investor-top-flows${refreshQuery}`, 1);
+        const json = await fetchJsonWithRetry('/api/investor-top-flows?refresh=1', 1, { cache: 'no-store' });
         renderInvestorTopFlows(json);
       } catch (error) {
+        document.getElementById('investorTopAsOf').textContent = '조회 실패';
+        document.getElementById('investorTopNote').textContent = '최신 수급을 확인하지 못했습니다. 새로고침해주세요.';
         ['foreignBuyTopBody', 'foreignSellTopBody', 'institutionBuyTopBody', 'institutionSellTopBody'].forEach((id) => {
           const body = document.getElementById(id);
           if (body) body.innerHTML = `<tr><td colspan="4" class="panel-empty">Top 20 확인 실패: ${escapeDashboard(error.message || error)}</td></tr>`;
         });
       } finally {
+        investorTopRefreshing = false;
         if (button) {
           button.disabled = false;
           button.textContent = '새로고침';
@@ -2478,7 +2487,10 @@
     }
 
     document.getElementById('refreshDashboardBridge').addEventListener('click', renderDashboardBridge);
-    document.getElementById('refreshInvestorTop20')?.addEventListener('click', () => refreshInvestorTopFlows(true));
+    document.getElementById('refreshInvestorTop20')?.addEventListener('click', refreshInvestorTopFlows);
+    window.addEventListener('pageshow', (event) => {
+      if (event.persisted) refreshInvestorTopFlows();
+    });
 
     async function renderBondYields() {
       const body = document.getElementById('bondYieldBody');
@@ -2669,6 +2681,11 @@
           params.set('days', String(safeDays));
         }
         const json = await fetchJsonWithRetry(`/api/extra-chart?${params.toString()}`);
+        if (kind === 'foreign-futures-daily' || kind === 'foreign-futures-minute') {
+          const mode = json.source === 'spot-fallback' || json.unit === '조원' ? 'spot-fallback' : 'futures';
+          if (noteEl) noteEl.dataset.flowMode = mode;
+          setForeignFlowChartMode(noteId, mode);
+        }
         let series = json?.series || [];
         if (!json?.ok || !Array.isArray(series) || !series.length) throw new Error(json?.error || 'no data');
         const minuteOfDay = (row) => {
@@ -3088,38 +3105,45 @@
       document.getElementById('updatedAt').textContent = '업데이트: ' + new Date().toLocaleString('ko-KR');
     }
 
+    function setForeignFlowChartMode(noteId, mode) {
+      const note = document.getElementById(noteId);
+      const title = note?.closest('.card')?.querySelector('.title');
+      if (title) title.textContent = mode === 'spot-fallback'
+        ? `외국인 현물 수급(대체) ${noteId.endsWith('-minute') ? '분봉' : '일봉'}`
+        : `외국인 선물 수급 ${noteId.endsWith('-minute') ? '분봉' : '일봉'}`;
+    }
+
+    function renderFlowStats(json) {
+      const numeric = (value) => value === null || value === undefined || value === '' ? null : Number.isFinite(Number(value)) ? Number(value) : null;
+      const color = (value) => numeric(value) > 0 ? '#d92c2c' : numeric(value) < 0 ? '#1f5bd8' : '#5f6b85';
+      const format = (value) => numeric(value) === null ? '-' : numeric(value).toLocaleString('ko-KR');
+      const spot = json.futuresMode === 'spot-fallback';
+      const futures = Array.isArray(json.futuresArray) ? json.futuresArray : [];
+      const programs = json.programSource !== 'unavailable' && Array.isArray(json.progsArray) ? json.progsArray : [];
+      const body = document.getElementById('flowTableBody');
+      if (body) body.innerHTML = [
+        [spot ? '외국인 현물 순매수(억원·선물 원천 폐지로 대체)' : '외국인 선물 순매수(계약)', futures],
+        ['프로그램 순매수(억원)', programs]
+      ].map(([label, values]) => `<tr><td>${label}</td>${Array.from({ length: 5 }, (_, index) => `<td style="color:${color(values[index])}">${format(values[index])}</td>`).join('')}</tr>`).join('');
+      const card = document.getElementById('refreshFlow')?.closest('.card');
+      const title = card?.querySelector('.title');
+      if (title) title.textContent = spot ? '외국인 현물 수급(대체)' : '외국인 선물 수급';
+      const memo = card?.querySelector('.memo');
+      if (memo) memo.textContent = `단일 수치보다 3~5일 누적 흐름을 함께 확인합니다.\n${json.futuresMode === 'futures' ? '- 외국인 선물 순매수(계약): ±3,000 이상이면 방향성 신호\n' : ''}- 프로그램 순매수(억원): 차익거래 vs 비차익거래 구분이 더 정밀`;
+      for (const noteId of ['note-foreign-futures', 'note-foreign-futures-minute']) {
+        if (!document.getElementById(noteId)?.dataset.flowMode) setForeignFlowChartMode(noteId, json.futuresMode);
+      }
+      const source = json.programSource && json.programSource !== 'unavailable' ? json.programSource : '프로그램 원천 확인 필요';
+      const asOf = document.getElementById('flowAsOf');
+      if (asOf) asOf.textContent = `조회시각: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} · ${source}${json.latestOpenDate ? ` · 최근 개장일 ${json.latestOpenDate}` : ''}`;
+    }
+
     async function fetchStatsAndUpdateTables() {
       try {
         const res = await fetch(apiUrl('/api/stats'));
         const json = await res.json();
         if (json.ok) {
-          const bodyF = document.getElementById('flowTableBody');
-          const fmtColor = (v) => {
-             if (v > 0) return '#d92c2c';
-             if (v < 0) return '#1f5bd8';
-             return '#5f6b85';
-          };
-          const row1 = json.futuresArray || [0,0,0,0,0];
-          const row2 = json.progsArray || [0,0,0,0,0];
-          bodyF.innerHTML = `
-            <tr>
-              <td>외국인 선물(계약)</td>
-              <td style="color:${fmtColor(row1[0])}">${row1[0].toLocaleString()}</td>
-              <td style="color:${fmtColor(row1[1])}">${row1[1].toLocaleString()}</td>
-              <td style="color:${fmtColor(row1[2])}">${row1[2].toLocaleString()}</td>
-              <td style="color:${fmtColor(row1[3])}">${row1[3].toLocaleString()}</td>
-              <td style="color:${fmtColor(row1[4])}">${row1[4].toLocaleString()}</td>
-            </tr>
-            <tr>
-              <td>프로그램(억원)</td>
-              <td style="color:${fmtColor(row2[0])}">${row2[0].toLocaleString()}</td>
-              <td style="color:${fmtColor(row2[1])}">${row2[1].toLocaleString()}</td>
-              <td style="color:${fmtColor(row2[2])}">${row2[2].toLocaleString()}</td>
-              <td style="color:${fmtColor(row2[3])}">${row2[3].toLocaleString()}</td>
-              <td style="color:${fmtColor(row2[4])}">${row2[4].toLocaleString()}</td>
-            </tr>
-          `;
-          document.getElementById('flowAsOf').textContent = '기준시각: ' + new Date().toLocaleString('ko-KR');
+          renderFlowStats(json);
 
           const bodyT = document.getElementById('turnoverTableBody');
           const kv = parseInt(json.kospiTurnover.replace(/,/g, ''));

@@ -5,6 +5,7 @@ const WebSocketClient = require('ws');
 const { fetchUnifiedSeries, fetchBondYields, fetchNaverIndexClosingMinutes } = require('./tradingview-data');
 const { fetchHighBreakouts } = require('./breakout-data');
 const { fetchDashboardPanels, fetchBinanceKoreaFutures, fetchInvestorTopFlows } = require('./dashboard-data');
+const { futuresStats, nullableArray, sumWindows } = require('./flow-stats');
 
 const PORT = Number(process.env.PORT || 8000);
 const ROOT = __dirname;
@@ -423,7 +424,7 @@ function persistInvestorIntradayStore() {
     fs.writeFileSync(temporary, JSON.stringify({ version: 1, days: investorIntradayStore.days }));
     fs.renameSync(temporary, INVESTOR_INTRADAY_STORE_PATH);
   } catch (error) {
-    console.error('Failed to persist investor intraday snapshots:', error.message);
+    console.warn('Failed to persist investor intraday snapshots:', error.message);
   }
 }
 
@@ -681,10 +682,7 @@ async function fetchKisProgramFlowArray() {
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(-35);
   if (!ordered.length) throw new Error('KIS program flow empty');
-  const values = [1, 3, 5, 10, 20].map((days) => {
-    const sample = ordered.slice(-days);
-    return sample.length ? Math.round(sample.reduce((sum, row) => sum + row.value, 0)) : null;
-  });
+  const values = sumWindows(ordered);
   return { values, latestOpenDate, asOfHour: live?.hour || '153000', source: 'KIS' };
 }
 
@@ -728,10 +726,7 @@ async function fetchProgramFlowArray() {
   } catch (kisError) {
     const rows = await fetchNaverProgramDailyRows(35);
     if (!rows.length) throw kisError;
-    const values = [1, 3, 5, 10, 20].map((days) => {
-      const sample = rows.slice(-days);
-      return sample.length ? Math.round(sample.reduce((sum, row) => sum + row.value, 0)) : null;
-    });
+    const values = sumWindows(rows);
     return {
       values,
       latestOpenDate: rows.at(-1)?.date || '',
@@ -2117,7 +2112,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (requestPath === '/api/investor-top-flows') {
     try {
-      const payload = await fetchInvestorTopFlows(null, u.searchParams.get('refresh') === '1');
+      const payload = await fetchInvestorTopFlows();
       return send(res, 200, JSON.stringify({ ok: true, ...payload }), 'application/json');
     } catch (e) {
       return send(res, 500, JSON.stringify({ ok: false, error: String(e.message || e) }), 'application/json');
@@ -2178,7 +2173,7 @@ const server = http.createServer(async (req, res) => {
 
       let kospiTurnover = 0, kosdaqTurnover = 0;
       let kospiTurnoverDiff = '0', kosdaqTurnoverDiff = '0';
-      let futuresArray = [0, 0, 0, 0, 0];
+
 
       if (kospiData.length >= 2) {
         const current = Number(kospiData.at(-1)?.value);
@@ -2198,11 +2193,12 @@ const server = http.createServer(async (req, res) => {
 
       const historicalFutures = (futuresPayload?.series || []).map((row) => ({
         date: String(row.date || '').slice(0, 10),
-        value: Number(row.dailyForeign)
-      })).filter((row) => row.date && Number.isFinite(row.value));
+        value: row.dailyForeign == null ? null : Number(row.dailyForeign)
+      })).filter((row) => row.date);
       const clock = getKoreaClock();
       const isLiveSession = latestOpenDate === clock.date && clock.minutes >= 9 * 60 && clock.minutes <= 15 * 60 + 30;
-      if (isLiveSession) {
+      const contracts = futuresPayload?.unit === '계약' && futuresPayload?.source !== 'spot-fallback';
+      if (contracts && isLiveSession) {
         const liveFutures = await fetchKisInvestorSnapshot('FUTURES').catch(() => null);
         if (Number.isFinite(liveFutures?.foreign)) {
           const index = historicalFutures.findIndex((row) => row.date === latestOpenDate);
@@ -2214,19 +2210,17 @@ const server = http.createServer(async (req, res) => {
       // When the public daily feed is delayed or unavailable, KIS still
       // provides the latest foreign KOSPI200 futures net quantity. Keep that
       // latest open-day result visible instead of rendering an empty table.
-      if (!historicalFutures.length && latestOpenDate) {
+      if (contracts && !historicalFutures.length && latestOpenDate) {
         const latestFutures = await fetchKisInvestorSnapshot('FUTURES').catch(() => null);
         if (Number.isFinite(latestFutures?.foreign)) {
           historicalFutures.push({ date: latestOpenDate, value: latestFutures.foreign });
         }
       }
       historicalFutures.sort((a, b) => a.date.localeCompare(b.date));
-      if (historicalFutures.length) {
-        futuresArray = [1, 3, 5, 10, 20].map((days) => {
-          const sample = historicalFutures.slice(-days);
-          return sample.length ? Math.round(sample.reduce((sum, row) => sum + row.value, 0)) : 0;
-        });
-      }
+      const flowSummary = futuresStats(futuresPayload ? {
+        ...futuresPayload,
+        series: historicalFutures.map((row) => ({ date: row.date, dailyForeign: row.value }))
+      } : null);
 
       return send(res, 200, JSON.stringify({
         ok: true,
@@ -2236,8 +2230,8 @@ const server = http.createServer(async (req, res) => {
         kosdaqTurnover: kosdaqTurnover.toLocaleString(),
         kospiTurnoverDiff,
         kosdaqTurnoverDiff,
-        futuresArray,
-        progsArray: (programPayload?.values || [0, 0, 0, 0, 0]).map((value) => Number.isFinite(Number(value)) ? Number(value) : 0),
+        ...flowSummary,
+        progsArray: programPayload?.source && programPayload.source !== 'unavailable' ? nullableArray(programPayload.values) : null,
         programSource: programPayload?.source || 'unavailable',
         programAsOfHour: programPayload?.asOfHour || '',
         turnoverSource: (kospiResult.status === 'fulfilled' && kosdaqResult.status === 'fulfilled') ? 'Daum Finance / Naver Finance fallback' : 'unavailable'
@@ -2280,40 +2274,12 @@ const server = http.createServer(async (req, res) => {
     const path = location.pathname.replace(/\/index\.html$/, '').replace(/\/$/, '');
     return (path || '') + '/api/stats';
   };
-  const numericOrNull = (value) => Number.isFinite(Number(value)) ? Number(value) : null;
-  const color = (value) => {
-    const n = numericOrNull(value);
-    if (n === null || n === 0) return '#5f6b85';
-    return n > 0 ? '#d92c2c' : '#1f5bd8';
-  };
-  const format = (value, available = true) => {
-    const n = numericOrNull(value);
-    return available && n !== null ? Math.round(n).toLocaleString('ko-KR') : '-';
-  };
   const update = async () => {
     try {
       const response = await fetch(apiStatsUrl(), { cache: 'no-store' });
       const json = await response.json();
       if (!response.ok || !json?.ok) return;
-      const body = document.getElementById('flowTableBody');
-      if (!body) return;
-      const futures = Array.isArray(json.futuresArray) ? json.futuresArray.slice(0, 5) : [];
-      const programs = Array.isArray(json.progsArray) ? json.progsArray.slice(0, 5) : [];
-      while (futures.length < 5) futures.push(0);
-      while (programs.length < 5) programs.push(0);
-      const programAvailable = Array.isArray(json.progsArray) && json.programSource && json.programSource !== 'unavailable';
-      body.innerHTML = [
-        ['외국인 선물(계약)', futures, true],
-        ['프로그램(억원)', programs, programAvailable]
-      ].map(([label, values, available]) => '<tr><td>' + label + '</td>' + values.map((value) =>
-        '<td style="color:' + color(value) + '">' + format(value, available) + '</td>'
-      ).join('') + '</tr>').join('');
-      const note = document.getElementById('flowAsOf');
-      if (note) {
-        const source = programAvailable ? json.programSource : '프로그램 원천 확인 필요';
-        const openDate = json.latestOpenDate ? ' · 최근 개장일 ' + json.latestOpenDate : '';
-        note.textContent = '기준시각: ' + new Date().toLocaleString('ko-KR') + ' · ' + source + ' · 30초 갱신' + openDate;
-      }
+      if (typeof window.renderFlowStats === 'function') window.renderFlowStats(json);
     } catch (_) {}
   };
   const shouldPoll = () => {
