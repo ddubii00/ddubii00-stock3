@@ -12,7 +12,7 @@ html = html.replace('<script src="https://s3.tradingview.com/tv.js"></script>', 
 // First, remove the previously injected block if it exists
 html = html.replace(/        const lwChartInstances = {};[\s\S]*?(?=    function renderSummary\(\) \{)/, '');
 
-const oldRenderSummary = html.match(/function renderSummary\(\) \{[\s\S]*?\n    \}/)[0];\nconst oldRenderSummary = html.match(/function renderSummary\(\) \{[\s\S]*?\n    \}/)[0];
+const oldRenderSummary = html.match(/function renderSummary\(\) \{[\s\S]*?\n    \}/)[0];
 const newRenderSummary = `    const lwChartInstances = {};
 
     function calculateSMA(data, period) {
@@ -115,7 +115,7 @@ const newRenderSummary = `    const lwChartInstances = {};
         inst.chart.applyOptions({ layout: { backgroundColor: '#ffffff' } });
 
         
-        [5, 10, 20, 60, 120, 240].forEach(p => {
+        [5, 10, 20, 60, 120, 200].forEach(p => {
           const smaData = calculateSMA(chartData, p);
           inst.maSeries[p].setData(smaData);
         });
@@ -170,9 +170,9 @@ const newRenderSummary = `    const lwChartInstances = {};
         priceLineVisible: false
       });
 
-      const maColors = { 5: '#d92c2c', 10: '#1f5bd8', 20: '#0a9d58', 60: '#e4a11b', 120: '#8040a0', 240: '#606060' };
+      const maColors = { 5: '#d92c2c', 10: '#1f5bd8', 20: '#0a9d58', 60: '#e4a11b', 120: '#8040a0', 200: '#606060' };
       const maSeries = {};
-      [5, 10, 20, 60, 120, 240].forEach(p => {
+      [5, 10, 20, 60, 120, 200].forEach(p => {
         maSeries[p] = chart.addLineSeries({
           color: maColors[p],
           lineWidth: 2,
@@ -182,7 +182,7 @@ const newRenderSummary = `    const lwChartInstances = {};
         });
       });
 
-      lwChartInstances[key] = { chart, candleSeries, maSeries, interval: '1d', visibleCount: 120, toggles: { candle: true, 5: true, 10: true, 20: true, 60: true, 120: true, 240: true } };
+      lwChartInstances[key] = { chart, candleSeries, maSeries, interval: '1d', visibleCount: 120, toggles: { candle: true, 5: true, 10: true, 20: true, 60: true, 120: true, 200: true } };
       loadLwChart(key);
     }
 
@@ -219,7 +219,7 @@ const newRenderSummary = `    const lwChartInstances = {};
             <span class="lg-item" data-key="\${item.popupKey}" data-series="20" style="font-weight:bold;color:#0a9d58;">■ 20</span>
             <span class="lg-item" data-key="\${item.popupKey}" data-series="60" style="font-weight:bold;color:#e4a11b;">■ 60</span>
             <span class="lg-item" data-key="\${item.popupKey}" data-series="120" style="font-weight:bold;color:#8040a0;">■ 120</span>
-            <span class="lg-item" data-key="\${item.popupKey}" data-series="240" style="font-weight:bold;color:#606060;">■ 240</span>
+            <span class="lg-item" data-key="\${item.popupKey}" data-series="200" style="font-weight:bold;color:#606060;">■ 200</span>
           </div>
           <div class="chart lw-chart" id="lwchart-\${item.popupKey}" style="height:270px;background:none;border:none;"></div>
         \`;
