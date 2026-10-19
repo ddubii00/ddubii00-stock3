@@ -3,6 +3,7 @@
 const { fetchInvestorTopFlows } = require('../dashboard-data');
 
 module.exports = async function handler(req, res) {
+  if (!require('../access-control').requireAccess(req,res)) return;
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 'no-store');
   try {

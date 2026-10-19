@@ -133,13 +133,13 @@ test('old-only flows and failed calendar queries cannot appear as fresh data', a
 test('serverless endpoint bypasses CDN caching on normal visits and on errors', async () => {
   for (const fail of [false, true]) {
     let calls = 0;
-    const context = vm.createContext({ module: { exports: {} }, require: () => ({
+    const context = vm.createContext({ module: { exports: {} }, require: (id) => id==='../access-control'?require('../access-control'):({
       fetchInvestorTopFlows: async () => { calls += 1; if (fail) throw new Error('unavailable'); return { asOf: '2026-10-08' }; }
     }) });
     vm.runInContext(fs.readFileSync(path.join(root, 'api/investor-top-flows.js'), 'utf8'), context);
     const headers = {};
     const res = { setHeader: (key, value) => { headers[key] = value; }, status(code) { this.code = code; return this; }, json(body) { this.body = body; } };
-    await context.module.exports({}, res);
+    await context.module.exports({headers:{'x-stock3-password':'1222'}}, res);
     assert.equal(headers['Cache-Control'], 'no-store');
     assert.equal(calls, 1);
     assert.equal(res.code, fail ? 500 : 200);

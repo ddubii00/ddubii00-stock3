@@ -1,6 +1,7 @@
 'use strict';
 const { fetchStockSearch } = require('../stock-search');
 module.exports = async function handler(req, res) {
+  if (!require('../access-control').requireAccess(req,res)) return;
   res.setHeader('Cache-Control','no-store');
   const query = typeof req.query?.q === 'string' ? req.query.q.trim() : '';
   if (query.length > 80) return res.status(400).json({ok:false,error:'검색어는 80자 이하로 입력하세요.'});

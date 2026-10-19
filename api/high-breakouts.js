@@ -3,6 +3,7 @@
 const { fetchHighBreakouts } = require('../breakout-data');
 
 module.exports = async function handler(req, res) {
+  if (!require('../access-control').requireAccess(req,res)) return;
   try {
     const payload = await fetchHighBreakouts();
     res.setHeader('Cache-Control', 's-maxage=180, stale-while-revalidate=300');

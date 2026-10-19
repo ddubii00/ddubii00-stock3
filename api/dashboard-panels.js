@@ -3,6 +3,7 @@
 const { fetchDashboardPanels } = require('../dashboard-data');
 
 module.exports = async function handler(req, res) {
+  if (!require('../access-control').requireAccess(req,res)) return;
   try {
     const watchlist = Array.isArray(req.query?.watchlist) ? req.query.watchlist.join(',') : (req.query?.watchlist || '');
     const forceRefresh = String(req.query?.refresh || '') === '1';

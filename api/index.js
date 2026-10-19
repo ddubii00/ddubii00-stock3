@@ -141,6 +141,8 @@ async function yahooOHLCSeries(encodedSym, interval = '1d') {
 }
 
 async function fetchChartSeries(key, interval = '1d') {
+  const primary = await require('../kis-market-data').series(key,interval).catch(()=>null);
+  if (primary?.length) return primary;
   if (parseStockKey(key)) return require('../tradingview-data').fetchUnifiedSeries(key, interval);
   // 미국 국채 10년
   if (key === 'US10Y') {
@@ -215,11 +217,14 @@ function json(res, status, body) {
 
 // ── Vercel 핸들러 ─────────────────────────────────────────────────────────
 module.exports = async (req, res) => {
+  if (!require('../access-control').requireAccess(req,res)) return;
   // Vercel rewrite 시 req.url 이 /api/index 로 바뀌므로 원래 경로를 헤더에서 읽음
   const rawUrl = req.headers['x-vercel-rewritten-for'] || req.url || '/';
   const u = new URL(rawUrl.startsWith('http') ? rawUrl : `http://localhost${rawUrl}`);
   const pathname = u.pathname.replace(/\/$/, '');
 
+  if (pathname === '/api/access') return require('./access')(req,res);
+  if (pathname === '/api/market-snapshot') { req.query={stocks:u.searchParams.get('stocks') || ''}; return require('./market-snapshot')(req,res); }
   if (pathname === '/api/stock-search') {
     req.query = { q: u.searchParams.get('q') || '' };
     return require('./stock-search')(req,res);
@@ -230,7 +235,7 @@ module.exports = async (req, res) => {
     const symbol = u.searchParams.get('symbol') || '';
     if (!symbol) return json(res, 400, { ok: false, error: 'Missing symbol' });
     try {
-      const q = await fetchStooq(symbol);
+      const q = await require('../market-quotes').quote(symbol) || await fetchStooq(symbol);
       if (!q) return json(res, 404, { ok: false, error: 'no data' });
       return json(res, 200, { ok: true, quote: q });
     } catch (e) {

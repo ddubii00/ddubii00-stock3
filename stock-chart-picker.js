@@ -16,7 +16,7 @@
     return initial;
   }
 
-  function attach({ slot, initial, urlFor, onSelect }) {
+  function attach({ slot, initial, urlFor, onSelect, canSelect = () => true, selectionLabel }) {
     const input = browser.document.getElementById(`stock-search-${slot}`);
     const list = browser.document.getElementById(`stock-results-${slot}`);
     let rows = [], active = -1, generation = 0, timer, selected = initial;
@@ -42,10 +42,11 @@
     const choose = (index) => {
       const stock = rows[index];
       if (!valid(stock)) return;
+      if (!canSelect(stock)) { message('이미 표시 중인 종목입니다.'); input.value=selected.name; return; }
       selected = stock;
       close(); input.value = stock.name;
       input.title = `${stock.name} · ${stock.code} · ${stock.market}`;
-      input.setAttribute('aria-label',`${stock.name} 창 종목 검색`);
+      input.setAttribute('aria-label',selectionLabel || `${stock.name} 창 종목 검색`);
       try { browser.localStorage.setItem(storageKey(slot),JSON.stringify(stock)); }
       catch (_) { browser.console?.warn('선택 종목을 저장하지 못했습니다.'); }
       Promise.resolve(onSelect(stock)).catch(() => message('종목을 불러오지 못했습니다. 다시 선택하세요.'));
@@ -91,8 +92,9 @@
       }
     });
     input.addEventListener('blur',()=>{ close(); input.value = selected.name; });
-    browser.document.addEventListener('pointerdown',(event)=>{ if (!input.parentElement.contains(event.target)) { close(); input.value = selected.name; } });
-    return { close };
+    const outside = (event)=>{ if (!input.parentElement.contains(event.target)) { close(); input.value = selected.name; } };
+    browser.document.addEventListener('pointerdown',outside);
+    return { close, destroy(){ close(); browser.document.removeEventListener('pointerdown',outside); } };
   }
 
   return { valid, readSelection, attach };

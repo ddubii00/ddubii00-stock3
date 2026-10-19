@@ -141,6 +141,7 @@
     @media(max-width:520px) { .index-regime-panel { column-gap:5px; } .index-regime-layout { grid-template-columns:100px minmax(0,1fr); gap:5px; } .regime-position-row { font-size:11px; grid-template-columns:35px 12px minmax(0,1fr); } .regime-allocations { column-gap:5px; } .regime-allocations b { font-size:15px; } .index-regime-quotes { gap:4px; padding-left:4px; } .index-quote-current { min-width:60px; font-size:14px; } .index-quote-previous { max-width:60px; font-size:14px; } }
     @media(max-width:390px) { .index-regime-panel { grid-template-columns:minmax(0,1fr); row-gap:2px; } .index-regime-quotes { justify-self:end; } }
     .stock-chart-search { position:relative; min-width:0; max-width:65%; }
+    .stock-chart-name { display:block; padding:1px 3px; font-size:24px; font-weight:900; color:#172033; }
     .stock-chart-search input { width:100%; min-width:90px; border:0; border-bottom:1px dashed #b6c6dd; background:transparent; padding:1px 3px; font:inherit; font-size:24px; font-weight:900; color:#172033; box-sizing:border-box; }
     .stock-chart-search input:focus { outline:2px solid #9fc4ff; border-radius:4px; }
     .stock-search-results { position:absolute; top:100%; left:0; z-index:58; width:max(100%,270px); max-width:85vw; max-height:260px; overflow:auto; padding:4px; background:#fff; border:1px solid #cfdaeb; border-radius:8px; box-shadow:0 8px 20px rgba(16,35,70,.18); }
@@ -335,9 +336,59 @@
       .feed-item { grid-template-columns:76px minmax(0,1fr) 105px; }
       .reference-data-grid { grid-template-columns:1fr; }
     }
+
+    :root { --market-header-height:48px; }
+    body { padding-top:var(--market-header-height); }
+    body[data-locked] { padding-top:0; }
+    body[data-locked] .wrap { display:none; }
+    [hidden] { display:none !important; }
+    .market-header { position:fixed; inset:0 0 auto; z-index:500; display:grid; grid-template-columns:repeat(5,minmax(0,1fr)) auto; align-items:center; gap:4px; padding:4px 12px; box-sizing:border-box; background:rgba(255,255,255,.98); border-bottom:1px solid #dbe3f1; box-shadow:0 2px 8px #10234612; }
+    .market-ticker { min-width:0; font-variant-numeric:tabular-nums; line-height:1.05; color:#172033; }
+    .ticker-label { display:block; color:#5f6b85; font-size:10px; font-weight:800; }
+    .ticker-price { font-size:14px; font-weight:900; white-space:nowrap; }
+    .ticker-rate { display:inline-block; margin-left:3px; font-size:10px; font-weight:750; white-space:nowrap; }
+    .market-ticker.up .ticker-price,.market-ticker.up .ticker-rate { color:#d92c2c; }
+    .market-ticker.down .ticker-price,.market-ticker.down .ticker-rate { color:#1f5bd8; }
+    .market-ticker.stale { opacity:.5; }
+    .market-header .btn { padding:5px 8px; font-size:12px; border-radius:6px; }
+    .access-gate { min-height:100vh; display:grid; place-items:center; padding:20px; box-sizing:border-box; }
+    .access-form { width:min(320px,90vw); padding:25px; background:#fff; border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); }
+    .access-form h1 { margin:0 0 20px; font-size:23px; }
+    .access-form label { display:block; margin-bottom:5px; font-size:13px; font-weight:800; }
+    .access-form input { box-sizing:border-box; width:100%; padding:10px; border:1px solid #c8d5e8; border-radius:7px; font-size:18px; }
+    .access-form button { width:100%; margin-top:10px; }
+    .access-error { min-height:16px; color:#b4232a; font-size:12px; margin:10px 0 0; }
+    .chart-stocks-dialog { width:min(420px,90vw); max-height:80vh; overflow:auto; padding:15px; border:1px solid var(--line); border-radius:12px; color:#172033; }
+    .chart-stocks-dialog::backdrop { background:#07112370; }
+    .chart-stocks-dialog .dialog-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+    .chart-stocks-dialog h2 { margin:0; font-size:18px; }
+    .chart-stock-row { display:flex; align-items:center; gap:5px; border-bottom:1px solid #e8edf5; padding:7px 0; }
+    .chart-stock-row > span { flex:1; min-width:0; font-size:14px; font-weight:800; }
+    .chart-stocks-dialog .btn { padding:5px 9px; border-radius:6px; }
+    .chart-stocks-dialog .stock-chart-search { max-width:none; margin:10px 0 4px; }
+    .chart-stocks-dialog .stock-chart-search input { font-size:16px; padding:7px; }
+    .chart-stocks-dialog .stock-search-results { position:relative; width:100%; box-sizing:border-box; max-height:200px; }
+    .chart-stocks-dialog button:disabled { opacity:.3; cursor:default; }
+    #chartStocksMessage { color:#9a6011; font-size:12px; margin:6px 0; }
+    @media(max-width:700px) { .market-header { gap:3px; padding:4px 6px; } .ticker-rate { display:block; margin-left:0; font-size:10px; } .ticker-price { font-size:13px; } .ticker-label { font-size:10px; } .market-header .btn { padding:6px; } }
   </style>
 </head>
-<body>
+<body data-locked>
+  <div id="accessGate" class="access-gate"><form id="accessForm" class="access-form"><h1>시황 대시보드</h1><label for="accessPassword">접속 암호</label><input id="accessPassword" type="password" inputmode="numeric" autocomplete="current-password" maxlength="128" required autofocus /><button class="btn" type="submit">접속</button><p id="accessError" class="access-error" role="alert"></p></form></div>
+  <header id="marketHeader" class="market-header" aria-label="주요 지수와 환율" hidden>
+    <div class="market-ticker" id="ticker-KOSPI"><span class="ticker-label">KOSPI</span><strong class="ticker-price">-</strong><span class="ticker-rate">-</span></div>
+    <div class="market-ticker" id="ticker-KOSDAQ"><span class="ticker-label">KOSDAQ</span><strong class="ticker-price">-</strong><span class="ticker-rate">-</span></div>
+    <div class="market-ticker" id="ticker-NASDAQ"><span class="ticker-label">NASDAQ</span><strong class="ticker-price">-</strong><span class="ticker-rate">-</span></div>
+    <div class="market-ticker" id="ticker-SP500"><span class="ticker-label">S&P500</span><strong class="ticker-price">-</strong><span class="ticker-rate">-</span></div>
+    <div class="market-ticker" id="ticker-USDKRW"><span class="ticker-label">환율(원/달러)</span><strong class="ticker-price">-</strong><span class="ticker-rate">-</span></div>
+    <button id="openChartStocks" type="button" class="btn" aria-haspopup="dialog">종목</button>
+  </header>
+  <dialog id="chartStocksDialog" class="chart-stocks-dialog" aria-labelledby="chartStocksTitle">
+    <div class="dialog-head"><h2 id="chartStocksTitle">종목 차트</h2><button type="button" class="btn outline" id="closeChartStocks">닫기</button></div>
+    <div id="chartStocksList"></div>
+    <p id="chartStocksMessage" role="status"></p><button id="addChartStock" type="button" class="btn">추가</button>
+    <div id="chartStocksAddArea" hidden><div class="stock-chart-search"><input id="stock-search-CHART_ADD" aria-label="추가할 종목 검색" role="combobox" aria-autocomplete="list" aria-controls="stock-results-CHART_ADD" aria-expanded="false" autocomplete="off" placeholder="종목명 또는 코드" /><div id="stock-results-CHART_ADD" class="stock-search-results" role="listbox" aria-label="추가 종목 검색 결과" hidden></div></div></div>
+  </dialog>
   <div class="wrap">
     <div id="fileWarn" style="display:none;margin-bottom:12px;padding:10px 12px;border:1px solid #ffd8a8;background:#fff4e6;color:#8a4b08;border-radius:10px;font-size:13px;">
       현재 <b>file://</b> 로 열려 데이터 API가 동작하지 않습니다. <b>http://127.0.0.1:8000/index.html</b> 로 접속해주세요.
@@ -454,14 +505,14 @@
         <div class="chart lw-chart reference-chart" id="lwchart-USDJPY_DAILY"></div>
       </section>
       <section class="card span-6 technical-card">
-        <div class="head-row"><div class="stock-chart-search"><input id="stock-search-SAMSUNG_DAILY" aria-label="삼성전자 창 종목 검색" role="combobox" aria-autocomplete="list" aria-controls="stock-results-SAMSUNG_DAILY" aria-expanded="false" autocomplete="off" value="삼성전자" placeholder="종목명 또는 코드" /><div id="stock-results-SAMSUNG_DAILY" class="stock-search-results" role="listbox" aria-label="종목 검색 결과" hidden></div></div><div class="asof">일봉</div></div>
+        <div class="head-row"><div class="stock-chart-search"><span id="stock-search-SAMSUNG_DAILY" class="stock-chart-name">삼성전자</span><div id="stock-results-SAMSUNG_DAILY" class="stock-search-results" role="listbox" aria-label="종목 검색 결과" hidden></div></div><div class="asof">일봉</div></div>
         <div class="stock-chart-timeframes"><button class="btn outline stock-tf-btn" data-key="SAMSUNG_DAILY" data-tf="1d" style="background:var(--accent);color:#fff;">일봉</button><button class="btn outline stock-tf-btn" data-key="SAMSUNG_DAILY" data-tf="1wk">주봉</button><button class="btn outline stock-tf-btn" data-key="SAMSUNG_DAILY" data-tf="1mo">월봉</button><button class="btn outline stock-tf-btn" data-key="SAMSUNG_DAILY" data-tf="3lb" title="확정 일봉 종가 기준 3선 전환">삼선</button></div>
         <div class="technical-legend"><span class="legend-chip" data-series="5"><i class="legend-dot" style="background:#d92c2c"></i>MA5</span><span class="legend-chip" data-series="10"><i class="legend-dot" style="background:#1f5bd8"></i>MA10</span><span class="legend-chip" data-series="20"><i class="legend-dot" style="background:#0a9d58"></i>MA20</span><span class="legend-chip" data-series="60"><i class="legend-dot" style="background:#111827"></i>MA60</span><span class="legend-chip" data-series="120"><i class="legend-dot" style="background:#ed6f35"></i>MA120</span><span class="legend-chip" data-series="bb"><i class="legend-dot" style="border-top:2px dotted #d66b72;height:0"></i>볼린저밴드</span></div>
         <div class="index-regime-panel"><div id="market-regime-SAMSUNG_DAILY" class="index-regime-content" aria-live="polite">확인 중</div><div class="index-regime-quotes" id="index-quotes-SAMSUNG_DAILY"><div class="index-quote-previous" id="stock-prev-SAMSUNG_DAILY">-<br>직전가</div><div class="index-quote-current flat"><span id="index-price-SAMSUNG_DAILY" data-suffix="원">-원</span><span class="index-quote-rate" id="index-rate-SAMSUNG_DAILY">-</span></div></div></div>
         <div class="chart lw-chart reference-chart" id="lwchart-SAMSUNG_DAILY"></div>
       </section>
       <section class="card span-6 technical-card">
-        <div class="head-row"><div class="stock-chart-search"><input id="stock-search-SKHYNIX_DAILY" aria-label="SK하이닉스 창 종목 검색" role="combobox" aria-autocomplete="list" aria-controls="stock-results-SKHYNIX_DAILY" aria-expanded="false" autocomplete="off" value="SK하이닉스" placeholder="종목명 또는 코드" /><div id="stock-results-SKHYNIX_DAILY" class="stock-search-results" role="listbox" aria-label="종목 검색 결과" hidden></div></div><div class="asof">일봉</div></div>
+        <div class="head-row"><div class="stock-chart-search"><span id="stock-search-SKHYNIX_DAILY" class="stock-chart-name">SK하이닉스</span><div id="stock-results-SKHYNIX_DAILY" class="stock-search-results" role="listbox" aria-label="종목 검색 결과" hidden></div></div><div class="asof">일봉</div></div>
         <div class="stock-chart-timeframes"><button class="btn outline stock-tf-btn" data-key="SKHYNIX_DAILY" data-tf="1d" style="background:var(--accent);color:#fff;">일봉</button><button class="btn outline stock-tf-btn" data-key="SKHYNIX_DAILY" data-tf="1wk">주봉</button><button class="btn outline stock-tf-btn" data-key="SKHYNIX_DAILY" data-tf="1mo">월봉</button><button class="btn outline stock-tf-btn" data-key="SKHYNIX_DAILY" data-tf="3lb" title="확정 일봉 종가 기준 3선 전환">삼선</button></div>
         <div class="technical-legend"><span class="legend-chip" data-series="5"><i class="legend-dot" style="background:#d92c2c"></i>MA5</span><span class="legend-chip" data-series="10"><i class="legend-dot" style="background:#1f5bd8"></i>MA10</span><span class="legend-chip" data-series="20"><i class="legend-dot" style="background:#0a9d58"></i>MA20</span><span class="legend-chip" data-series="60"><i class="legend-dot" style="background:#111827"></i>MA60</span><span class="legend-chip" data-series="120"><i class="legend-dot" style="background:#ed6f35"></i>MA120</span><span class="legend-chip" data-series="bb"><i class="legend-dot" style="border-top:2px dotted #d66b72;height:0"></i>볼린저밴드</span></div>
         <div class="index-regime-panel"><div id="market-regime-SKHYNIX_DAILY" class="index-regime-content" aria-live="polite">확인 중</div><div class="index-regime-quotes" id="index-quotes-SKHYNIX_DAILY"><div class="index-quote-previous" id="stock-prev-SKHYNIX_DAILY">-<br>직전가</div><div class="index-quote-current flat"><span id="index-price-SKHYNIX_DAILY" data-suffix="원">-원</span><span class="index-quote-rate" id="index-rate-SKHYNIX_DAILY">-</span></div></div></div>
@@ -900,7 +951,11 @@
   <script src="./market-regime-view.js"></script>
   <script src="./three-line-break.js"></script>
   <script src="./stock-chart-picker.js"></script>
+  <script src="./stock-chart-list.js"></script>
+  <script src="./market-header.js"></script>
+  <script src="./access-client.js"></script>
   <script>
+  async function startDashboard() {
     const APP_BASE_PATH = (() => {
       const pathname = window.location?.pathname || '/';
       const folder = pathname.endsWith('/')
@@ -992,7 +1047,7 @@
 
     function refreshIndexRegime(inst, rows) {
       if (!inst.options?.maCompare) return;
-      if (Array.isArray(rows) && rows.length) {
+      if (Array.isArray(rows) && rows.length && !(inst.liveQuoteAt && Date.now() - inst.liveQuoteAt < 40_000)) {
         const last = rows.at(-1), previous = rows.at(-2);
         const change = previous?.close > 0 ? (last.close / previous.close - 1) * 100 : null;
         updateIndexQuote(inst.options?.regimePanelKey || inst.options?.apiKey || inst.key, { price:last.close, previousClose:previous?.close, changePercent:change, asOf:last.date });
@@ -1536,11 +1591,12 @@
         rightPriceScale: { borderColor: '#dbe3f1' },
         timeScale: { borderColor: '#dbe3f1', minBarSpacing: options.visibleHours ? 0.05 : 0.5, lockVisibleTimeRangeOnResize: !!options.visibleHours },
       });
-      new ResizeObserver(entries => {
+      const resizeObserver = new ResizeObserver(entries => {
         if (entries.length === 0 || entries[0].target !== el) return;
         const newRect = entries[0].contentRect;
         chart.applyOptions({ width: newRect.width, height: newRect.height });
-      }).observe(el);
+      });
+      resizeObserver.observe(el);
 
       
       const candleSeries = chart.addCandlestickSeries({
@@ -1577,7 +1633,7 @@
 
       const visibleMa = Array.isArray(options.visibleMa) ? options.visibleMa : [5,10,20,60,120,200];
       lwChartInstances[key] = {
-        key, chart, candleSeries, maSeries, bbSeries, containerId, interval: initialInterval, visibleCount, options,
+        key, chart, candleSeries, maSeries, bbSeries, resizeObserver, containerId, interval: initialInterval, visibleCount, options,
         toggles: { candle:true, bb:!!bbSeries, 5:visibleMa.includes(5), 10:visibleMa.includes(10), 20:visibleMa.includes(20), 60:visibleMa.includes(60), 120:visibleMa.includes(120), 200:visibleMa.includes(200) }
       };
       bindStaticChartControls(key);
@@ -3489,18 +3545,6 @@
       document.getElementById('fileWarn').style.display = 'block';
     }
     
-    // Auto-refresh minute charts every 60 seconds
-    setInterval(() => {
-      summaryItems.forEach(item => {
-        const inst = lwChartInstances[item.popupKey];
-        if (inst && inst.interval && inst.interval.endsWith('m')) {
-          loadLwChart(item.popupKey);
-        }
-        if (inst) refreshIndexRegime(inst);
-      });
-      ['SAMSUNG_DAILY','SKHYNIX_DAILY'].forEach((slot) => { if (lwChartInstances[slot]) void loadLwChart(slot); });
-    }, 60000);
-
     renderMiniChart('chart-us10y', 'US10Y');
     renderMiniChart('chart-us2y', 'US2Y');
     renderMiniChart('chart-usdkrw', 'USDKRW');
@@ -3522,14 +3566,15 @@
       referenceValues:true, valueSuffix:'%', valueDigits:2, axisDigits:2, periodControl:true
     });
     function initSelectableStock(slot, initial) {
-      const stock = window.StockChartPicker.readSelection(slot, initial);
-      const input = document.getElementById(`stock-search-${slot}`);
-      input.value = stock.name;
+      const stock = initial;
+      const nameEl = document.getElementById(`stock-search-${slot}`);
+      nameEl.textContent = stock.name;
+      nameEl.title = `${stock.code} · ${stock.market}`;
       initLwChart(slot, `lwchart-${slot}`, '1d', 120, {
         apiKey:stock.key, regimePanelKey:slot, plain:true, noMarkers:true, visibleMa:[5,10,20,60,120],
         maCompare:true, bollinger:true, referenceValues:true, valueSuffix:'원', valueDigits:0, axisDigits:0, periodControl:true
       });
-      const stockCard = input.closest('section');
+      const stockCard = nameEl.closest('section');
       const timeframeButtons = stockCard.querySelectorAll('.stock-tf-btn');
       timeframeButtons.forEach((button) => button.addEventListener('click', () => {
         timeframeButtons.forEach((item) => {
@@ -3540,21 +3585,16 @@
         stockCard.querySelector('.asof').textContent = button.textContent;
         loadLwChart(slot);
       }));
-      window.StockChartPicker.attach({slot, initial:stock, urlFor:apiUrl, onSelect:async (selected) => {
-        const inst = lwChartInstances[slot];
-        inst.options.apiKey = selected.key;
-        inst.regimeRevision = (inst.regimeRevision || 0) + 1;
-        inst.regimeUpdatedAt = 0;
-        inst.candleSeries.setData([]);
-        Object.values(inst.maSeries).forEach((series) => series.setData([]));
-        if (inst.bbSeries) { inst.bbSeries.upper.setData([]); inst.bbSeries.lower.setData([]); }
-        document.getElementById(`market-regime-${slot}`).textContent = '불러오는 중';
-        updateIndexQuote(slot,null);
-        await loadLwChart(slot);
-      }});
+
     }
-    initSelectableStock('SAMSUNG_DAILY', {name:'삼성전자',code:'005930',market:'KOSPI',key:'KR:005930:KOSPI'});
-    initSelectableStock('SKHYNIX_DAILY', {name:'SK하이닉스',code:'000660',market:'KOSPI',key:'KR:000660:KOSPI'});
+    const chartStocks = window.StockChartList.create({urlFor:apiUrl,
+      onMount:(item)=>initSelectableStock(item.slot,item),
+      onRemove:(slot)=>{
+        const inst=lwChartInstances[slot];if(!inst)return;
+        inst.loadRevision=(inst.loadRevision || 0)+1;inst.regimeRevision=(inst.regimeRevision || 0)+1;
+        inst.stockPicker?.destroy();inst.resizeObserver?.disconnect();inst.chart.remove();delete lwChartInstances[slot];
+      }
+    });
     initLwChart('USDJPY_DAILY', 'lwchart-USDJPY_DAILY', '1d', 120, {
       apiKey:'USDJPY', plain:true, noMarkers:true, bollinger:true, visibleMa:[20,60,120],
       referenceValues:true, valueSuffix:'엔', valueDigits:2, axisDigits:2, periodControl:true
@@ -3781,8 +3821,31 @@
     renderDashboardBridge();
     refreshInvestorTopFlows();
     renderHighBreakouts();
-    updateSummaryNumbers();
-    setInterval(updateSummaryNumbers, 60000);
+    window.MarketHeader.start({urlFor:apiUrl,getStocks:()=>chartStocks.current(),
+      onQuotes:(quotes)=>{
+        for(const {key,quote} of quotes){
+          if(!quote)continue;
+          const index=summaryItems.find(item=>item.popupKey===key);
+          const slots=index?[key]:chartStocks.current().filter(item=>item.key===key).map(item=>item.slot);
+          for(const slot of slots){
+            const inst=lwChartInstances[slot];if(inst)inst.liveQuoteAt=Date.now();
+            updateIndexQuote(slot,quote);
+          }
+          if(index){
+            const value=document.getElementById(`v-${index.symbol}`),delta=document.getElementById(`d-${index.symbol}`);
+            const rate=quote.changePercent,tone=rate>0?'up':rate<0?'down':'flat';
+            value.textContent=Math.round(quote.price).toLocaleString('ko-KR');value.className=`value ${tone}`;
+            delta.textContent=typeof rate==='number'?`${rate>0?'+':''}${rate.toFixed(2)}%`:'-';delta.className=`delta ${tone}`;
+          }
+        }
+        document.getElementById('updatedAt').textContent='업데이트: '+new Date().toLocaleString('ko-KR');
+      },
+      onCharts:()=>Promise.allSettled([...summaryItems.map(item=>item.popupKey),...chartStocks.current().map(item=>item.slot),'USDJPY_DAILY','US10Y_WEEK','KR3Y_WEEK','JP30Y_WEEK'].map(key=>{
+        const inst=lwChartInstances[key];
+        if(!inst || document.getElementById(inst.containerId)?.getAttribute('aria-busy')==='true')return Promise.resolve();
+        return loadLwChart(key);
+      }))
+    });
     setInterval(refreshBinanceKoreaFutures, 30000);
     setInterval(renderDashboardBridge, 2 * 60 * 1000);
     setInterval(renderHighBreakouts, 5 * 60 * 1000);
@@ -3790,6 +3853,8 @@
       ['NASDAQ_FUTURES', 'KOSPI_NIGHT_FUTURES'].forEach(loadLwChart);
       renderBondYields();
     }, 60000);
+  }
+  window.Stock3Access.ready.then(startDashboard);
   </script>
 </body>
 </html>

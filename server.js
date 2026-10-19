@@ -54,7 +54,6 @@ const marketFundsInFlight = new Map();
 const investorIntradaySnapshots = new Map();
 const INVESTOR_INTRADAY_STORE_PATH = process.env.INVESTOR_INTRADAY_STORE_PATH || path.join(ROOT, '.runtime', 'investor-intraday.json');
 const investorIntradayStore = { loaded: false, days: {} };
-let kisAccessTokenCache = { token: '', expiresAt: 0 };
 let kisHolidayCache = { koreaDate: '', latestOpenDate: '', expiresAt: 0 };
 let kisProgramDailyCache = { rows: [], expiresAt: 0 };
 let investorCaptureRunning = false;
@@ -266,7 +265,7 @@ function getKisCredentials() {
 
 function hasKisInvestorConfig() {
   const { appKey, appSecret } = getKisCredentials();
-  return process.env.VERCEL !== '1' && Boolean(appKey && appSecret);
+  return process.env.VERCEL !== '1' && process.env.STOCK3_KIS_FLOW_OWNER !== 'gateway' && Boolean(appKey && appSecret);
 }
 
 function kisBaseUrl() {
@@ -286,17 +285,7 @@ function kisHeaders(token, trId) {
 
 async function fetchKisAccessToken() {
   if (!hasKisInvestorConfig()) return '';
-  if (kisAccessTokenCache.token && kisAccessTokenCache.expiresAt - Date.now() > 60_000) return kisAccessTokenCache.token;
-  const { appKey, appSecret } = getKisCredentials();
-  const response = await fetchWithTimeout(`${kisBaseUrl()}/oauth2/tokenP`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ grant_type: 'client_credentials', appkey: appKey, appsecret: appSecret })
-  }, 10000);
-  const json = await response.json().catch(() => ({}));
-  if (!response.ok || !json.access_token) throw new Error(`KIS token ${json.msg_cd || response.status}`);
-  kisAccessTokenCache = { token: json.access_token, expiresAt: Date.now() + (Number(json.expires_in) || 3600) * 1000 };
-  return kisAccessTokenCache.token;
+  return require('./kis-market-data').getAccessToken();
 }
 
 const KIS_INVESTOR_MARKETS = {
@@ -2064,6 +2053,13 @@ async function fetchChartSeries(key, interval = '1d') {
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://${req.headers.host}`);
   const requestPath = normalizeApiPath(u.pathname);
+  if (requestPath.startsWith('/api/') && !require('./access-control').requireAccess(req,res)) return;
+  if (requestPath === '/api/access') return send(res,200,JSON.stringify({ok:true}),'application/json');
+  if (requestPath === '/api/market-snapshot') {
+    req.query = { stocks:u.searchParams.get('stocks') || '' };
+    const response = {setHeader:(key,value)=>res.setHeader(key,value),status(code){this.code=code;return this;},json(body){return send(res,this.code || 200,JSON.stringify(body),'application/json');}};
+    return require('./api/market-snapshot')(req,response);
+  }
 
   if (requestPath === '/api/stock-search') {
     req.query = { q: u.searchParams.get('q') || '' };
@@ -2075,7 +2071,7 @@ const server = http.createServer(async (req, res) => {
   if (requestPath === '/api/quote') {
     try {
       const symbol = u.searchParams.get('symbol') || '';
-      const q = await fetchStooq(symbol);
+      const q = await require('./market-quotes').quote(symbol) || await fetchStooq(symbol);
       if (!q) return send(res, 404, JSON.stringify({ ok: false, error: 'no data' }), 'application/json');
       return send(res, 200, JSON.stringify({ ok: true, quote: q }), 'application/json');
     } catch (e) {
@@ -2250,6 +2246,9 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  let staticName;
+  try { staticName=decodeURIComponent(u.pathname); } catch (_) { return send(res,400,'Bad request'); }
+  if (/(?:^|\/)\.|\.(?:key|pem)$|(?:token|secret)[^/]*\.json$/i.test(staticName)) return send(res,403,'Forbidden');
   const target = resolveStaticPath(u.pathname);
   const file = path.join(ROOT, target);
   if (!file.startsWith(ROOT)) return send(res, 403, 'Forbidden');

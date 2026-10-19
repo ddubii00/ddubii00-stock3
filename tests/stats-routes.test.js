@@ -22,6 +22,7 @@ async function coreStats(payload, program = null) {
       if (id === 'path') return path;
       if (id === 'fs') return { readFileSync: () => { throw new Error('File reads forbidden in stats tests'); } };
       if (id === 'ws') return {};
+      if (id === './access-control') return require('../access-control');
       if (id === './flow-stats') return require('../flow-stats');
       if (id.startsWith('./')) return {};
       throw new Error(`Unexpected require ${id}`);
@@ -38,7 +39,7 @@ async function coreStats(payload, program = null) {
     hasKisInvestorConfig = () => true;
   `, context);
   let result;
-  await handler({ url: '/api/stats', headers: { host: 'localhost' } }, {
+  await handler({ url: '/api/stats', headers: { host: 'localhost', 'x-stock3-password':'1222' } }, {
     writeHead: () => {}, end: (body) => { result = JSON.parse(body); },
   });
   return { result, calls };
@@ -73,7 +74,7 @@ test('Oracle stats returns null for unavailable futures and programs', async () 
 async function vercelStats(payload, failed = false) {
   const context = vm.createContext({
     module: { exports: {} }, URL, Date, Buffer, TextDecoder, AbortController, setTimeout, clearTimeout,
-    require: (id) => id === '../server' ? { fetchForeignFuturesSeries: async () => payload } : require('../flow-stats'),
+    require: (id) => id === '../access-control' ? require('../access-control') : id === '../server' ? { fetchForeignFuturesSeries: async () => payload } : require('../flow-stats'),
     fetch: async (url) => {
       if (failed) throw new Error('mock source unavailable');
       if (url.includes('programDealTrendDay')) return { ok: true, arrayBuffer: async () => Buffer.from('<html></html>') };
@@ -82,7 +83,7 @@ async function vercelStats(payload, failed = false) {
   });
   vm.runInContext(fs.readFileSync(path.join(root, 'api/stats.js'), 'utf8'), context);
   let result;
-  await context.module.exports({ method: 'GET' }, { setHeader: () => {}, end: (body) => { result = JSON.parse(body); } });
+  await context.module.exports({ method: 'GET',headers:{'x-stock3-password':'1222'} }, { setHeader: () => {}, end: (body) => { result = JSON.parse(body); } });
   return result;
 }
 

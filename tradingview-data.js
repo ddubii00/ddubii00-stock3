@@ -172,6 +172,8 @@ async function fetchNaverIndexClosingMinutes(key, date, targetMin = 1) {
 }
 
 async function fetchUnifiedSeries(key, interval = '1d') {
+  const primary = await require('./kis-market-data').series(key,interval).catch(()=>null);
+  if (primary?.length) return primary;
   const stock = parseStockKey(key);
   const source = stock ? { symbols: [`KRX:${stock.code}`], offset: 9 * 3600 } : chartSources[key];
   if (!source) return null;

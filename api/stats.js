@@ -134,6 +134,7 @@ async function fetchProgramTradingDays(limit = 20) {
 }
 
 module.exports = async function handler(req, res) {
+  if (!require('../access-control').requireAccess(req,res)) return;
   if (req.method === 'OPTIONS') {
     return sendJson(res, 200, { ok: true });
   }

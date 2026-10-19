@@ -2,6 +2,7 @@
 const { fetchChartSeries } = require('../utils');
 
 module.exports = async function handler(req, res) {
+  if (!require('../access-control').requireAccess(req,res)) return;
   const { key = '', interval = '1d' } = req.query;
 
   if (!key) {

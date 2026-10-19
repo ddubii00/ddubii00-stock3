@@ -57,7 +57,7 @@ test('reference stock preferences are independent and ignore malformed saved sel
 test('stock charts load the requested code with mocked upstream calls',async()=>{
   const urls=[];
   const context=vm.createContext({module:{exports:{}},URL,Buffer,setTimeout,clearTimeout,
-    require:(id)=>id==='./stock-search'?require('../stock-search'):class{constructor(){throw new Error('Unexpected WebSocket');}},
+    require:(id)=>id==='./kis-market-data'?{series:async()=>null}:id==='./stock-search'?require('../stock-search'):class{constructor(){throw new Error('Unexpected WebSocket');}},
     fetch:async(url)=>{
       urls.push(url);
       return {ok:true,json:async()=>({chart:{result:[{meta:{gmtoffset:32400},timestamp:[Date.parse('2026-10-16T00:00:00Z')/1000],indicators:{quote:[{open:[123],high:[130],low:[120],close:[125]}]}}]}})};
@@ -76,11 +76,11 @@ test('stock charts load the requested code with mocked upstream calls',async()=>
 
 test('search endpoint shares real universe matching, handles failures and bounds input',async()=>{
   let calls=0,fail=false;
-  const context=vm.createContext({module:{exports:{}},require:()=>({fetchStockSearch:async(q)=>{calls++;if(fail)throw new Error('upstream');return matchStocks(universe,q);}})});
+  const context=vm.createContext({module:{exports:{}},require:(id)=>id==='../access-control'?require('../access-control'):({fetchStockSearch:async(q)=>{calls++;if(fail)throw new Error('upstream');return matchStocks(universe,q);}})});
   vm.runInContext(fs.readFileSync(path.join(root,'api/stock-search.js'),'utf8'),context);
   const run=async(q)=>{
     const result={};const res={setHeader:(k,v)=>{result[k]=v;},status(code){result.status=code;return this;},json(body){result.body=body;return body;}};
-    await context.module.exports({query:{q}},res);return result;
+    await context.module.exports({query:{q},headers:{'x-stock3-password':'1222'}},res);return result;
   };
   assert.equal((await run('삼성')).body.rows.length,3);
   assert.equal((await run('삼성전기')).body.rows[0].code,'009150');

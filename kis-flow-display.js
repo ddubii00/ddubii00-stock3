@@ -215,6 +215,7 @@ async function handleChartRequest(req, res, config) {
 async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const apiPath = normalizeApiPath(url.pathname);
+  if (apiPath.startsWith('/api/') && !require('./access-control').requireAccess(req,res)) return;
 
   if (apiPath === '/api/extra-chart') {
     const kind = url.searchParams.get('kind') || '';

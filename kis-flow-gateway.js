@@ -99,25 +99,8 @@ function hasKisCredentials() {
 }
 
 function loadKisCredentials() {
-  if (hasKisCredentials()) return;
-  // stock5 keeps the shared Oracle KIS credentials outside the Git checkout.
-  // Only import the two required fields; never log or persist their values.
-  const envPath = process.env.KIS_ENV_FILE || '/var/www/stock5-8/.env.local';
-  let contents;
-  try {
-    contents = fs.readFileSync(envPath, 'utf8');
-  } catch (error) {
-    console.warn(`[KIS FLOW] credential file unavailable (${envPath}): ${error.code || error.message}`);
-    return;
-  }
-  for (const key of ['KIS_APP_KEY', 'KIS_APP_SECRET']) {
-    if (process.env[key]) continue;
-    const match = contents.match(new RegExp(`^\\s*(?:export\\s+)?${key}\\s*=\\s*(.+?)\\s*$`, 'm'));
-    if (!match) continue;
-    const raw = match[1].trim();
-    const value = raw.match(/^(["'])(.*)\1$/)?.[2] || raw.replace(/\s+#.*$/, '').trim();
-    if (value) process.env[key] = value;
-  }
+  // Credentials are provided by the server environment only. Never read another app's .env file.
+  if (!hasKisCredentials()) console.warn('[KIS FLOW] KIS 환경변수가 설정되지 않았습니다.');
 }
 
 function getKoreaClock(date = new Date()) {
@@ -298,7 +281,7 @@ async function backfillIntradayRows(date) {
   state.backfillPromise = (async () => {
     const results = await Promise.allSettled(Object.entries(BACKFILL_KINDS).map(async ([kind, apiKind]) => {
       const url = `${BACKFILL_BASE_URL.replace(/\/$/, '')}/api/extra-chart?kind=${apiKind}`;
-      const response = await fetch(url, { signal: AbortSignal.timeout(6_000) });
+      const response = await fetch(url, { headers:require('./access-control').requestHeaders(), redirect:'error', signal: AbortSignal.timeout(6_000) });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const rows = normalizeBackfillRows(await response.json(), kind, date);
       if (rows.length < 2) return false;
@@ -330,18 +313,10 @@ async function fetchJson(url, options = {}, timeoutMs = 10_000) {
 }
 
 async function getAccessToken() {
-  if (!hasKisCredentials()) throw new Error('KIS APP KEY/SECRET environment variables are not configured');
-  if (state.token && state.tokenExpiresAt - Date.now() > 120_000) return state.token;
-  const { appKey, appSecret } = getKisCredentials();
-  const json = await fetchJson(`${KIS_BASE_URL}/oauth2/tokenP`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json; charset=utf-8' },
-    body: JSON.stringify({ grant_type: 'client_credentials', appkey: appKey, appsecret: appSecret }),
-  }, 12_000);
-  if (!json.access_token) throw new Error(`KIS token failed: ${json.msg_cd || json.msg1 || 'no access_token'}`);
-  state.token = json.access_token;
-  state.tokenExpiresAt = Date.now() + Math.max(300, Number(json.expires_in) || 3600) * 1000;
-  return state.token;
+  return require('./kis-market-data').getAccessToken();
+}
+async function getAccessTokenInfo() {
+  return require('./kis-market-data').getTokenInfo();
 }
 
 function kisHeaders(token, trId) {
@@ -858,6 +833,7 @@ function proxyToCore(req, res) {
 async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const apiPath = normalizeApiPath(url.pathname);
+  if (apiPath.startsWith('/api/') && !require('./access-control').requireAccess(req,res)) return;
 
   try {
     if (apiPath === '/api/kis-flow-health') {
@@ -917,15 +893,18 @@ async function handleRequest(req, res) {
 }
 
 function spawnCore() {
-  const childEnv = { ...process.env, PORT: String(CORE_PORT) };
-  // Avoid duplicate KIS polling inside the legacy core; the gateway owns KIS flow collection.
-  for (const key of ['KIS_APP_KEY', 'KIS_APPKEY', 'KIS_KEY', 'APP_KEY', 'APPKEY', 'KIS_APP_SECRET', 'KIS_APPSECRET', 'KIS_SECRET', 'APP_SECRET', 'APPSECRET']) {
-    childEnv[key] = '';
-  }
+  const childEnv = { ...process.env, PORT: String(CORE_PORT), STOCK3_KIS_FLOW_OWNER:'gateway' };
+  // Share environment credentials with quote/chart readers; the gateway still owns flow collection.
   const child = spawn(process.execPath, [path.join(ROOT, 'server.js')], {
     cwd: ROOT,
     env: childEnv,
-    stdio: 'inherit',
+    stdio: ['inherit','inherit','inherit','ipc'],
+  });
+  child.on('message',async(message)=>{
+    if(message?.type!=='stock3-kis-auth-request'||typeof message.requestId!=='string')return;
+    let value='',expiresAt=0;
+    try{({value,expiresAt}=await getAccessTokenInfo());}catch(_){ /* send no credential details on failure */ }
+    if(child.connected)child.send({type:'stock3-kis-auth-result',requestId:message.requestId,value,expiresAt},()=>{});
   });
   child.on('spawn', () => { state.coreReady = true; });
   child.on('exit', (code, signal) => {
