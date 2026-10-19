@@ -100,13 +100,13 @@
     return { label: `고점 대비 -${stage}%`, cash: RULES.stageCash[stage], credit: 0, tone: 'oversold' };
   }
 
-  function conditionRows(metrics, cycle, drawdown, cycleReset, recovery, newStages) {
+  function conditionRows(metrics, cycle, drawdown, cycleReset, recovery, newStages, establishedCycle) {
     const c = (label, met) => ({ label, met: met == null ? null : Boolean(met) });
     const trend = [c('20일선 > 60일선 > 120일선', metrics.ordered),
       c('20·60·120일선 모두 전일 대비 상승', metrics.rising20 && metrics.rising60 && metrics.rising120)];
     return [
-      { key: 'newCycle', label: '새 상승 사이클', met: cycleReset, conditions: [c('하락 사이클 시작 후 120일선 위 10거래일 연속', cycle.above120 >= 10 || cycleReset), c('60일선이 10거래일 전보다 상승', metrics.rising60Ten)] },
-      { key: 'recovery', label: '상승추세 회복', met: recovery, conditions: [c('하락 사이클 진행 중', cycle.declining || cycleReset), c('20일선 위 5거래일 연속', metrics.above20 >= 5), c('20일선 전일 대비 상승', metrics.rising20)] },
+      { key: 'newCycle', label: '새 상승 사이클', met: cycleReset, conditions: [c('20일선 위 5거래일 연속 + 20일선 상승 확인', metrics.confirmedRise), c('또는 120일선 위 10거래일 연속 + 60일선 10일 대비 상승', establishedCycle)] },
+      { key: 'recovery', label: '상승추세 회복', met: recovery, conditions: [c('하락 사이클 진행 중', cycle.declining || cycleReset), c('하락 시작 후 20일선 위 5거래일 연속', metrics.recoveryStreak >= RULES.recoveryDays), c('20일선 전일 대비 상승', metrics.rising20)] },
       ...RULES.stages.slice().reverse().map((value) => ({ key: `drawdown${value}`, label: `고점 대비 -${value}%`, met: atLeast(-drawdown, value), conditions: [c(`기준 최고 종가 대비 ${value}% 이상 하락`, atLeast(-drawdown, value)), c('같은 사이클에서 처음 도달', newStages.includes(value))] })),
       { key: 'decline2', label: '하락 2단계', met: atMost(drawdown, -10) && metrics.close < metrics.ma20 && (metrics.below20 >= 3 || metrics.slope20 < 0), conditions: [c('고점 대비 -10% 이상', atMost(drawdown, -10)), c('종가가 20일선 아래', metrics.close < metrics.ma20), c('3일 연속 하회 또는 20일선 5일 변화율 음수', metrics.below20 >= 3 || metrics.slope20 < 0)] },
       { key: 'decline1', label: '하락 1단계', met: metrics.below20 >= 2, conditions: [c('20일선 아래 2거래일 연속 종가', metrics.below20 >= 2)] },
@@ -122,7 +122,7 @@
     const ma = Object.fromEntries(RULES.ma.map((period) => [period, averages(rows, period)]));
     let result = null, previousKey = null, transitionDate = null;
     let below20 = 0, above20 = 0, above120 = 0;
-    let cycle = { id: rows[0]?.date || null, peak: null, peakDate: null, declining: false, declineStart: null, above120: 0, stages: [] };
+    let cycle = { id: rows[0]?.date || null, peak: null, peakDate: null, declining: false, declineStart: null, above120: 0, above20: 0, trendConfirmed: false, stages: [] };
     const transitions = [], stageSignals = [];
     for (let i = 0; i < rows.length; i += 1) {
       const row = rows[i];
@@ -135,13 +135,25 @@
       let drawdown = pct(row.close, cycle.peak);
       const decline2 = atMost(drawdown, -10) && row.close < metrics.ma20 && (below20 >= 3 || metrics.slope20 < 0);
       if (!cycle.declining && (below20 >= 2 || decline2 || atMost(drawdown, -20))) {
-        cycle.declining = true; cycle.declineStart = row.date; cycle.above120 = 0;
+        cycle.declining = true; cycle.declineStart = row.date; cycle.above120 = 0; cycle.above20 = 0;
       }
-      if (cycle.declining) cycle.above120 = row.close > metrics.ma120 ? cycle.above120 + 1 : 0;
-      const cycleReset = cycle.declining && cycle.above120 >= RULES.cycleDays && metrics.rising60Ten;
+      if (cycle.declining) {
+        cycle.above120 = row.close > metrics.ma120 ? cycle.above120 + 1 : 0;
+        cycle.above20 = row.close > metrics.ma20 ? cycle.above20 + 1 : 0;
+      }
+      metrics.recoveryStreak = cycle.above20;
+      const riseDays = cycle.declining ? cycle.above20 : above20;
+      metrics.confirmedRise = riseDays >= RULES.recoveryDays && metrics.rising20;
+      const recovery = cycle.declining && metrics.confirmedRise;
+      const establishedCycle = cycle.declining && cycle.above120 >= RULES.cycleDays && metrics.rising60Ten;
+      const cycleReset = ((cycle.declining || !cycle.trendConfirmed) && metrics.confirmedRise) || establishedCycle;
       if (cycleReset) {
-        const peakRow = rows.slice(i - RULES.cycleDays + 1, i + 1).reduce((a, b) => b.close > a.close ? b : a);
-        cycle = { id: row.date, peak: peakRow.close, peakDate: peakRow.date, declining: false, declineStart: null, above120: 0, stages: [] };
+        // Confirmation starts a new rise. Discard the old cycle's high/stages,
+        // but include all closes in the confirming rise (not just today's close).
+        const start = Math.max(0, i - (metrics.confirmedRise ? riseDays : RULES.cycleDays) + 1);
+        const peakRow = rows.slice(start, i + 1).reduce((a, b) => b.close > a.close ? b : a);
+        cycle = { id: row.date, peak: peakRow.close, peakDate: peakRow.date, declining: false, declineStart: null,
+          above120: 0, above20: 0, trendConfirmed: true, riseStart: rows[start].date, stages: [] };
         drawdown = pct(row.close, cycle.peak);
       }
       const newStages = cycle.declining ? RULES.stages.filter((stage) => atMost(drawdown, -stage) && !cycle.stages.some((s) => s.stage === stage)) : [];
@@ -150,12 +162,11 @@
         cycle.stages.push(signal); stageSignals.push(signal);
       }
       const deepest = cycle.stages.at(-1)?.stage || 0;
-      const recovery = (cycle.declining || cycleReset) && above20 >= RULES.recoveryDays && metrics.rising20;
-      const conditions = conditionRows(metrics, cycle, drawdown, cycleReset, recovery, newStages);
+      const conditions = conditionRows(metrics, cycle, drawdown, cycleReset, recovery, newStages, establishedCycle);
       const met = (key) => conditions.find((item) => item.key === key).met;
-      // Precedence: qualified cycle reset (housekeeping), short recovery, retained
-      // drawdown stage, decline 2, decline 1, strongest-to-weakest rise, sideways.
-      // Recovery changes the target, never clears stage signals in the same cycle.
+      // Precedence: confirmed rise resets the cycle; recovery, retained drawdown
+      // stage, decline 2, decline 1, strongest-to-weakest rise, sideways.
+      // Past signals remain in history; only the new cycle can issue new stages.
       let key = recovery ? 'recovery' : deepest ? `drawdown${deepest}` :
         ['decline2', 'decline1', 'superBull', 'strongBull', 'bull', 'sideways'].find(met);
       const carried = !key && previousKey !== null && !cycleReset;

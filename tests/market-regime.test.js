@@ -100,19 +100,21 @@ test('same-cycle rebounds/retests never repeat stages or move the frozen peak', 
   assert.deepEqual(analyze(prices), result);
 });
 
-test('short recovery outranks oversold only after five above-MA20 closes and retains stages', () => {
+test('confirmed recovery resets the old peak and stages only after five above-MA20 closes', () => {
   const base = [...flat(121), ...flat(30, 49)];
   assert.equal(analyze([...base, 50,51,52,53]).key, 'drawdown50');
   const result = analyze([...base, 50,51,52,53,54]);
   assert.equal(result.key, 'recovery');
   assert.equal(result.cash, 0);
-  assert.equal(result.cycle.declining, true);
-  assert.equal(result.cycle.peak, 100);
-  assert.equal(result.cycle.stages.length, 4);
-  assert.equal(result.cycleReset, false);
+  assert.equal(result.cycle.declining, false);
+  assert.equal(result.cycle.peak, 54);
+  assert.equal(result.cycle.stages.length, 0);
+  assert.equal(result.stageSignals.length, 4);
+  assert.equal(result.cycleReset, true);
+  assert.equal(result.drawdown, 0);
 });
 
-test('new cycle needs ten above-MA120 closes since decline and a rising ten-day MA60', () => {
+test('confirmed recovery starts a new cycle before the old MA120/MA60 reset condition', () => {
   const prices = [...flat(121), ...flat(130, 50), ...Array.from({length: 50}, (_, i) => 51 + i)];
   let resetIndex = -1;
   for (let i = 252; i < prices.length; i++) {
@@ -127,14 +129,66 @@ test('new cycle needs ten above-MA120 closes since decline and a rising ten-day 
   assert.equal(after.cycle.declining, false);
   assert.equal(after.cycle.stages.length, 0);
   assert.equal(after.cycle.id, after.asOf);
-  assert.equal(after.metrics.rising60Ten, true);
-  assert.ok(after.metrics.above120 >= 10);
+  assert.equal(after.metrics.confirmedRise, true);
+  assert.ok(after.metrics.above120 < 10 || !after.metrics.rising60Ten);
   assert.ok(before.cycle.above120 < 10 || !before.metrics.rising60Ten);
   assert.ok(after.cycle.peak < 100);
   const secondDecline = analyze([...prices.slice(0, resetIndex + 1), 1]);
   assert.equal(secondDecline.cycle.stages.length, 4);
   assert.equal(secondDecline.stageSignals.length, 8);
   assert.equal(new Set(secondDecline.stageSignals.map((s) => s.id)).size, 8);
+});
+
+test('a confirmed rise uses its own highest close, including before the confirmation day', () => {
+  const prices = [...flat(121), ...flat(30, 49), 55,54,53,52,51];
+  for (const market of ['KOSPI','KOSDAQ','NASDAQ','SP500','KR:005930:KOSPI','US:AAPL:NASDAQ']) {
+    const result = analyze(prices, market);
+    assert.equal(result.cycleReset, true);
+    assert.equal(result.cycle.peak, 55);
+    assert.equal(result.cycle.peakDate, bars(prices).at(-5).date);
+    assert.equal(result.cycle.riseStart, bars(prices).at(-5).date);
+    assert.ok(Math.abs(result.drawdown - (51/55-1)*100) < 1e-9);
+    const continued = analyze([...prices, 54,60,59], market);
+    assert.equal(continued.cycle.id, result.cycle.id, 'do not reset on every rising session');
+    assert.equal(continued.cycle.peak, 60);
+    assert.equal(continued.cycleReset, false);
+    const down = analyze([...prices, 54,60,59,48], market);
+    assert.equal(down.cycle.peak, 60);
+    assert.equal(down.key, 'drawdown20');
+    assert.deepEqual(down.cycle.stages.map(signal=>signal.stage), [20]);
+  }
+});
+
+test('five above-MA20 closes need a rising MA20, and unfinished bars cannot confirm a reset', () => {
+  const base = [...flat(121), ...flat(30,49)];
+  const input = bars([...base,50,51,52,53,54]);
+  const waiting = engine.analyze(input.map((row,i)=>({...row,isFinal:i<input.length-1})), 'KOSPI', {now:NOW});
+  assert.equal(waiting.cycle.peak,100);
+  assert.equal(waiting.cycleReset,false);
+  // A brief rebound above MA20 followed by equality/falling MA20 never starts a new cycle.
+  const result = analyze([...flat(121), ...flat(130,50), ...flat(5,70), ...flat(15,50), ...flat(5,60)]);
+  assert.equal(result.metrics.above20,5);
+  assert.equal(result.metrics.rising20,false);
+  assert.equal(result.cycle.peak,70);
+  assert.equal(result.cycleReset,false);
+});
+
+test('the existing long-trend confirmation remains an alternate reset when MA20 recovery is absent', () => {
+  const prices = [...flat(121), ...flat(130,50), ...flat(20,70), ...flat(11,60)];
+  const result = analyze(prices);
+  assert.equal(result.metrics.confirmedRise,false);
+  assert.equal(result.metrics.rising60Ten,true);
+  assert.equal(result.cycleReset,true);
+  assert.equal(result.cycle.peak,60);
+  assert.equal(result.cycle.stages.length,0);
+});
+
+test('the first confirmed rise also discards highs from the pre-trend warmup history', () => {
+  const prices=[...flat(90,150), ...flat(30,90),97,98,99,100,101];
+  const result=analyze(prices);
+  assert.equal(result.cycle.peak,101);
+  assert.equal(result.drawdown,0);
+  assert.equal(result.cycle.trendConfirmed,true);
 });
 
 test('transition date changes on actual regime change, not every refreshed day', () => {
