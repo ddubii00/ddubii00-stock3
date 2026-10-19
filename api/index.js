@@ -1,4 +1,5 @@
 'use strict';
+const { parseStockKey } = require('../stock-search');
 // api/index.js  ─  Vercel serverless: /api/chart, /api/quote, /api/stats 전부 처리
 
 const quoteMap = {
@@ -140,6 +141,7 @@ async function yahooOHLCSeries(encodedSym, interval = '1d') {
 }
 
 async function fetchChartSeries(key, interval = '1d') {
+  if (parseStockKey(key)) return require('../tradingview-data').fetchUnifiedSeries(key, interval);
   // 미국 국채 10년
   if (key === 'US10Y') {
     const rows = await yahooSimpleSeries('%5ETNX');
@@ -217,6 +219,11 @@ module.exports = async (req, res) => {
   const rawUrl = req.headers['x-vercel-rewritten-for'] || req.url || '/';
   const u = new URL(rawUrl.startsWith('http') ? rawUrl : `http://localhost${rawUrl}`);
   const pathname = u.pathname.replace(/\/$/, '');
+
+  if (pathname === '/api/stock-search') {
+    req.query = { q: u.searchParams.get('q') || '' };
+    return require('./stock-search')(req,res);
+  }
 
   // /api/quote
   if (pathname === '/api/quote') {

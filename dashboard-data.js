@@ -1431,4 +1431,4 @@ async function fetchDashboardPanels(watchlistInput, forceRefresh = false, etfInp
   return request;
 }
 
-module.exports = { fetchDashboardPanels, fetchBinanceKoreaFutures, fetchInvestorTopFlows };
+module.exports = { fetchDashboardPanels, fetchBinanceKoreaFutures, fetchInvestorTopFlows, fetchMarketUniverse };

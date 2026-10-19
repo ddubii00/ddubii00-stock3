@@ -106,14 +106,48 @@
     .chart-reference-values { position:absolute; top:11px; right:64px; z-index:55; display:flex; gap:6px; align-items:center; pointer-events:none; }
     .chart-value-pill { min-width:74px; padding:5px 8px; border:1px solid var(--line); border-radius:7px; background:rgba(255,255,255,.94); box-shadow:0 4px 12px rgba(16,35,70,.1); text-align:right; font-size:15px; line-height:1.15; font-weight:950; font-variant-numeric:tabular-nums; }
     .chart-value-pill.previous { color:#5f6b85; font-size:13px; }
-    .ma-compare-overlay { position:absolute; top:10px; left:12px; z-index:56; display:grid; grid-template-columns:auto auto; align-items:start; gap:5px 10px; width:max-content; padding:6px 8px; border:1px solid rgba(219,227,241,.82); border-radius:9px; background:rgba(255,255,255,.92); box-shadow:0 4px 12px rgba(16,35,70,.08); color:#111827; font-size:12px; line-height:1.2; font-weight:850; pointer-events:none; }
-    .ma-compare-overlay .label { color:#111827; }
-    .ma-compare-overlay .trend-line { display:flex; flex-direction:column; align-items:flex-start; gap:3px; }
-    .ma-compare-overlay .trend { font-weight:950; }
-    .ma-compare-overlay .trend.up { color:#d92c2c; }
-    .ma-compare-overlay .trend.down { color:#1f5bd8; }
-    .ma-compare-overlay .trend.flat { color:#111827; }
-    .ma-position-stack { display:flex; flex-direction:column; gap:2px; padding-right:10px; border-right:1px solid #dbe3f1; color:#111827; font-size:12px; font-weight:950; line-height:1.12; }
+    .index-regime-panel { display:grid; grid-template-columns:minmax(0,max-content) auto; column-gap:4px; justify-content:start; align-items:center; margin:0 0 4px; padding:4px 6px; box-sizing:border-box; border:1px solid #e0e7f1; border-radius:6px; background:#f8faff; color:#172033; font-size:12px; line-height:1; }
+    .index-regime-layout { display:grid; grid-template-columns:112px minmax(0,1fr); gap:8px; align-items:center; }
+    .regime-positions { border-right:1px solid #dbe3f1; padding-right:6px; }
+    .regime-position-row { display:grid; grid-template-columns:40px 14px minmax(0,1fr); gap:2px; align-items:center; margin:0; min-height:14px; font-size:12px; font-weight:800; font-variant-numeric:tabular-nums; }
+    .regime-position-row > span:first-child { white-space:nowrap; }
+    .regime-position-row strong { text-align:right; }
+    .regime-arrow { font-size:14px; line-height:1; font-weight:950; }
+    .regime-arrow.up { color:#d92c2c; }
+    .regime-arrow.down { color:#1f5bd8; }
+    .regime-arrow.flat { color:#5f6b85; }
+    .regime-small-label { font-size:11px; color:#5f6b85; font-weight:700; }
+    .regime-overview { min-width:0; }
+    .regime-allocations { display:flex; flex-wrap:wrap; align-items:baseline; column-gap:8px; row-gap:0; margin:0; line-height:1; }
+    .regime-allocations > span { white-space:nowrap; font-size:11px; }
+    .regime-allocations b { font-size:16px; font-weight:950; font-variant-numeric:tabular-nums; }
+    .regime-targets { margin:0; font-size:11px; line-height:1; font-variant-numeric:tabular-nums; }
+    .regime-state { display:inline-block; padding:1px 4px; border-radius:3px; background:#e8edf5; color:#5f6b85; font-size:12px; line-height:1; }
+    .regime-state.super-bull { color:#a30c27; background:#ffe0e6; }
+    .regime-state.strong-bull { color:#b12727; background:#ffeaeb; }
+    .regime-state.bull { color:#a3412a; background:#fff0e8; }
+    .regime-state.sideways { color:#8a630d; background:#fff5d5; }
+    .regime-state.decline1 { color:#295aac; background:#e8f0ff; }
+    .regime-state.decline2 { color:#1d3689; background:#dce5ff; }
+    .regime-state.oversold { color:#5d3296; background:#efe5ff; }
+    .regime-state.recovery { color:#087a57; background:#dff7ed; }
+    .regime-notice { color:#8a5717; font-size:10px; line-height:1.1; margin-top:2px; }
+    .regime-confirmed-date { margin-top:0; color:#172033; font-size:12px; line-height:1; }
+    .stock-chart-timeframes { display:flex; gap:4px; margin:0 0 4px; }
+    .index-regime-quotes { display:flex; align-items:center; gap:4px; padding-left:4px; border-left:1px solid #dbe3f1; font-variant-numeric:tabular-nums; }
+    .index-quote-previous { white-space:pre-line; max-width:65px; color:#5f6b85; font-size:15px; font-weight:850; line-height:1.05; text-align:right; }
+    .index-quote-current { min-width:70px; padding:4px; border:1px solid #e0e7f1; border-radius:5px; background:#fff; text-align:right; font-size:15px; line-height:1.05; font-weight:900; }
+    .index-quote-rate { display:block; font-size:12px; }
+    @media(max-width:520px) { .index-regime-panel { column-gap:5px; } .index-regime-layout { grid-template-columns:100px minmax(0,1fr); gap:5px; } .regime-position-row { font-size:11px; grid-template-columns:35px 12px minmax(0,1fr); } .regime-allocations { column-gap:5px; } .regime-allocations b { font-size:15px; } .index-regime-quotes { gap:4px; padding-left:4px; } .index-quote-current { min-width:60px; font-size:14px; } .index-quote-previous { max-width:60px; font-size:14px; } }
+    @media(max-width:390px) { .index-regime-panel { grid-template-columns:minmax(0,1fr); row-gap:2px; } .index-regime-quotes { justify-self:end; } }
+    .stock-chart-search { position:relative; min-width:0; max-width:65%; }
+    .stock-chart-search input { width:100%; min-width:90px; border:0; border-bottom:1px dashed #b6c6dd; background:transparent; padding:1px 3px; font:inherit; font-size:24px; font-weight:900; color:#172033; box-sizing:border-box; }
+    .stock-chart-search input:focus { outline:2px solid #9fc4ff; border-radius:4px; }
+    .stock-search-results { position:absolute; top:100%; left:0; z-index:58; width:max(100%,270px); max-width:85vw; max-height:260px; overflow:auto; padding:4px; background:#fff; border:1px solid #cfdaeb; border-radius:8px; box-shadow:0 8px 20px rgba(16,35,70,.18); }
+    .stock-search-results[hidden] { display:none; }
+    .stock-search-results button { display:block; width:100%; padding:7px 8px; border:0; border-radius:4px; background:#fff; color:#172033; text-align:left; font-size:13px; cursor:pointer; }
+    .stock-search-results button[aria-selected="true"], .stock-search-results button:hover { background:#e8f1ff; color:#174ca3; }
+    .stock-search-message { padding:8px; color:#66758b; font-size:12px; }
     .chart-rate { display:block; margin-top:2px; font-size:11px; font-weight:950; }
     .binance-change-main { display:block; font-size:18px; font-weight:950; line-height:1.05; }
     .binance-change-sub { display:block; margin-top:3px; font-size:12px; font-weight:850; opacity:.86; }
@@ -415,19 +449,23 @@
         <div class="chart lw-chart reference-chart" id="lwchart-JP30Y_WEEK"></div>
       </section>
       <section class="card span-6 technical-card">
-        <div class="head-row"><div class="title">삼성전자 (일)</div><div class="asof">일봉</div></div>
-        <div class="technical-legend"><span class="legend-chip"><i class="legend-dot" style="background:#0a9d58"></i>MA20</span><span class="legend-chip"><i class="legend-dot" style="background:#111827"></i>MA60</span><span class="legend-chip"><i class="legend-dot" style="background:#ed6f35"></i>MA120</span></div>
-        <div class="chart lw-chart reference-chart" id="lwchart-SAMSUNG_DAILY"></div>
-      </section>
-      <section class="card span-6 technical-card">
-        <div class="head-row"><div class="title">SK하이닉스 (일)</div><div class="asof">일봉</div></div>
-        <div class="technical-legend"><span class="legend-chip"><i class="legend-dot" style="background:#0a9d58"></i>MA20</span><span class="legend-chip"><i class="legend-dot" style="background:#111827"></i>MA60</span><span class="legend-chip"><i class="legend-dot" style="background:#ed6f35"></i>MA120</span></div>
-        <div class="chart lw-chart reference-chart" id="lwchart-SKHYNIX_DAILY"></div>
-      </section>
-      <section class="card span-6 technical-card">
         <div class="head-row"><div class="title">달러/엔 (USD/JPY, 일)</div><div class="asof">일봉</div></div>
         <div class="technical-legend"><span class="legend-chip"><i class="legend-dot" style="background:#d66b72"></i>볼린저 상단</span><span class="legend-chip"><i class="legend-dot" style="background:#0a9d58"></i>MA20</span><span class="legend-chip"><i class="legend-dot" style="background:#111827"></i>MA60</span><span class="legend-chip"><i class="legend-dot" style="background:#ed6f35"></i>MA120</span><span class="legend-chip"><i class="legend-dot" style="background:#6aa7e8"></i>볼린저 하단</span></div>
         <div class="chart lw-chart reference-chart" id="lwchart-USDJPY_DAILY"></div>
+      </section>
+      <section class="card span-6 technical-card">
+        <div class="head-row"><div class="stock-chart-search"><input id="stock-search-SAMSUNG_DAILY" aria-label="삼성전자 창 종목 검색" role="combobox" aria-autocomplete="list" aria-controls="stock-results-SAMSUNG_DAILY" aria-expanded="false" autocomplete="off" value="삼성전자" placeholder="종목명 또는 코드" /><div id="stock-results-SAMSUNG_DAILY" class="stock-search-results" role="listbox" aria-label="종목 검색 결과" hidden></div></div><div class="asof">일봉</div></div>
+        <div class="stock-chart-timeframes"><button class="btn outline stock-tf-btn" data-key="SAMSUNG_DAILY" data-tf="1d" style="background:var(--accent);color:#fff;">일봉</button><button class="btn outline stock-tf-btn" data-key="SAMSUNG_DAILY" data-tf="1wk">주봉</button><button class="btn outline stock-tf-btn" data-key="SAMSUNG_DAILY" data-tf="1mo">월봉</button><button class="btn outline stock-tf-btn" data-key="SAMSUNG_DAILY" data-tf="3lb" title="확정 일봉 종가 기준 3선 전환">삼선</button></div>
+        <div class="technical-legend"><span class="legend-chip" data-series="5"><i class="legend-dot" style="background:#d92c2c"></i>MA5</span><span class="legend-chip" data-series="10"><i class="legend-dot" style="background:#1f5bd8"></i>MA10</span><span class="legend-chip" data-series="20"><i class="legend-dot" style="background:#0a9d58"></i>MA20</span><span class="legend-chip" data-series="60"><i class="legend-dot" style="background:#111827"></i>MA60</span><span class="legend-chip" data-series="120"><i class="legend-dot" style="background:#ed6f35"></i>MA120</span><span class="legend-chip" data-series="bb"><i class="legend-dot" style="border-top:2px dotted #d66b72;height:0"></i>볼린저밴드</span></div>
+        <div class="index-regime-panel"><div id="market-regime-SAMSUNG_DAILY" class="index-regime-content" aria-live="polite">확인 중</div><div class="index-regime-quotes" id="index-quotes-SAMSUNG_DAILY"><div class="index-quote-previous" id="stock-prev-SAMSUNG_DAILY">-<br>직전가</div><div class="index-quote-current flat"><span id="index-price-SAMSUNG_DAILY" data-suffix="원">-원</span><span class="index-quote-rate" id="index-rate-SAMSUNG_DAILY">-</span></div></div></div>
+        <div class="chart lw-chart reference-chart" id="lwchart-SAMSUNG_DAILY"></div>
+      </section>
+      <section class="card span-6 technical-card">
+        <div class="head-row"><div class="stock-chart-search"><input id="stock-search-SKHYNIX_DAILY" aria-label="SK하이닉스 창 종목 검색" role="combobox" aria-autocomplete="list" aria-controls="stock-results-SKHYNIX_DAILY" aria-expanded="false" autocomplete="off" value="SK하이닉스" placeholder="종목명 또는 코드" /><div id="stock-results-SKHYNIX_DAILY" class="stock-search-results" role="listbox" aria-label="종목 검색 결과" hidden></div></div><div class="asof">일봉</div></div>
+        <div class="stock-chart-timeframes"><button class="btn outline stock-tf-btn" data-key="SKHYNIX_DAILY" data-tf="1d" style="background:var(--accent);color:#fff;">일봉</button><button class="btn outline stock-tf-btn" data-key="SKHYNIX_DAILY" data-tf="1wk">주봉</button><button class="btn outline stock-tf-btn" data-key="SKHYNIX_DAILY" data-tf="1mo">월봉</button><button class="btn outline stock-tf-btn" data-key="SKHYNIX_DAILY" data-tf="3lb" title="확정 일봉 종가 기준 3선 전환">삼선</button></div>
+        <div class="technical-legend"><span class="legend-chip" data-series="5"><i class="legend-dot" style="background:#d92c2c"></i>MA5</span><span class="legend-chip" data-series="10"><i class="legend-dot" style="background:#1f5bd8"></i>MA10</span><span class="legend-chip" data-series="20"><i class="legend-dot" style="background:#0a9d58"></i>MA20</span><span class="legend-chip" data-series="60"><i class="legend-dot" style="background:#111827"></i>MA60</span><span class="legend-chip" data-series="120"><i class="legend-dot" style="background:#ed6f35"></i>MA120</span><span class="legend-chip" data-series="bb"><i class="legend-dot" style="border-top:2px dotted #d66b72;height:0"></i>볼린저밴드</span></div>
+        <div class="index-regime-panel"><div id="market-regime-SKHYNIX_DAILY" class="index-regime-content" aria-live="polite">확인 중</div><div class="index-regime-quotes" id="index-quotes-SKHYNIX_DAILY"><div class="index-quote-previous" id="stock-prev-SKHYNIX_DAILY">-<br>직전가</div><div class="index-quote-current flat"><span id="index-price-SKHYNIX_DAILY" data-suffix="원">-원</span><span class="index-quote-rate" id="index-rate-SKHYNIX_DAILY">-</span></div></div></div>
+        <div class="chart lw-chart reference-chart" id="lwchart-SKHYNIX_DAILY"></div>
       </section>
     </div>
 
@@ -858,6 +896,10 @@
 
   <script src="https://s3.tradingview.com/tv.js"></script>
   <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
+  <script src="./market-regime.js"></script>
+  <script src="./market-regime-view.js"></script>
+  <script src="./three-line-break.js"></script>
+  <script src="./stock-chart-picker.js"></script>
   <script>
     const APP_BASE_PATH = (() => {
       const pathname = window.location?.pathname || '/';
@@ -932,42 +974,30 @@
         : { label: '하락', className: 'down' };
     }
 
-    function renderMaCompareOverlay(inst, chartData) {
-      const chartContainer = document.getElementById(inst.containerId || '');
-      if (!chartContainer) return;
-      let overlay = chartContainer.querySelector('.ma-compare-overlay');
-      const shouldShow = inst.options?.maCompare && inst.interval === '1d' && Array.isArray(chartData) && chartData.length >= 60;
-      if (!shouldShow) {
-        if (overlay) overlay.remove();
-        return;
+    function updateIndexQuote(key, quote) {
+      const priceEl = document.getElementById(`index-price-${key}`);
+      const rateEl = document.getElementById(`index-rate-${key}`);
+      const previousEl = document.querySelector(`#index-quotes-${key} .index-quote-previous`);
+      if (!priceEl || !rateEl || !previousEl) return;
+      const price = quote?.price, previous = quote?.previousClose, change = quote?.changePercent;
+      const validPrice = Number.isFinite(price) && price > 0;
+      const validPrevious = Number.isFinite(previous) && previous > 0;
+      const suffix = priceEl.dataset?.suffix || 'pt';
+      priceEl.textContent = validPrice ? `${Math.round(price).toLocaleString('ko-KR')}${suffix}` : `-${suffix}`;
+      previousEl.textContent = `${validPrevious ? Math.round(previous).toLocaleString('ko-KR') : '-'}\n직전가`;
+      rateEl.textContent = validPrice && Number.isFinite(change) ? `${change > 0 ? '+' : ''}${change.toFixed(2)}%` : '-';
+      priceEl.parentElement.className = `index-quote-current ${validPrice && change > 0 ? 'up' : validPrice && change < 0 ? 'down' : 'flat'}`;
+      priceEl.parentElement.title = quote?.asOf ? `시세 기준 ${quote.asOf}` : '시세 기준 확인 중';
+    }
+
+    function refreshIndexRegime(inst, rows) {
+      if (!inst.options?.maCompare) return;
+      if (Array.isArray(rows) && rows.length) {
+        const last = rows.at(-1), previous = rows.at(-2);
+        const change = previous?.close > 0 ? (last.close / previous.close - 1) * 100 : null;
+        updateIndexQuote(inst.options?.regimePanelKey || inst.options?.apiKey || inst.key, { price:last.close, previousClose:previous?.close, changePercent:change, asOf:last.date });
       }
-      if (!overlay) {
-        overlay = document.createElement('div');
-        overlay.className = 'ma-compare-overlay';
-        chartContainer.appendChild(overlay);
-      }
-      const latest = chartData[chartData.length - 1];
-      const current = Number(latest.close);
-      const ma20 = latestSmaValue(inst.smaDataMap?.[20], latest.time);
-      const ma60 = latestSmaValue(inst.smaDataMap?.[60], latest.time);
-      if (![current, ma20, ma60].every(Number.isFinite)) {
-        overlay.innerHTML = '<span class="label">이평 비교 계산 중</span>';
-        return;
-      }
-      const ma20Trend = getSmaTrend(inst.smaDataMap?.[20], latest.time);
-      const ma60Trend = getSmaTrend(inst.smaDataMap?.[60], latest.time);
-      const sortedPosition = [
-        { label: '현재가', value: current },
-        { label: '20일', value: ma20 },
-        { label: '60일', value: ma60 }
-      ].sort((a, b) => b.value - a.value);
-      overlay.innerHTML = `
-        <span class="ma-position-stack">${sortedPosition.map((item) => `<span>${item.label}</span>`).join('')}</span>
-        <span class="trend-line">
-          <span><span class="label">20일: </span><span class="trend ${ma20Trend.className}">${ma20Trend.label}</span></span>
-          <span><span class="label">60일: </span><span class="trend ${ma60Trend.className}">${ma60Trend.label}</span></span>
-        </span>
-      `;
+      if (window.MarketRegimeView) void window.MarketRegimeView.update(inst, rows, apiUrl);
     }
 
     function calculateBollinger(data, period = 20, multiplier = 2) {
@@ -1058,16 +1088,51 @@
     async function loadLwChart(key) {
       const inst = lwChartInstances[key];
       if (!inst) return;
+      const loadRevision = inst.loadRevision = (inst.loadRevision || 0) + 1;
+      const currentLoad = () => loadRevision === inst.loadRevision;
+      const apiKey = inst.options?.apiKey || key;
+      const isLineBreak = inst.interval === '3lb';
+      const sourceInterval = isLineBreak ? '1d' : inst.interval;
+      const confirmedInput = (rows) => isLineBreak ? window.MarketRegime.confirmedRows(rows, apiKey) : rows;
+      const projectIndicator = (rows, lines) => isLineBreak ? window.ThreeLineBreak.project(rows, lines) : rows;
+      const chartTarget = document.getElementById(inst.containerId || ('lwchart-' + key));
+      chartTarget.setAttribute('aria-busy', 'true');
+      chartTarget.dataset.chartType = isLineBreak ? 'line-break' : 'candlestick';
+      chartTarget.setAttribute('aria-label', isLineBreak ? '삼선전환 차트' : '캔들 차트');
+      const clearLineBreakBackground = () => {
+        if (!isLineBreak) return;
+        chartTarget.querySelector('.bg-canvas')?.remove();
+        if (inst._drawBg) {
+          inst.chart.timeScale().unsubscribeVisibleLogicalRangeChange(inst._drawBg);
+          inst.chart.timeScale().unsubscribeSizeChange(inst._drawBg);
+          inst._drawBg = undefined;
+        }
+      };
+      clearLineBreakBackground();
+      const showEmptyLineBreak = (rows) => {
+        if (!isLineBreak) return false;
+        inst.candleSeries.setData([]);
+        Object.values(inst.maSeries).forEach((series) => series.setData([]));
+        if (inst.bbSeries) { inst.bbSeries.upper.setData([]); inst.bbSeries.lower.setData([]); }
+        inst.candleSeries.setMarkers([]);
+        refreshIndexRegime(inst, rows);
+        let warning = chartTarget.querySelector('.chart-load-warning');
+        if (!warning) { warning = document.createElement('div'); warning.className = 'chart-load-warning'; chartTarget.appendChild(warning); }
+        warning.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#5f6b85;background:#fff;z-index:60;';
+        warning.textContent = '삼선전환 생성 조건을 기다리는 중';
+        chartTarget.dataset.chartBars = '0';
+        return true;
+      };
       try {
-        const apiKey = inst.options?.apiKey || key;
-        const res = await fetch(apiUrl(`/api/chart?key=${encodeURIComponent(apiKey)}&interval=${inst.interval}`));
+        const res = await fetch(apiUrl(`/api/chart?key=${encodeURIComponent(apiKey)}&interval=${sourceInterval}`));
         const json = await res.json();
+        if (!currentLoad()) return;
         if (!json?.ok || !json.series) throw new Error('no data');
         const oldWarning = document.getElementById(inst.containerId || ('lwchart-' + key))?.querySelector('.chart-load-warning');
         if (oldWarning) oldWarning.remove();
-        let series = json.series;
+        let series = confirmedInput(json.series);
         const requiredLength = inst.options?.visibleHours ? 5000 : Math.max(1000, inst.visibleCount + 250);
-        if (series.length > requiredLength) series = series.slice(-requiredLength);
+        if (!isLineBreak && series.length > requiredLength) series = series.slice(-requiredLength);
 
         const normalizedData = series.map((x) => {
           const close = Number(x.close);
@@ -1079,11 +1144,14 @@
             close
           };
         }).filter((row) => row.time !== null && row.time !== undefined && (typeof row.time !== 'number' || Number.isFinite(row.time)) && [row.open,row.high,row.low,row.close].every(Number.isFinite));
-        const chartData = [...new Map(normalizedData.map((row) => [String(row.time), row])).values()]
+        const indicatorData = [...new Map(normalizedData.map((row) => [String(row.time), row])).values()]
           .sort((a, b) => typeof a.time === 'number' && typeof b.time === 'number'
             ? a.time - b.time
             : String(a.time).localeCompare(String(b.time)));
-        if (!chartData.length) throw new Error('no valid chart data');
+        if (!indicatorData.length) throw new Error('no valid chart data');
+        const chartData = isLineBreak ? window.ThreeLineBreak.build(indicatorData) : indicatorData;
+        if (!chartData.length && showEmptyLineBreak(json.series)) return;
+        chartTarget.dataset.chartBars = String(chartData.length);
 
         const minuteWindow = inst.options?.visibleHours && inst.interval === '1m'
           ? buildMinuteWindow(chartData, inst.options.visibleHours)
@@ -1122,7 +1190,7 @@
         const chartContainer = document.getElementById(inst.containerId || ('lwchart-' + key));
         chartContainer.style.position = 'relative';
         chartContainer.style.backgroundColor = '#ffffff';
-        if (!inst.options?.plain) {
+        if (!inst.options?.plain && !isLineBreak) {
         let bgCanvas = chartContainer.querySelector('.bg-canvas');
         if (!bgCanvas) {
           bgCanvas = document.createElement('canvas');
@@ -1309,22 +1377,22 @@
 
         inst.smaDataMap = {};
         [5, 10, 20, 60, 120, 200].forEach(p => {
-          const smaData = calculateSMA(chartData, p);
+          const smaData = calculateSMA(indicatorData, p);
           const smaByTime = minuteWindow ? new Map(smaData.map((row) => [row.time, row.value])) : null;
           const visibleSma = minuteWindow
             ? minuteWindow.entries.map(({ time }) => smaByTime.has(time) ? { time, value: smaByTime.get(time) } : { time })
             : smaData;
-          inst.maSeries[p].setData(visibleSma);
+          inst.maSeries[p].setData(projectIndicator(visibleSma, chartData));
           inst.smaDataMap[p] = smaData;
         });
-        renderMaCompareOverlay(inst, chartData);
+        refreshIndexRegime(inst, sourceInterval === '1d' ? json.series : undefined);
         if (inst.bbSeries) {
-          const bollinger = calculateBollinger(chartData, 20, 2);
-          inst.bbSeries.upper.setData(bollinger.upper);
-          inst.bbSeries.lower.setData(bollinger.lower);
+          const bollinger = calculateBollinger(indicatorData, 20, 2);
+          inst.bbSeries.upper.setData(projectIndicator(bollinger.upper, chartData));
+          inst.bbSeries.lower.setData(projectIndicator(bollinger.lower, chartData));
         }
 
-        if (inst.options?.referenceValues && chartData.length) {
+        if (inst.options?.referenceValues && !inst.options?.maCompare && chartData.length) {
           let valuesEl = chartContainer.querySelector('.chart-reference-values');
           if (!valuesEl) {
             valuesEl = document.createElement('div');
@@ -1341,9 +1409,7 @@
             : Math.abs(latest) >= 100 ? 0 : 2;
           const suffix = inst.options.valueSuffix || '';
           const formatValue = (value) => `${Number(value).toLocaleString('ko-KR', { minimumFractionDigits: digits, maximumFractionDigits: digits })}${suffix}`;
-          valuesEl.innerHTML = inst.options?.maCompare
-            ? `<span class="chart-value-pill ${direction}">${formatValue(latest)}<span class="chart-rate ${direction}">${rateLabel}</span></span>`
-            : `<span class="chart-value-pill previous">직전 ${formatValue(previous)}</span><span class="chart-value-pill ${direction}">${formatValue(latest)}<span class="chart-rate ${direction}">${rateLabel}</span></span>`;
+          valuesEl.innerHTML = `<span class="chart-value-pill previous">직전 ${formatValue(previous)}</span><span class="chart-value-pill ${direction}">${formatValue(latest)}<span class="chart-rate ${direction}">${rateLabel}</span></span>`;
         }
 
         // MA Cross Logic
@@ -1351,7 +1417,7 @@
         const ma5 = inst.smaDataMap[5];
         const ma20 = inst.smaDataMap[20];
         const ma60 = inst.smaDataMap[60];
-        for (let i = 1; i < chartData.length; i++) {
+        for (let i = 1; !isLineBreak && i < chartData.length; i++) {
           const t = chartData[i].time;
           
           const checkCross = (fast, slow, text) => {
@@ -1372,7 +1438,7 @@
           checkCross(ma5, ma60, '5/60');
           checkCross(ma20, ma60, '20/60');
         }
-        inst.candleSeries.setMarkers(inst.options?.noMarkers ? [] : markers);
+        inst.candleSeries.setMarkers(isLineBreak || inst.options?.noMarkers ? [] : markers);
 
         if (chartData.length > 0) {
           inst.chart.timeScale().setVisibleRange({
@@ -1382,13 +1448,14 @@
           if (minuteWindow) drawFuturesDateBoundaries(inst, minuteWindow);
         }
       } catch (e) {
+        if (!currentLoad()) return;
         console.error(e);
         const target = document.getElementById(inst.containerId || ('lwchart-' + key));
         if (target) {
           try {
-            const apiKey = inst.options?.apiKey || key;
-            const fallback = await fetchJsonWithRetry(`/api/chart?key=${encodeURIComponent(apiKey)}&interval=${encodeURIComponent(inst.interval)}`, 2);
-            const fallbackRows = (fallback.series || []).map((row) => {
+            const fallback = await fetchJsonWithRetry(`/api/chart?key=${encodeURIComponent(apiKey)}&interval=${encodeURIComponent(sourceInterval)}`, 2);
+            if (!currentLoad()) return;
+            const fallbackRows = confirmedInput(fallback.series || []).map((row) => {
               const close = Number(row.close);
               return {
                 time: inst.options?.visibleHours ? Math.floor(Number(row.date) / 60) * 60 : row.date,
@@ -1398,25 +1465,28 @@
                 close
               };
             }).filter((row) => (typeof row.time !== 'number' || Number.isFinite(row.time)) && [row.open, row.high, row.low, row.close].every(Number.isFinite));
-            const daily = inst.options?.visibleHours
+            const fallbackInput = inst.options?.visibleHours
               ? [...new Map(fallbackRows.map((row) => [row.time, row])).values()].sort((a, b) => a.time - b.time)
               : fallbackRows;
-            if (!daily.length) throw new Error('no fallback');
+            if (!fallbackInput.length) throw new Error('no fallback');
+            const daily = isLineBreak ? window.ThreeLineBreak.build(fallbackInput) : fallbackInput;
+            if (!daily.length && showEmptyLineBreak(fallback.series)) return;
+            chartTarget.dataset.chartBars = String(daily.length);
             const fallbackWindow = inst.options?.visibleHours && inst.interval === '1m'
               ? buildMinuteWindow(daily, inst.options.visibleHours)
               : null;
             inst.candleSeries.setData(fallbackWindow ? fallbackWindow.entries : daily);
             inst.smaDataMap = {};
             [5, 10, 20, 60, 120, 200].forEach((period) => {
-              const smaData = calculateSMA(daily, period);
-              inst.maSeries[period].setData(smaData);
+              const smaData = calculateSMA(fallbackInput, period);
+              inst.maSeries[period].setData(projectIndicator(smaData, daily));
               inst.smaDataMap[period] = smaData;
             });
-            renderMaCompareOverlay(inst, daily);
+            refreshIndexRegime(inst, sourceInterval === '1d' ? fallback.series : undefined);
             if (inst.bbSeries) {
-              const bollinger = calculateBollinger(daily, 20, 2);
-              inst.bbSeries.upper.setData(bollinger.upper);
-              inst.bbSeries.lower.setData(bollinger.lower);
+              const bollinger = calculateBollinger(fallbackInput, 20, 2);
+              inst.bbSeries.upper.setData(projectIndicator(bollinger.upper, daily));
+              inst.bbSeries.lower.setData(projectIndicator(bollinger.lower, daily));
             }
             if (fallbackWindow) {
               inst.chart.timeScale().setVisibleRange({ from: fallbackWindow.start, to: fallbackWindow.end });
@@ -1432,13 +1502,16 @@
               statusEl.classList.remove('open');
             }
           } catch (_) {
-            renderMaCompareOverlay(inst, []);
+            if (!currentLoad()) return;
+            if (sourceInterval === '1d') refreshIndexRegime(inst, []);
             let warning = target.querySelector('.chart-load-warning');
             if (!warning) { warning = document.createElement('div'); warning.className = 'chart-load-warning'; target.appendChild(warning); }
             warning.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(249,251,255,.9);color:#5f6b85;font-weight:800;z-index:60;padding:20px;text-align:center;';
             warning.textContent = '최근 거래일 데이터 확인 중';
           }
         }
+      } finally {
+        if (currentLoad()) chartTarget.setAttribute('aria-busy', 'false');
       }
     }
 
@@ -1498,13 +1571,13 @@
       // the overlay explicitly with `bollinger: false`.
       const bollingerEnabled = options.bollinger ?? !options.plain;
       const bbSeries = bollingerEnabled ? {
-        upper: chart.addLineSeries({ color:'#d66b72', lineWidth:1, crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false }),
-        lower: chart.addLineSeries({ color:'#6aa7e8', lineWidth:1, crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false })
+        upper: chart.addLineSeries({ color:'#d66b72', lineWidth:1, lineStyle:1, crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false }),
+        lower: chart.addLineSeries({ color:'#6aa7e8', lineWidth:1, lineStyle:1, crosshairMarkerVisible:false, lastValueVisible:false, priceLineVisible:false })
       } : null;
 
       const visibleMa = Array.isArray(options.visibleMa) ? options.visibleMa : [5,10,20,60,120,200];
       lwChartInstances[key] = {
-        chart, candleSeries, maSeries, bbSeries, containerId, interval: initialInterval, visibleCount, options,
+        key, chart, candleSeries, maSeries, bbSeries, containerId, interval: initialInterval, visibleCount, options,
         toggles: { candle:true, bb:!!bbSeries, 5:visibleMa.includes(5), 10:visibleMa.includes(10), 20:visibleMa.includes(20), 60:visibleMa.includes(60), 120:visibleMa.includes(120), 200:visibleMa.includes(200) }
       };
       bindStaticChartControls(key);
@@ -1593,6 +1666,7 @@
                 <button class="btn outline tf-btn" data-key="${item.popupKey}" data-tf="1d" style="background:var(--accent);color:#fff;">일봉</button>
                 <button class="btn outline tf-btn" data-key="${item.popupKey}" data-tf="1wk">주봉</button>
                 <button class="btn outline tf-btn" data-key="${item.popupKey}" data-tf="1mo">월봉</button>
+                <button class="btn outline tf-btn" data-key="${item.popupKey}" data-tf="3lb" title="확정 일봉 종가 기준 3선 전환">삼선</button>
               </div>
               <div class="summary-range-row">
                 <span>조회기간: <input class="period-input" type="number" id="period-${item.popupKey}" value="120" /></span>
@@ -1604,7 +1678,6 @@
           <div class="summary-value-row">
             <div class="value flat" id="v-${item.symbol}">-</div>
             <div class="delta flat" id="d-${item.symbol}">-</div>
-            <div class="summary-prev-pill" id="prev-${item.symbol}">직전가 -</div>
           </div>
           <div class="legend-row" id="legend-${item.popupKey}" style="margin-top:6px;margin-bottom:6px;font-size:13px;display:flex;gap:12px;cursor:pointer;user-select:none;">
             <span class="lg-item" data-key="${item.popupKey}" data-series="candle" style="font-weight:bold;color:#111;">■ 캔들</span>
@@ -1614,9 +1687,16 @@
             <span class="lg-item" data-key="${item.popupKey}" data-series="60" style="font-weight:bold;color:#111827;">■ 60</span>
             <span class="lg-item" data-key="${item.popupKey}" data-series="120" style="font-weight:bold;color:#ed6f35;">■ 120</span>
             <span class="lg-item" data-key="${item.popupKey}" data-series="200" style="font-weight:bold;color:#606060;">■ 200</span>
-            <span class="lg-item" data-key="${item.popupKey}" data-series="bb" style="font-weight:bold;color:#b85d71;">━ 볼린저밴드</span>
+            <span class="lg-item" data-key="${item.popupKey}" data-series="bb" style="font-weight:bold;color:#b85d71;">┄ 볼린저밴드</span>
           </div>
-          <div class="chart lw-chart" id="lwchart-${item.popupKey}" style="height:270px;background:none;border:none;border-top:1px solid #dbe3f1;border-left:1px solid #dbe3f1;"></div>
+          <div class="index-regime-panel">
+            <div class="index-regime-content" id="market-regime-${item.popupKey}" aria-live="polite"><span class="regime-small-label">확인 중</span></div>
+            <div class="index-regime-quotes" id="index-quotes-${item.popupKey}" aria-live="polite">
+              <div class="index-quote-previous" id="prev-${item.symbol}">-<br>직전가</div>
+              <div class="index-quote-current flat"><span id="index-price-${item.popupKey}">-pt</span><span class="index-quote-rate" id="index-rate-${item.popupKey}">-</span></div>
+            </div>
+          </div>
+          <div class="chart lw-chart summary-index-chart" id="lwchart-${item.popupKey}" style="height:270px;background:none;border:none;border-top:1px solid #dbe3f1;border-left:1px solid #dbe3f1;"></div>
         `;
         root.appendChild(div);
         
@@ -3070,20 +3150,19 @@
         const qSafe = q || seriesFallback;
         const vEl = document.getElementById(`v-${item.symbol}`);
         const dEl = document.getElementById(`d-${item.symbol}`);
-        const prevEl = document.getElementById(`prev-${item.symbol}`);
         if (!qSafe) {
+          updateIndexQuote(item.popupKey, null);
           vEl.textContent = '데이터 없음';
           dEl.textContent = '휴장/원천 미제공';
-          if (prevEl) prevEl.textContent = '직전가 -';
           vEl.className = 'value flat';
           dEl.className = 'delta flat';
           continue;
         }
         const p = Number(qSafe.regularMarketPrice);
         if (!Number.isFinite(p)) {
+          updateIndexQuote(item.popupKey, null);
           vEl.textContent = '데이터 없음';
           dEl.textContent = '휴장/원천 미제공';
-          if (prevEl) prevEl.textContent = '직전가 -';
           vEl.className = 'value flat';
           dEl.className = 'delta flat';
           continue;
@@ -3098,9 +3177,7 @@
         vEl.className = `value ${dir}`;
         dEl.className = `delta ${dir}`;
         const prev = Number(qSafe.previousClose ?? seriesFallback?.previousClose);
-        if (prevEl) {
-          prevEl.textContent = Number.isFinite(prev) ? `직전가 ${Math.round(prev).toLocaleString()}` : '직전가 -';
-        }
+        updateIndexQuote(item.popupKey, {price:p, previousClose:prev, changePercent:ch, asOf:qSafe.asOf});
       }
       document.getElementById('updatedAt').textContent = '업데이트: ' + new Date().toLocaleString('ko-KR');
     }
@@ -3419,7 +3496,9 @@
         if (inst && inst.interval && inst.interval.endsWith('m')) {
           loadLwChart(item.popupKey);
         }
+        if (inst) refreshIndexRegime(inst);
       });
+      ['SAMSUNG_DAILY','SKHYNIX_DAILY'].forEach((slot) => { if (lwChartInstances[slot]) void loadLwChart(slot); });
     }, 60000);
 
     renderMiniChart('chart-us10y', 'US10Y');
@@ -3442,14 +3521,40 @@
       apiKey:'JP30Y', plain:true, noMarkers:true, bollinger:true, visibleMa:[20,60,120],
       referenceValues:true, valueSuffix:'%', valueDigits:2, axisDigits:2, periodControl:true
     });
-    initLwChart('SAMSUNG_DAILY', 'lwchart-SAMSUNG_DAILY', '1d', 120, {
-      apiKey:'SAMSUNG', plain:true, noMarkers:true, visibleMa:[20,60,120],
-      referenceValues:true, valueSuffix:'원', valueDigits:0, axisDigits:0, periodControl:true
-    });
-    initLwChart('SKHYNIX_DAILY', 'lwchart-SKHYNIX_DAILY', '1d', 120, {
-      apiKey:'SKHYNIX', plain:true, noMarkers:true, visibleMa:[20,60,120],
-      referenceValues:true, valueSuffix:'원', valueDigits:0, axisDigits:0, periodControl:true
-    });
+    function initSelectableStock(slot, initial) {
+      const stock = window.StockChartPicker.readSelection(slot, initial);
+      const input = document.getElementById(`stock-search-${slot}`);
+      input.value = stock.name;
+      initLwChart(slot, `lwchart-${slot}`, '1d', 120, {
+        apiKey:stock.key, regimePanelKey:slot, plain:true, noMarkers:true, visibleMa:[5,10,20,60,120],
+        maCompare:true, bollinger:true, referenceValues:true, valueSuffix:'원', valueDigits:0, axisDigits:0, periodControl:true
+      });
+      const stockCard = input.closest('section');
+      const timeframeButtons = stockCard.querySelectorAll('.stock-tf-btn');
+      timeframeButtons.forEach((button) => button.addEventListener('click', () => {
+        timeframeButtons.forEach((item) => {
+          item.style.background = item === button ? 'var(--accent)' : '#e9f1ff';
+          item.style.color = item === button ? '#fff' : '#134db5';
+        });
+        lwChartInstances[slot].interval = button.dataset.tf;
+        stockCard.querySelector('.asof').textContent = button.textContent;
+        loadLwChart(slot);
+      }));
+      window.StockChartPicker.attach({slot, initial:stock, urlFor:apiUrl, onSelect:async (selected) => {
+        const inst = lwChartInstances[slot];
+        inst.options.apiKey = selected.key;
+        inst.regimeRevision = (inst.regimeRevision || 0) + 1;
+        inst.regimeUpdatedAt = 0;
+        inst.candleSeries.setData([]);
+        Object.values(inst.maSeries).forEach((series) => series.setData([]));
+        if (inst.bbSeries) { inst.bbSeries.upper.setData([]); inst.bbSeries.lower.setData([]); }
+        document.getElementById(`market-regime-${slot}`).textContent = '불러오는 중';
+        updateIndexQuote(slot,null);
+        await loadLwChart(slot);
+      }});
+    }
+    initSelectableStock('SAMSUNG_DAILY', {name:'삼성전자',code:'005930',market:'KOSPI',key:'KR:005930:KOSPI'});
+    initSelectableStock('SKHYNIX_DAILY', {name:'SK하이닉스',code:'000660',market:'KOSPI',key:'KR:000660:KOSPI'});
     initLwChart('USDJPY_DAILY', 'lwchart-USDJPY_DAILY', '1d', 120, {
       apiKey:'USDJPY', plain:true, noMarkers:true, bollinger:true, visibleMa:[20,60,120],
       referenceValues:true, valueSuffix:'엔', valueDigits:2, axisDigits:2, periodControl:true

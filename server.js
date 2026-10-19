@@ -6,6 +6,7 @@ const { fetchUnifiedSeries, fetchBondYields, fetchNaverIndexClosingMinutes } = r
 const { fetchHighBreakouts } = require('./breakout-data');
 const { fetchDashboardPanels, fetchBinanceKoreaFutures, fetchInvestorTopFlows } = require('./dashboard-data');
 const { futuresStats, nullableArray, sumWindows } = require('./flow-stats');
+const stockSearchHandler = require('./api/stock-search');
 
 const PORT = Number(process.env.PORT || 8000);
 const ROOT = __dirname;
@@ -2063,6 +2064,13 @@ async function fetchChartSeries(key, interval = '1d') {
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://${req.headers.host}`);
   const requestPath = normalizeApiPath(u.pathname);
+
+  if (requestPath === '/api/stock-search') {
+    req.query = { q: u.searchParams.get('q') || '' };
+    const response = { setHeader: (key, value) => res.setHeader(key,value), status(code) { this.code = code; return this; },
+      json(body) { return send(res, this.code || 200, JSON.stringify(body), 'application/json'); } };
+    return stockSearchHandler(req,response);
+  }
 
   if (requestPath === '/api/quote') {
     try {

@@ -1,6 +1,7 @@
 'use strict';
 
 const WebSocketClient = require('ws');
+const { parseStockKey } = require('./stock-search');
 
 function message(method, params) {
   const payload = JSON.stringify({ m: method, p: params });
@@ -171,14 +172,15 @@ async function fetchNaverIndexClosingMinutes(key, date, targetMin = 1) {
 }
 
 async function fetchUnifiedSeries(key, interval = '1d') {
-  const source = chartSources[key];
+  const stock = parseStockKey(key);
+  const source = stock ? { symbols: [`KRX:${stock.code}`], offset: 9 * 3600 } : chartSources[key];
   if (!source) return null;
   const yahooSymbols = {
     USDKRW: 'KRW=X', USDJPY: 'JPY=X', GOLD: 'GC=F', DXY: 'DX-Y.NYB', BTC: 'BTC-USD',
     NASDAQ_FUTURES: 'NQ=F', SAMSUNG: '005930.KS', SKHYNIX: '000660.KS'
   };
-  if (yahooSymbols[key]) {
-    const yahooRows = await fetchYahooSeries(yahooSymbols[key], interval).catch(() => null);
+  if (stock || yahooSymbols[key]) {
+    const yahooRows = await fetchYahooSeries(stock?.yahoo || yahooSymbols[key], interval).catch(() => null);
     if (yahooRows?.length) return yahooRows.slice(interval.endsWith('m') ? -5000 : -520);
   }
   const limit = interval.endsWith('m') ? (key === 'KOSPI_FUTURES' ? 3200 : 5000) : 520;
