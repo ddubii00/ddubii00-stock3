@@ -35,7 +35,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { sumWindows, mergeWindowValues, mergeFlowStats, numericOrNull } = require('./flow-stats');
+const { sumWindows, mergeWindowValues, mergeFlowStats, numericOrNull, programNetEok } = require('./flow-stats');
 
 const ROOT = __dirname;
 const PORT = Number(process.env.PORT || 8000);
@@ -468,7 +468,7 @@ function parseProgramCurrentRows(json) {
   const rows = Array.isArray(json?.output) ? json.output : (json?.output ? [json.output] : []);
   return rows.map((row) => {
     const rawHour = String(row?.bsop_hour || '').replace(/\D/g, '');
-    const value = pbmnToEok(row?.whol_smtn_ntby_tr_pbmn);
+    const value = programNetEok(row);
     return {
       hour: rawHour,
       hhmm: /^\d{6}$/.test(rawHour) ? `${rawHour.slice(0, 2)}:${rawHour.slice(2, 4)}` : '',
@@ -495,7 +495,7 @@ function parseProgramDailyRows(json) {
   const map = new Map();
   for (const row of rows) {
     const date = ymdToDashed(row?.stck_bsop_date);
-    const value = pbmnToEok(row?.whol_smtn_ntby_tr_pbmn);
+    const value = programNetEok(row);
     if (date && Number.isFinite(value)) map.set(date, value);
   }
   return [...map.entries()].map(([date, value]) => ({ date, value })).sort((a, b) => a.date.localeCompare(b.date));
@@ -717,11 +717,12 @@ async function buildFlowStats() {
     console.error('[KIS FLOW] program history unavailable:', error.message);
   }
   const clock = getKoreaClock();
-  if (programRows.length && latestDate === clock.date && clock.minutes >= 9 * 60 && clock.minutes <= 15 * 60 + 35) {
+  if (latestDate === clock.date && clock.minutes >= 9 * 60 && clock.minutes <= 15 * 60 + 35) {
     try {
       const liveRows = await fetchProgramCurrentRows('K');
       const latestLive = liveRows.at(-1);
       if (latestLive && Number.isFinite(latestLive.value)) {
+        programSource = 'KIS FHPPG04600001/FHPPG04600101';
         const map = new Map(programRows.map((row) => [row.date, row.value]));
         map.set(latestDate, latestLive.value);
         programRows = [...map.entries()].map(([date, value]) => ({ date, value })).sort((a, b) => a.date.localeCompare(b.date));
@@ -739,9 +740,11 @@ async function buildFlowStats() {
     futuresMode: 'futures',
     futuresUnit: '계약',
     futuresArray: sumWindows(futuresRows),
+    futuresLatest: futuresRows.length ? {value:futuresRows.at(-1).value,unit:'계약',asOf:futuresRows.at(-1).date,source:'KIS'} : null,
     progsArray: sumWindows(programRows),
     futuresCoverageDays: futuresRows.length,
     programCoverageDays: programRows.length,
+    programAsOfDate: programRows.at(-1)?.date || '',
     programSource,
   };
 }

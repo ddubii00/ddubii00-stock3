@@ -4,8 +4,9 @@
   else root.StockChartPicker = factory(root);
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (browser) {
   'use strict';
-  const valid = (stock) => stock && /^\d{6}$/.test(stock.code) && ['KOSPI','KOSDAQ'].includes(stock.market) &&
-    typeof stock.name === 'string' && stock.name.length > 0 && stock.name.length <= 80 && stock.key === `KR:${stock.code}:${stock.market}`;
+  const valid = (stock) => Boolean(stock && typeof stock.name === 'string' && stock.name.trim().length > 0 && stock.name.length <= 80 && (
+    (/^\d{6}$/.test(stock.code) && ['KOSPI','KOSDAQ'].includes(stock.market) && stock.key === `KR:${stock.code}:${stock.market}`) ||
+    (/^[A-Z][A-Z0-9]{0,9}(?:[.-][A-Z0-9]{1,3})?$/.test(stock.code) && ['NASDAQ','NYSE','AMEX'].includes(stock.market) && stock.key === `US:${stock.code}:${stock.market}`)));
   const storageKey = (slot) => `stock3-reference-stock:${slot}`;
 
   function readSelection(slot, initial, storage) {

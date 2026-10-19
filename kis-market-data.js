@@ -8,7 +8,7 @@ function credentials(env = process.env) {
 function config(key, env = process.env) {
   key = ALIASES[key] || key;
   const stock = parseStockKey(key);
-  if (stock) return {key,kind:'stock',code:stock.code,market:'J'};
+  if (stock) return stock.country==='US' ? {key,kind:'us-stock',code:stock.yahoo,market:({NASDAQ:'NAS',NYSE:'NYS',AMEX:'AMS'})[stock.market]} : {key,kind:'stock',code:stock.code,market:'J'};
   if (key==='KOSPI' || key==='KOSDAQ') return {key,kind:'index',code:key==='KOSPI'?'0001':'1001',market:'U'};
   // Overseas master codes may differ by entitlement; server environment overrides are supported.
   const codes = {NASDAQ:['N',env.KIS_NASDAQ_INDEX_CODE || 'COMP'],SP500:['N',env.KIS_SP500_INDEX_CODE || 'SPX'],
@@ -89,14 +89,15 @@ function createClient({env = process.env, fetchImpl = (...args)=>fetch(...args),
     return memo(`quote:${c.key}`,QUOTE_TTL,async()=>{
       let json;
       if(c.kind==='stock') json=await get('/uapi/domestic-stock/v1/quotations/inquire-price','FHKST01010100',{FID_COND_MRKT_DIV_CODE:c.market,FID_INPUT_ISCD:c.code});
+      else if(c.kind==='us-stock') json=await get('/uapi/overseas-price/v1/quotations/price','HHDFS00000300',{AUTH:'',EXCD:c.market,SYMB:c.code});
       else if(c.kind==='index') json=await get('/uapi/domestic-stock/v1/quotations/inquire-index-price','FHPUP02100000',{FID_COND_MRKT_DIV_CODE:'U',FID_INPUT_ISCD:c.code});
       else json=await get('/uapi/overseas-price/v1/quotations/inquire-time-indexchartprice','FHKST03030200',{FID_COND_MRKT_DIV_CODE:c.market,FID_INPUT_ISCD:c.code,FID_HOUR_CLS_CODE:'0',FID_PW_DATA_INCU_YN:'Y'});
       const out=Array.isArray(json.output)?json.output[0]:json.output || (Array.isArray(json.output1)?json.output1[0]:json.output1) || {};
       // NASDAQ means the composite index; never substitute the NASDAQ 100.
       if(c.key==='NASDAQ' && /100|NDX/i.test(out.hts_kor_isnm || '')) throw new Error('지수 종류 불일치');
-      const price=number(out.stck_prpr ?? out.bstp_nmix_prpr ?? out.ovrs_nmix_prpr);
-      const changePercent=number(out.prdy_ctrt ?? out.bstp_nmix_prdy_ctrt);
-      let previousClose=number(out.stck_prdy_clpr ?? out.prdy_nmix ?? out.ovrs_nmix_prdy_clpr);
+      const price=number(out.stck_prpr ?? out.bstp_nmix_prpr ?? out.ovrs_nmix_prpr ?? out.last);
+      const changePercent=number(out.prdy_ctrt ?? out.bstp_nmix_prdy_ctrt ?? out.rate);
+      let previousClose=number(out.stck_prdy_clpr ?? out.prdy_nmix ?? out.ovrs_nmix_prdy_clpr ?? out.base);
       if(previousClose===null && price>0 && changePercent!==null && changePercent!==-100) previousClose=price/(1+changePercent/100);
       if(!(price>0)) throw new Error('시세 미제공');
       return {symbol:input,key:c.key,price,previousClose,changePercent,asOf:date(out.stck_bsop_date || out.bsop_date),queriedAt:new Date(now()).toISOString(),source:'KIS',raw:'KIS'};
@@ -112,7 +113,8 @@ function createClient({env = process.env, fetchImpl = (...args)=>fetch(...args),
   }
   async function series(input, interval='1d') {
     const c=config(input,env);
-    if(!enabled() || !c || !['1d','1wk','1mo'].includes(interval)) return null;
+    // US equities use public OHLC history; never send them to the overseas INDEX history API.
+    if(!enabled() || !c || c.kind==='us-stock' || !['1d','1wk','1mo'].includes(interval)) return null;
     return memo(`chart:${c.key}:${interval}`,CHART_TTL,async()=>{
       const cacheKey=`${c.key}:${interval}`;
       const saved=history.get(cacheKey);

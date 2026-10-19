@@ -225,6 +225,7 @@ module.exports = async (req, res) => {
 
   if (pathname === '/api/access') return require('./access')(req,res);
   if (pathname === '/api/market-snapshot') { req.query={stocks:u.searchParams.get('stocks') || ''}; return require('./market-snapshot')(req,res); }
+  if (pathname === '/api/chart-stocks') return require('./chart-stocks')(req,res);
   if (pathname === '/api/stock-search') {
     req.query = { q: u.searchParams.get('q') || '' };
     return require('./stock-search')(req,res);
@@ -257,72 +258,8 @@ module.exports = async (req, res) => {
     }
   }
 
-  // /api/stats
-  if (pathname === '/api/stats') {
-    try {
-      const headers = { 'User-Agent': 'Mozilla/5.0', 'Referer': 'http://finance.daum.net/' };
-
-      let prog = 0;
-      try {
-        const rN = await fetch('https://finance.naver.com/sise/sise_index.naver?code=KOSPI', { headers });
-        const buf = await rN.arrayBuffer();
-        const text = new TextDecoder('euc-kr').decode(buf);
-        const m = text.match(/전체<br><span class="[^"]+">([+-]?[\d,]+)<span>억/);
-        prog = m ? parseInt(m[1].replace(/,/g, '')) : 0;
-      } catch (_) {}
-
-      const rKD = await fetch(
-        'https://finance.daum.net/api/market_index/days?page=1&perPage=20&market=KOSPI&pagination=true',
-        { headers });
-      const kospiData = (await rKD.json()).data || [];
-
-      const rQD = await fetch(
-        'https://finance.daum.net/api/market_index/days?page=1&perPage=2&market=KOSDAQ&pagination=true',
-        { headers });
-      const kosdaqData = (await rQD.json()).data || [];
-
-      let kospiTurnover = 0, kosdaqTurnover = 0;
-      let kospiTurnoverDiff = '0', kosdaqTurnoverDiff = '0';
-      let futuresArray = [0, 0, 0, 0, 0];
-      let progsArray   = [prog, 0, 0, 0, 0];
-
-      if (kospiData.length >= 2) {
-        kospiTurnover = Math.round(kospiData[0].accTradePrice);
-        kospiTurnoverDiff = ((kospiData[0].accTradePrice - kospiData[1].accTradePrice) / 1000000).toFixed(2);
-        let sum = 0;
-        for (let i = 0; i < kospiData.length && i < 20; i++) {
-          sum += Math.round(kospiData[i].foreignStraightPurchasePrice / 100000000);
-          if (i === 0)  futuresArray[0] = sum;
-          if (i === 2)  futuresArray[1] = sum;
-          if (i === 4)  futuresArray[2] = sum;
-          if (i === 9)  futuresArray[3] = sum;
-          if (i === 19 || i === kospiData.length - 1) futuresArray[4] = sum;
-        }
-        if (futuresArray[0] !== 0) {
-          const ratio = prog / futuresArray[0];
-          progsArray = [prog, ...futuresArray.slice(1).map(v => Math.round(v * ratio))];
-        } else {
-          progsArray = [prog, prog * 3, prog * 5, prog * 10, prog * 20];
-        }
-      }
-      if (kosdaqData.length >= 2) {
-        kosdaqTurnover = Math.round(kosdaqData[0].accTradePrice);
-        kosdaqTurnoverDiff = ((kosdaqData[0].accTradePrice - kosdaqData[1].accTradePrice) / 1000000).toFixed(2);
-      }
-
-      return json(res, 200, {
-        ok: true,
-        kospiTurnover: kospiTurnover.toLocaleString(),
-        kosdaqTurnover: kosdaqTurnover.toLocaleString(),
-        kospiTurnoverDiff,
-        kosdaqTurnoverDiff,
-        futuresArray,
-        progsArray,
-      });
-    } catch (e) {
-      return json(res, 500, { ok: false, error: String(e.message || e) });
-    }
-  }
+  // Use the same real-source/null-aware handler for legacy rewrites.
+  if (pathname === '/api/stats') return require('./stats')(req,res);
 
   return json(res, 404, { ok: false, error: 'Unknown route' });
 };

@@ -29,6 +29,18 @@ function nullableArray(values) {
   return result.some((value) => value !== null) ? result : null;
 }
 
+function programNetEok(row) {
+  const num=value=>numericOrNull(typeof value==='string'?value.replace(/,/g,''):value);
+  const direct=num(row?.whol_smtn_ntby_tr_pbmn);
+  if(direct!==null)return direct/100;
+  // The official DAILY schema may omit whole net money. Use whole buy minus
+  // whole sell, or arbitrage + non-arbitrage totals; both operands are required.
+  const buy=num(row?.whol_smtn_shnu_tr_pbmn),sell=num(row?.whol_smtn_seln_tr_pbmn);
+  if(buy!==null&&sell!==null)return (buy-sell)/100;
+  const arb=num(row?.arbt_smtn_ntby_tr_pbmn),nonarb=num(row?.nabt_smtn_ntby_tr_pbmn);
+  return arb!==null&&nonarb!==null?(arb+nonarb)/100:null;
+}
+
 function futuresStats(payload) {
   const spot = payload?.source === 'spot-fallback';
   const contracts = payload?.unit === '계약' && !spot;
@@ -67,10 +79,13 @@ function mergeFlowStats(core = {}, flow = null) {
     futuresUnit: spot ? '억원' : '계약',
     futuresArray: futures,
     progsArray: programs,
+    futuresLatest: flow?.futuresLatest || core.futuresLatest || null,
+    programAsOfDate: primaryProgram ? flow.programAsOfDate || flow.latestOpenDate : core.programAsOfDate || '',
+    programError: programs ? '' : core.programError || '프로그램 원천 응답을 확인하세요.',
     programSource: primaryProgram ? flow.programSource : core.programSource || 'unavailable',
     futuresCoverageDays: spot ? core.futuresCoverageDays || 0 : flow?.futuresCoverageDays || 0,
-    programCoverageDays: flow?.programCoverageDays || 0,
+    programCoverageDays: primaryProgram ? flow?.programCoverageDays || 0 : core.programCoverageDays || 0,
   };
 }
 
-module.exports = { WINDOWS, numericOrNull, sumWindows, nullableArray, futuresStats, mergeWindowValues, mergeFlowStats };
+module.exports = { WINDOWS, numericOrNull, sumWindows, nullableArray, programNetEok, futuresStats, mergeWindowValues, mergeFlowStats };

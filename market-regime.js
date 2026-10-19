@@ -14,7 +14,7 @@
     SP500: { zone: 'America/New_York', confirmedMinute: 16 * 60 + 10 }
   });
   function marketConfig(key) {
-    return MARKETS[key] || (typeof key === 'string' && /^KR:\d{6}:(KOSPI|KOSDAQ)$/.test(key) ? MARKETS.KOSPI : null);
+    return MARKETS[key] || (typeof key === 'string' && /^KR:\d{6}:(KOSPI|KOSDAQ)$/.test(key) ? MARKETS.KOSPI : typeof key === 'string' && /^US:[A-Z][A-Z0-9]{0,9}(?:[.-][A-Z0-9]{1,3})?:(NASDAQ|NYSE|AMEX)$/.test(key) ? MARKETS.NASDAQ : null);
   }
   const RULES = Object.freeze({
     ma: [20, 60, 120], warmup: 121, breakout: 60,

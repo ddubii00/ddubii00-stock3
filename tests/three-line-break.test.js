@@ -52,17 +52,18 @@ function dailyPrices(flat=false) {
   }
   return result;
 }
-function loaderHarness({key='KOSPI', mode='3lb', input=dailyPrices(), failFirst=false}={}) {
-  const elements=new Map();
-  const target={dataset:{},style:{},setAttribute(k,v){this[k]=v;},querySelector(s){return elements.get(s)||null;},appendChild(el){elements.set('.'+el.className,el);}};
+function loaderHarness({key='KOSPI', mode='3lb', input=dailyPrices(), failFirst=false, macdBackground=false}={}) {
+  const elements=new Map(),fills=[];
+  const ctx={clearRect(){},fillRect(){fills.push(this.fillStyle);},beginPath(){},setLineDash(){},moveTo(){},lineTo(){},stroke(){}};
+  const target={clientWidth:600,clientHeight:270,dataset:{},style:{},setAttribute(k,v){this[k]=v;},querySelector(s){return elements.get(s)||null;},appendChild(el){elements.set('.'+el.className,el);}};
   const series=()=>({data:[],setData(data){this.data=data;},setMarkers(data){this.markers=data;}});
-  const scale={setVisibleRange(){},fitContent(){},unsubscribeVisibleLogicalRangeChange(){},unsubscribeSizeChange(){}};
-  const inst={key,interval:mode,containerId:'chart',visibleCount:120,options:{plain:true,noMarkers:true},
+  const scale={setVisibleRange(){},fitContent(){},getVisibleLogicalRange:()=>({from:0,to:input.length-1}),logicalToCoordinate:i=>i*2,unsubscribeVisibleLogicalRangeChange(){},unsubscribeSizeChange(){},subscribeVisibleLogicalRangeChange(){},subscribeSizeChange(){}};
+  const inst={key,interval:mode,containerId:'chart',visibleCount:120,options:{plain:true,noMarkers:true,macdBackground},
     candleSeries:series(),maSeries:Object.fromEntries([5,10,20,60,120,200].map(p=>[p,series()])),
     bbSeries:{upper:series(),lower:series()},chart:{applyOptions(){},subscribeCrosshairMove(){},timeScale(){return scale;}}};
   const calls=[],refreshes=[];
   const context=vm.createContext({window:{ThreeLineBreak:lb,MarketRegime:regime},lwChartInstances:{[key]:inst},
-    document:{getElementById(){return target;},createElement(){return{style:{},remove(){elements.delete('.'+this.className);}};}},
+    document:{getElementById(){return target;},createElement(){return{style:{},getContext:()=>ctx,remove(){elements.delete('.'+this.className);}};}},
     apiUrl:x=>x,fetch:async url=>{calls.push(url);return{json:async()=>failFirst?{ok:false}:{ok:true,series:input}};},
     fetchJsonWithRetry:async url=>{calls.push(url);return{ok:true,series:input};},
     refreshIndexRegime:(instance,data)=>refreshes.push(data),console:{error(){}}});
@@ -73,7 +74,7 @@ function loaderHarness({key='KOSPI', mode='3lb', input=dailyPrices(), failFirst=
     extract('    function calculateEMA(', '    function buildMinuteWindow('),
     extract('    async function loadLwChart(', '    function initLwChart(')
   ].join('\n'),context);
-  return {inst,target,calls,refreshes,run:()=>context.loadLwChart(key)};
+  return {inst,target,calls,refreshes,fills,run:()=>context.loadLwChart(key)};
 }
 test('all six line-break charts fetch daily input and keep daily regime/MA/BB values', async()=>{
   for (const key of ['KOSPI','KOSDAQ','NASDAQ','SP500','KR:005930:KOSPI','KR:000660:KOSPI']) {
@@ -117,4 +118,11 @@ test('unconfirmed and future sessions cannot form lines, while ordinary candles 
   assert.match(candle.calls[0],/interval=1wk$/);
   assert.equal(candle.inst.candleSeries.data.length,220);
   assert.equal(candle.target.dataset.chartType,'candlestick');
+});
+
+test('registered stock candles use MACD zero-line backgrounds independently of the plain chart option',async()=>{
+  for(const [name,input,color] of [['KR:005930:KOSPI',dailyPrices(),'rgba(255, 80, 80, 0.18)'],['US:AAPL:NASDAQ',dailyPrices().map((row,i)=>({...row,close:400-i})),'rgba(60, 120, 255, 0.15)']]){
+    const h=loaderHarness({key:name,mode:'1d',input,macdBackground:true});await h.run();
+    assert.ok(h.target.querySelector('.bg-canvas'));assert.ok(h.fills.includes(color));assert.ok(h.inst.candleSeries.data.length);
+  }
 });

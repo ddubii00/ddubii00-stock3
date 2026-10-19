@@ -118,8 +118,11 @@
     .regime-arrow.flat { color:#5f6b85; }
     .regime-small-label { font-size:11px; color:#5f6b85; font-weight:700; }
     .regime-overview { min-width:0; }
-    .regime-allocations { display:flex; flex-wrap:wrap; align-items:baseline; column-gap:8px; row-gap:0; margin:0; line-height:1; }
-    .regime-allocations > span { white-space:nowrap; font-size:11px; }
+    .regime-allocations { display:flex; flex-wrap:wrap; align-items:baseline; column-gap:4px; row-gap:1px; margin:1px 0; line-height:1; }
+    .regime-allocations > span { white-space:nowrap; font-size:11px; padding:2px 4px; border-radius:3px; }
+    .regime-allocations .allocation-cash { color:#295aac; background:#e8f0ff; }
+    .regime-allocations .allocation-credit { color:#a3412a; background:#fff0e8; }
+    .regime-allocations .allocation-exposure { color:#5d3296; background:#efe5ff; }
     .regime-allocations b { font-size:16px; font-weight:950; font-variant-numeric:tabular-nums; }
     .regime-targets { margin:0; font-size:11px; line-height:1; font-variant-numeric:tabular-nums; }
     .regime-state { display:inline-block; padding:1px 4px; border-radius:3px; background:#e8edf5; color:#5f6b85; font-size:12px; line-height:1; }
@@ -140,6 +143,11 @@
     .index-quote-rate { display:block; font-size:12px; }
     @media(max-width:520px) { .index-regime-panel { column-gap:5px; } .index-regime-layout { grid-template-columns:100px minmax(0,1fr); gap:5px; } .regime-position-row { font-size:11px; grid-template-columns:35px 12px minmax(0,1fr); } .regime-allocations { column-gap:5px; } .regime-allocations b { font-size:15px; } .index-regime-quotes { gap:4px; padding-left:4px; } .index-quote-current { min-width:60px; font-size:14px; } .index-quote-previous { max-width:60px; font-size:14px; } }
     @media(max-width:390px) { .index-regime-panel { grid-template-columns:minmax(0,1fr); row-gap:2px; } .index-regime-quotes { justify-self:end; } }
+    .summary-index-card .index-quote-current, .summary-index-card .index-quote-previous { font-size:14px; }
+    .summary-index-card .value { font-size:56px; }
+    .summary-index-card .delta { font-size:28px; }
+    .summary-index-card .regime-allocations b { font-size:14px; }
+    .summary-index-card .regime-position-row strong { font-size:11px; }
     .stock-chart-search { position:relative; min-width:0; max-width:65%; }
     .stock-chart-name { display:block; padding:1px 3px; font-size:24px; font-weight:900; color:#172033; }
     .stock-chart-search input { width:100%; min-width:90px; border:0; border-bottom:1px dashed #b6c6dd; background:transparent; padding:1px 3px; font:inherit; font-size:24px; font-weight:900; color:#172033; box-sizing:border-box; }
@@ -369,6 +377,11 @@
     .chart-stocks-dialog .stock-chart-search input { font-size:16px; padding:7px; }
     .chart-stocks-dialog .stock-search-results { position:relative; width:100%; box-sizing:border-box; max-height:200px; }
     .chart-stocks-dialog button:disabled { opacity:.3; cursor:default; }
+    .flow-highlights { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0; }
+    .flow-highlight { flex:1; min-width:200px; padding:8px 10px; border:1px solid #dce5f1; border-radius:7px; background:#f8faff; font-size:12px; line-height:1.3; }
+    .flow-highlight strong { font-size:22px; margin-left:6px; font-variant-numeric:tabular-nums; }
+    .flow-highlight small { display:block; color:#5f6b85; font-size:11px; }
+    #refreshM2, #refreshUsM2 { flex-shrink:0; white-space:nowrap; }
     #chartStocksMessage { color:#9a6011; font-size:12px; margin:6px 0; }
     @media(max-width:700px) { .market-header { gap:3px; padding:4px 6px; } .ticker-rate { display:block; margin-left:0; font-size:10px; } .ticker-price { font-size:13px; } .ticker-label { font-size:10px; } .market-header .btn { padding:6px; } }
   </style>
@@ -387,7 +400,7 @@
     <div class="dialog-head"><h2 id="chartStocksTitle">종목 차트</h2><button type="button" class="btn outline" id="closeChartStocks">닫기</button></div>
     <div id="chartStocksList"></div>
     <p id="chartStocksMessage" role="status"></p><button id="addChartStock" type="button" class="btn">추가</button>
-    <div id="chartStocksAddArea" hidden><div class="stock-chart-search"><input id="stock-search-CHART_ADD" aria-label="추가할 종목 검색" role="combobox" aria-autocomplete="list" aria-controls="stock-results-CHART_ADD" aria-expanded="false" autocomplete="off" placeholder="종목명 또는 코드" /><div id="stock-results-CHART_ADD" class="stock-search-results" role="listbox" aria-label="추가 종목 검색 결과" hidden></div></div></div>
+    <div id="chartStocksAddArea" hidden><div class="stock-chart-search"><input id="stock-search-CHART_ADD" aria-label="추가할 종목 검색" role="combobox" aria-autocomplete="list" aria-controls="stock-results-CHART_ADD" aria-expanded="false" autocomplete="off" placeholder="국내 종목명 · 미국 회사명 또는 티커(AAPL)" /><div id="stock-results-CHART_ADD" class="stock-search-results" role="listbox" aria-label="추가 종목 검색 결과" hidden></div></div></div>
   </dialog>
   <div class="wrap">
     <div id="fileWarn" style="display:none;margin-bottom:12px;padding:10px 12px;border:1px solid #ffd8a8;background:#fff4e6;color:#8a4b08;border-radius:10px;font-size:13px;">
@@ -714,13 +727,14 @@
       <div class="card span-6">
         <div class="head-row">
           <div>
-            <div class="title">외국인 선물 수급</div>
+            <div class="title">외국인 선물·프로그램 수급</div>
           </div>
           <button class="btn" id="refreshFlow">새로고침</button>
         </div>
         <div class="memo">단일 수치보다 3~5일 누적 흐름이 중요 (현물 시장 선행지표)
 
 - 프로그램 순매수(억원): 차익거래 vs 비차익거래 구분이 더 정밀</div>
+        <div class="flow-highlights" id="flowHighlights" aria-live="polite"></div>
         <div class="asof" id="flowAsOf">기준시각: -</div>
         <table>
           <thead><tr><th>항목</th><th>당일</th><th>3일</th><th>5일</th><th>10일</th><th>20일</th></tr></thead>
@@ -776,7 +790,7 @@
           <div>
             <div class="title">한국 M2통화량 추세</div>
             <div class="chart-note" id="note-m2-trend"></div>
-          </div>
+          </div><button class="btn outline" id="refreshM2" type="button">새로고침</button>
         </div>
         <div class="chart" id="chart-m2-trend"></div>
       </section>
@@ -785,7 +799,7 @@
           <div>
             <div class="title">미국 M2통화량 추세</div>
             <div class="chart-note" id="note-us-m2-trend"></div>
-          </div>
+          </div><button class="btn outline" id="refreshUsM2" type="button">새로고침</button>
         </div>
         <div class="chart" id="chart-us-m2-trend"></div>
       </section>
@@ -1038,8 +1052,10 @@
       const validPrice = Number.isFinite(price) && price > 0;
       const validPrevious = Number.isFinite(previous) && previous > 0;
       const suffix = priceEl.dataset?.suffix || 'pt';
-      priceEl.textContent = validPrice ? `${Math.round(price).toLocaleString('ko-KR')}${suffix}` : `-${suffix}`;
-      previousEl.textContent = `${validPrevious ? Math.round(previous).toLocaleString('ko-KR') : '-'}\n직전가`;
+      const digits=Number(priceEl.dataset?.digits) || 0;
+      const format=value=>value.toLocaleString('ko-KR',{minimumFractionDigits:digits,maximumFractionDigits:digits});
+      priceEl.textContent = validPrice ? `${format(price)}${suffix}` : `-${suffix}`;
+      previousEl.textContent = `${validPrevious ? format(previous) : '-'}\n직전가`;
       rateEl.textContent = validPrice && Number.isFinite(change) ? `${change > 0 ? '+' : ''}${change.toFixed(2)}%` : '-';
       priceEl.parentElement.className = `index-quote-current ${validPrice && change > 0 ? 'up' : validPrice && change < 0 ? 'down' : 'flat'}`;
       priceEl.parentElement.title = quote?.asOf ? `시세 기준 ${quote.asOf}` : '시세 기준 확인 중';
@@ -1245,7 +1261,7 @@
         const chartContainer = document.getElementById(inst.containerId || ('lwchart-' + key));
         chartContainer.style.position = 'relative';
         chartContainer.style.backgroundColor = '#ffffff';
-        if (!inst.options?.plain && !isLineBreak) {
+        if ((!inst.options?.plain || inst.options?.macdBackground) && !isLineBreak) {
         let bgCanvas = chartContainer.querySelector('.bg-canvas');
         if (!bgCanvas) {
           bgCanvas = document.createElement('canvas');
@@ -1574,7 +1590,7 @@
       const el = document.getElementById(containerId);
       const chart = LightweightCharts.createChart(el, {
         width: el.clientWidth,
-        height: 270,
+        height: el.clientHeight || 270,
         layout: { backgroundColor: 'transparent', textColor: '#172033', fontFamily: 'Pretendard, sans-serif' },
         localization: {
           dateFormat: 'yyyy-MM-dd',
@@ -1703,7 +1719,7 @@
       root.innerHTML = '';
       summaryItems.forEach((item) => {
         const div = document.createElement('div');
-        div.className = 'card span-6';
+        div.className = 'card span-6 summary-index-card';
         div.innerHTML = `
           <div class="summary-heading-line">
             <div class="title">${item.name}</div>
@@ -1752,7 +1768,7 @@
               <div class="index-quote-current flat"><span id="index-price-${item.popupKey}">-pt</span><span class="index-quote-rate" id="index-rate-${item.popupKey}">-</span></div>
             </div>
           </div>
-          <div class="chart lw-chart summary-index-chart" id="lwchart-${item.popupKey}" style="height:270px;background:none;border:none;border-top:1px solid #dbe3f1;border-left:1px solid #dbe3f1;"></div>
+          <div class="chart lw-chart summary-index-chart" id="lwchart-${item.popupKey}" style="height:300px;background:none;border:none;border-top:1px solid #dbe3f1;border-left:1px solid #dbe3f1;"></div>
         `;
         root.appendChild(div);
         
@@ -2809,6 +2825,7 @@
       const el = document.getElementById(containerId);
       const noteEl = document.getElementById(noteId);
       if (!el) return;
+      const fieldNumber=value=>value===null||value===undefined||value===''?NaN:Number(value);
       try {
         const params = new URLSearchParams({ kind });
         if (options.daysInputId) {
@@ -2869,7 +2886,7 @@
         }
         const unitForField = (field = {}) => field.unit ?? json.units?.[field.key] ?? json.unit ?? '';
         const formatChartValue = (value, unit = json.unit) => {
-          const numeric = Number(value);
+          const numeric = fieldNumber(value);
           if (!Number.isFinite(numeric)) return '-';
           const normalized = Math.abs(numeric) < 0.005 ? 0 : numeric;
           if (normalized === 0) return '0';
@@ -2900,7 +2917,7 @@
         const valuesForFields = (selectedFields) => {
           const values = [];
           selectedFields.forEach((field) => series.forEach((row) => {
-            const value = Number(row[field.key]);
+            const value = fieldNumber(row[field.key]);
             if (Number.isFinite(value)) values.push(value);
           }));
           return values;
@@ -2932,10 +2949,10 @@
         const leftScale = makeScale([...valuesForFields(leftFields), ...referenceValues], options.zeroLine);
         const rightScale = options.dualAxis ? makeScale(valuesForFields(rightFields), options.rightZeroLine ?? options.zeroLine) : leftScale;
         const changeScale = changeFields.length ? makeScale(valuesForFields(changeFields), true) : null;
-        if (!leftScale || !rightScale) throw new Error('no numeric data');
+        if (!leftScale) throw new Error('원천 수치가 없습니다.');
         const scaleForField = (field) => {
           if (field.axis === 'change' && changeScale) return changeScale;
-          return options.dualAxis && field.axis === 'right' ? rightScale : leftScale;
+          return options.dualAxis && field.axis === 'right' ? (rightScale || leftScale) : leftScale;
         };
         const yForField = (field, value) => scaleForField(field).yFor(value);
         const colorForField = (field, value = 0) => {
@@ -2957,7 +2974,7 @@
           return `<text x="6" y="${y + 4}" fill="#5f6b85" font-size="11">${formatChartValue(value, leftFields[0]?.unit || json.unit)}</text>
                   <line x1="${padL}" y1="${y}" x2="${w - padR}" y2="${y}" stroke="#e6ecf7" stroke-width="1" />`;
         }).join('');
-        const rightTickSvg = options.dualAxis ? makeTicks(rightScale).map((value) => {
+        const rightTickSvg = options.dualAxis && rightScale ? makeTicks(rightScale).map((value) => {
           const y = rightScale.yFor(value);
           return `<line x1="${w - padR}" y1="${y}" x2="${w - padR + 5}" y2="${y}" stroke="#94a0b8" stroke-width="1" />
                   <text x="${w - 6}" y="${y + 4}" fill="#5f6b85" font-size="11" text-anchor="end">${formatChartValue(value, rightFields[0]?.unit || json.unit)}</text>`;
@@ -2966,7 +2983,7 @@
           ? `<line x1="${padL}" y1="${leftScale.yFor(0)}" x2="${w - padR}" y2="${leftScale.yFor(0)}" stroke="#111827" stroke-width="1.4" stroke-dasharray="5 4" />
              <text x="${padL + 4}" y="${leftScale.yFor(0) - 5}" fill="#111827" font-size="11" font-weight="800">0</text>`
           : '';
-        const rightZeroLineSvg = options.dualAxis && (options.rightZeroLine ?? options.zeroLine) && rightScale.min <= 0 && rightScale.max >= 0
+        const rightZeroLineSvg = options.dualAxis && rightScale && (options.rightZeroLine ?? options.zeroLine) && rightScale.min <= 0 && rightScale.max >= 0
           ? `<line x1="${padL}" y1="${rightScale.yFor(0)}" x2="${w - padR}" y2="${rightScale.yFor(0)}" stroke="#94a0b8" stroke-width="1" stroke-dasharray="3 4" />`
           : '';
         const changeZeroLineSvg = options.changeZeroLine && changeScale && changeScale.min <= 0 && changeScale.max >= 0
@@ -2981,7 +2998,7 @@
         const bars = fields.filter((field) => field.type === 'bar').map((field) => {
           const baseY = yForField(field, 0);
           return series.map((row, i) => {
-            const value = Number(row[field.key]);
+            const value = fieldNumber(row[field.key]);
             if (!Number.isFinite(value)) return '';
             const valueY = yForField(field, value);
             const y = Math.min(baseY, valueY);
@@ -2991,7 +3008,7 @@
         }).join('');
         const lines = fields.filter((field) => field.type !== 'bar').map((field, lineIndex, lineFields) => {
           if (series.length === 1) {
-            const v = Number(series[0][field.key]);
+            const v = fieldNumber(series[0][field.key]);
             if (!Number.isFinite(v)) return '';
             const centerX = xFor(0);
             const x = centerX + (lineIndex - (lineFields.length - 1) / 2) * 8;
@@ -2999,7 +3016,7 @@
             return `<circle cx="${x}" cy="${valueY}" r="6" fill="${colorForField(field, v)}" stroke="#fff" stroke-width="2" />`;
           }
           const points = series.map((row, i) => {
-            const v = Number(row[field.key]);
+            const v = fieldNumber(row[field.key]);
             if (!Number.isFinite(v)) return null;
             return `${xFor(i)},${yForField(field, v)}`;
           }).filter(Boolean).join(' ');
@@ -3052,7 +3069,7 @@
         let currentValuesMarkup = options.showLastValues
           ? fields.filter((field) => field.type !== 'bar').map((field) => {
               const unit = unitForField(field);
-              const value = Number(lastRow[field.key]);
+              const value = fieldNumber(lastRow[field.key]);
               const valueColor = value > 0 ? '#d92c2c' : value < 0 ? '#1f5bd8' : '#5f6b85';
               return `<tspan fill="#111827" font-weight="900">${field.label}${options.cumulative ? ' 누적' : ''}</tspan> <tspan fill="${valueColor}" font-weight="950">${formatChartValue(value, unit)}${unit}</tspan>`;
             }).join('<tspan fill="#5f6b85">   </tspan>')
@@ -3112,7 +3129,7 @@
             if (!row) return;
             const x = xFor(index);
             const points = fields.map((field) => {
-              const value = Number(row[field.key]);
+              const value = fieldNumber(row[field.key]);
               return Number.isFinite(value)
                 ? `<circle cx="${x}" cy="${yForField(field, value)}" r="3.5" fill="${colorForField(field, value)}" stroke="#fff" stroke-width="1.5" />`
                 : '';
@@ -3120,7 +3137,7 @@
             const hoverGroup = el.querySelector(`#${containerId}-extra-hover`);
             if (hoverGroup) hoverGroup.innerHTML = `<line x1="${x}" y1="${padT}" x2="${x}" y2="${h - padB}" stroke="#111827" stroke-width="1.2" stroke-dasharray="5 4" />${points}`;
             const valueRows = fields.map((field) => {
-              const value = Number(row[field.key]);
+              const value = fieldNumber(row[field.key]);
               if (!Number.isFinite(value)) return '';
               const label = field.tooltipLabel || field.label;
               const cumulativeLabel = options.cumulative ? ' 누적' : '';
@@ -3253,14 +3270,19 @@
       const spot = json.futuresMode === 'spot-fallback';
       const futures = Array.isArray(json.futuresArray) ? json.futuresArray : [];
       const programs = json.programSource !== 'unavailable' && Array.isArray(json.progsArray) ? json.progsArray : [];
+      const escape=value=>String(value || '').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+      const highlight=document.getElementById('flowHighlights');
+      const latest=json.futuresLatest;
+      const latestValue=latest?.unit==='계약'?numeric(latest.value):(!spot?numeric(futures[0]):null);
+      if(highlight)highlight.innerHTML=`<div class="flow-highlight">외국인 선물 순매수 <strong style="color:${color(latestValue)}">${format(latestValue)}</strong> 계약<small>${latestValue===null?'KIS 선물 원천 확인 필요':escape(latest?.asOf || json.latestOpenDate)} · ${escape(latest?.source || '일별 선물 원천')}</small></div><div class="flow-highlight">프로그램 순매수 <strong style="color:${color(programs[0])}">${format(programs[0])}</strong> 억원<small>${numeric(programs[0])===null?escape(json.programError || '프로그램 원천 확인 필요'):escape(json.programAsOfDate || json.latestOpenDate)} · ${escape(json.programSource || '원천 확인 중')}</small></div>`;
       const body = document.getElementById('flowTableBody');
       if (body) body.innerHTML = [
         [spot ? '외국인 현물 순매수(억원·선물 원천 폐지로 대체)' : '외국인 선물 순매수(계약)', futures],
         ['프로그램 순매수(억원)', programs]
-      ].map(([label, values]) => `<tr><td>${label}</td>${Array.from({ length: 5 }, (_, index) => `<td style="color:${color(values[index])}">${format(values[index])}</td>`).join('')}</tr>`).join('');
+      ].map(([label, values]) => `<tr><td>${label}</td>${Array.from({ length: 5 }, (_, index) => `<td title="${numeric(values[index])===null?'해당 기간 원천 데이터 부족':''}" style="color:${color(values[index])}">${format(values[index])}</td>`).join('')}</tr>`).join('');
       const card = document.getElementById('refreshFlow')?.closest('.card');
       const title = card?.querySelector('.title');
-      if (title) title.textContent = spot ? '외국인 현물 수급(대체)' : '외국인 선물 수급';
+      if (title) title.textContent = '외국인 선물·프로그램 수급';
       const memo = card?.querySelector('.memo');
       if (memo) memo.textContent = `단일 수치보다 3~5일 누적 흐름을 함께 확인합니다.\n${json.futuresMode === 'futures' ? '- 외국인 선물 순매수(계약): ±3,000 이상이면 방향성 신호\n' : ''}- 프로그램 순매수(억원): 차익거래 vs 비차익거래 구분이 더 정밀`;
       for (const noteId of ['note-foreign-futures', 'note-foreign-futures-minute']) {
@@ -3268,7 +3290,7 @@
       }
       const source = json.programSource && json.programSource !== 'unavailable' ? json.programSource : '프로그램 원천 확인 필요';
       const asOf = document.getElementById('flowAsOf');
-      if (asOf) asOf.textContent = `조회시각: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} · ${source}${json.latestOpenDate ? ` · 최근 개장일 ${json.latestOpenDate}` : ''}`;
+      if (asOf) asOf.textContent = `조회시각: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} · ${source}${json.programAsOfDate ? ` (프로그램 기준 ${json.programAsOfDate})` : ''}${json.latestOpenDate ? ` · 최근 개장일 ${json.latestOpenDate}` : ''}`;
     }
 
     async function fetchStatsAndUpdateTables() {
@@ -3570,9 +3592,12 @@
       const nameEl = document.getElementById(`stock-search-${slot}`);
       nameEl.textContent = stock.name;
       nameEl.title = `${stock.code} · ${stock.market}`;
+      const us=stock.key.startsWith('US:');
+      const priceEl=document.getElementById(`index-price-${slot}`);
+      priceEl.dataset.suffix=us?'달러':'원';priceEl.dataset.digits=us?'2':'0';
       initLwChart(slot, `lwchart-${slot}`, '1d', 120, {
-        apiKey:stock.key, regimePanelKey:slot, plain:true, noMarkers:true, visibleMa:[5,10,20,60,120],
-        maCompare:true, bollinger:true, referenceValues:true, valueSuffix:'원', valueDigits:0, axisDigits:0, periodControl:true
+        apiKey:stock.key, regimePanelKey:slot, plain:true, macdBackground:true, noMarkers:true, visibleMa:[5,10,20,60,120],
+        maCompare:true, bollinger:true, referenceValues:true, valueSuffix:us?'달러':'원', valueDigits:us?2:0, axisDigits:us?2:0, periodControl:true
       });
       const stockCard = nameEl.closest('section');
       const timeframeButtons = stockCard.querySelectorAll('.stock-tf-btn');
@@ -3587,7 +3612,7 @@
       }));
 
     }
-    const chartStocks = window.StockChartList.create({urlFor:apiUrl,
+    const chartStocks = await window.StockChartList.create({urlFor:apiUrl,
       onMount:(item)=>initSelectableStock(item.slot,item),
       onRemove:(slot)=>{
         const inst=lwChartInstances[slot];if(!inst)return;
@@ -3732,11 +3757,11 @@
     const renderM2Trend = () => renderExtraChart('chart-m2-trend', 'note-m2-trend', 'm2-trend', [
       { key: 'm2', label: '한국 M2', color: '#0f6fff', unit: '조원' },
       { key: 'm2Yoy', label: 'YoY(우)', color: '#d92c2c', axis: 'right', unit: '%' }
-    ], { dualAxis: true, rightZeroLine: true, tooltip: true, yearlyTicks: true });
+    ], { dualAxis: true, rightZeroLine: true, tooltip: true, yearlyTicks: true, showLastValues:true });
     const renderUsM2Trend = () => renderExtraChart('chart-us-m2-trend', 'note-us-m2-trend', 'us-m2-trend', [
       { key: 'm2', label: '미국 M2', color: '#0f6fff', unit: '조달러' },
       { key: 'm2Yoy', label: 'YoY(우)', color: '#d92c2c', axis: 'right', unit: '%' }
-    ], { dualAxis: true, rightZeroLine: true, tooltip: true, yearlyTicks: true });
+    ], { dualAxis: true, rightZeroLine: true, tooltip: true, yearlyTicks: true, showLastValues:true });
     const renderCentralBankAssets = () => renderExtraChart('chart-central-bank-assets', 'note-central-bank-assets', 'central-bank-assets', [
       { key: 'fedYoy', label: '미국', color: '#d92c2c' },
       { key: 'bokYoy', label: '한국', color: '#111827' },
@@ -3764,6 +3789,8 @@
     renderKospiFuturesMinute();
     renderUsdkrwMinute();
     renderMarketTurnover();
+    document.getElementById('refreshM2').addEventListener('click',renderM2Trend);
+    document.getElementById('refreshUsM2').addEventListener('click',renderUsM2Trend);
     renderM2Trend();
     renderUsM2Trend();
     renderCentralBankAssets();

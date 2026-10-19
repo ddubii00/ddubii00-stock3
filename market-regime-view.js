@@ -14,6 +14,7 @@
     value > prior + 1e-9 ? { arrow: '↗', tone: 'up', text: '상승' } : value < prior - 1e-9 ? { arrow: '↘', tone: 'down', text: '하락' } : { arrow: '→', tone: 'flat', text: '보합' };
 
   function render(result, options = {}) {
+    const priceValue = String(result.market || options.market || '').startsWith('US:') ? number : indexValue;
     const rows = options.rows || [];
     const latest = rows.at(-1);
     const positions = latest ? [{ label: '현재가', value: latest.close, arrow: '›', tone: 'flat', text: '확정 종가', color: '#172033' },
@@ -22,13 +23,13 @@
         const value = values.at(-1), prior = values.at(-2);
         return { label: `${period}일`, value, ...direction(value, prior), color: MA_COLORS[period] };
       })].sort((a, b) => (b.value ?? -Infinity) - (a.value ?? -Infinity)) : [];
-    const stack = positions.length ? positions.map((item) => `<div class="regime-position-row"><span style="color:${item.color}">${item.label}</span><span class="regime-arrow ${item.tone}" aria-label="${item.text}" title="${item.text}">${item.arrow}</span><strong style="color:${item.color}">${indexValue(item.value)}</strong></div>`).join('') : '<span>이평 위치 확인 중</span>';
+    const stack = positions.length ? positions.map((item) => `<div class="regime-position-row"><span style="color:${item.color}">${item.label}</span><span class="regime-arrow ${item.tone}" aria-label="${item.text}" title="${item.text}">${item.arrow}</span><strong style="color:${item.color}">${priceValue(item.value)}</strong></div>`).join('') : '<span>이평 위치 확인 중</span>';
     return `<div class="index-regime-layout">
       <div class="regime-positions">${stack}</div>
       <div class="regime-overview">
         <strong class="regime-state ${escape(result.tone)}">${escape(result.label)}</strong>
-        <div class="regime-allocations" title="목표 비중이며 실제 계좌 비중과 다를 수 있습니다. 주식 노출률 = 100 − 현금 + 신용(순자산 대비)"><span>목표 현금 <b>${percent(result.cash)}</b></span><span>목표 신용 <b>${percent(result.credit)}</b></span><span>주식 노출률 <b>${percent(result.exposure)}</b></span></div>
-        <div class="regime-targets" title="기준 최고 종가 ${escape(result.cycle?.peakDate || '-')}">기준 고점 <b>${indexValue(result.cycle?.peak)}</b> · 낙폭 <b>${percent(result.drawdown == null ? null : Math.min(0, result.drawdown))}</b></div>
+        <div class="regime-allocations" title="목표 비중이며 실제 계좌 비중과 다를 수 있습니다. 주식 노출률 = 100 − 현금 + 신용(순자산 대비)"><span class="allocation-cash">목표 현금 <b>${percent(result.cash)}</b></span><span class="allocation-credit">목표 신용 <b>${percent(result.credit)}</b></span><span class="allocation-exposure">주식 노출률 <b>${percent(result.exposure)}</b></span></div>
+        <div class="regime-targets" title="기준 최고 종가 ${escape(result.cycle?.peakDate || '-')}">기준 고점 <b>${priceValue(result.cycle?.peak)}</b> · 낙폭 <b>${percent(result.drawdown == null ? null : Math.min(0, result.drawdown))}</b></div>
         <div class="regime-confirmed-date" title="신호 기준 ${escape(result.asOf || '-')} · 최근 국면 전환 ${escape(result.transitionDate || '-')} · 다음 거래일 실행 기준">기준 ${escape(result.asOf?.slice(5) || '-')} · 전환 ${escape(result.transitionDate?.slice(5) || '-')}</div>
       </div>
     </div>
@@ -74,7 +75,7 @@
       let storage;
       try { storage = browser.localStorage; } catch (_) { /* blocked storage is optional */ }
       const state = evaluate(input, market, storage);
-      node.innerHTML = render(state.result, state);
+      node.innerHTML = render(state.result, {...state,market});
       if (!state.persistent && !inst.regimeStorageWarning) {
         browser.console?.warn('시장 국면 이력을 브라우저에 저장하지 못했습니다. 조회 이력으로만 계산합니다.');
         inst.regimeStorageWarning = true;

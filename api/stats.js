@@ -3,7 +3,7 @@
 // 1) 외국인 수급 / 프로그램
 // 2) 시장 거래대금
 
-const { fetchForeignFuturesSeries } = require('../server');
+const { fetchForeignFuturesSeries, fetchProgramFlowArray } = require('../server');
 const { futuresStats, sumWindows, nullableArray } = require('../flow-stats');
 
 function sendJson(res, statusCode, body) {
@@ -143,13 +143,16 @@ module.exports = async function handler(req, res) {
     const results = await Promise.allSettled([
       fetchDaumMarketDays('KOSPI', 20),
       fetchDaumMarketDays('KOSDAQ', 20),
-      fetchProgramTradingDays(20),
+      (typeof fetchProgramFlowArray==='function' ? fetchProgramFlowArray() : Promise.reject(new Error('프로그램 원천 미제공'))).catch(async()=>{
+        const rows=await fetchProgramTradingDays(20);
+        return {values:sumWindows(rows.map(row=>({date:row.date,value:row.net}))),source:rows.length?'Naver Finance programDealTrendDay':'unavailable',latestOpenDate:rows[0]?.date || '',coverageDays:rows.length};
+      }),
       fetchForeignFuturesSeries(20)
     ]);
     const value = (index, fallback) => results[index].status === 'fulfilled' ? results[index].value : fallback;
     const kospiData = value(0, []);
     const kosdaqData = value(1, []);
-    const programRows = value(2, []);
+    const program = value(2, null);
     const futuresPayload = value(3, null);
 
     const kospiToday = kospiData[0] || {};
@@ -161,8 +164,8 @@ module.exports = async function handler(req, res) {
     const kosdaqTurnover = numberOrZero(kosdaqToday.accTradePrice);
 
     const flowSummary = futuresStats(futuresPayload);
-    const progsArray = nullableArray(sumWindows(programRows.map((row) => ({ date: row.date, value: row.net }))));
-    const programSource = progsArray ? 'Naver Finance programDealTrendDay' : 'unavailable';
+    const progsArray = nullableArray(program?.values);
+    const programSource = progsArray ? program.source : 'unavailable';
 
     return sendJson(res, 200, {
       ok: true,
@@ -178,6 +181,9 @@ module.exports = async function handler(req, res) {
       ...flowSummary,
       progsArray,
       programSource,
+      programCoverageDays:program?.coverageDays || 0,
+      programAsOfDate:program?.latestOpenDate || '',
+      programError:progsArray?'':'KIS 프로그램 조회 권한·응답 또는 공개 대체 원천을 확인하세요.',
       latestOpenDate: String(futuresPayload?.series?.at(-1)?.date || kospiData[0]?.date || '').slice(0, 10),
 
       asOf: new Date().toISOString(),
@@ -185,7 +191,7 @@ module.exports = async function handler(req, res) {
         turnover: 'Daum Finance market_index/days',
         foreignFlow: flowSummary.futuresArray === null ? 'unavailable' : flowSummary.futuresMode === 'spot-fallback' ? 'Daum Finance KOSPI foreign spot fallback, 억원' : 'Naver Finance futures investorDealTrendDay, sosok=03, contracts',
         program: programSource,
-        programAsOf: programRows[0]?.date || null
+        programAsOf: program?.latestOpenDate || null
       }
     });
   } catch (error) {

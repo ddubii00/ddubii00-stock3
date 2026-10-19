@@ -45,9 +45,11 @@ async function coreStats(payload, program = null) {
   return { result, calls };
 }
 
-test('Oracle stats does not call or merge KIS futures over spot fallback history', async () => {
+test('Oracle stats keeps separate KIS contract highlights without merging them into spot history', async () => {
   const { result, calls } = await coreStats({ unit: '조원', source: 'spot-fallback', series: series(0.35) }, { values: [null, 0, null, 25, null], source: 'KIS' });
-  assert.equal(calls.length, 0);
+  assert.equal(calls.length, 1);
+  assert.equal(result.futuresLatest.value,7899);
+  assert.equal(result.futuresLatest.unit,'계약');
   assert.deepEqual(result.futuresArray, [3500, 10500, 17500, 35000, 70000]);
   assert.equal(result.futuresMode, 'spot-fallback');
   assert.equal(result.futuresUnit, '억원');
@@ -65,7 +67,8 @@ test('Oracle stats permits KIS live merging only for contract history', async ()
 
 test('Oracle stats returns null for unavailable futures and programs', async () => {
   const { result, calls } = await coreStats(null);
-  assert.equal(calls.length, 0);
+  assert.equal(calls.length, 1);
+  assert.equal(result.futuresLatest.value,7899);
   assert.equal(result.futuresArray, null);
   assert.equal(result.progsArray, null);
   assert.equal(result.programSource, 'unavailable');
