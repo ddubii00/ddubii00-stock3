@@ -13,13 +13,17 @@
     const byTime = new Map();
     for (const row of Array.isArray(rows) ? rows : []) {
       const time = row?.time ?? row?.date;
-      if (typeof time !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(time) ||
-          !Number.isFinite(row.close) || row.close <= 0) continue;
-      const timestamp = Date.parse(`${time}T00:00:00Z`);
-      if (!Number.isFinite(timestamp) || new Date(timestamp).toISOString().slice(0, 10) !== time) continue;
+      if (!Number.isFinite(row.close) || row.close <= 0) continue;
+      if (typeof time === 'number') {
+        if (!Number.isSafeInteger(time) || time <= 0) continue;
+      } else {
+        if (typeof time !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(time)) continue;
+        const timestamp = Date.parse(`${time}T00:00:00Z`);
+        if (!Number.isFinite(timestamp) || new Date(timestamp).toISOString().slice(0, 10) !== time) continue;
+      }
       byTime.set(time, { time, close: row.close });
     }
-    const daily = [...byTime.values()].sort((a, b) => a.time.localeCompare(b.time));
+    const daily = [...byTime.values()].sort((a, b) => typeof a.time === 'number' && typeof b.time === 'number' ? a.time - b.time : String(a.time).localeCompare(String(b.time)));
     const lines = [];
     if (!daily.length) return lines;
     const baseline = daily[0].close;
@@ -42,7 +46,7 @@
   function line(time, open, close) {
     return { time, open, high: Math.max(open, close), low: Math.min(open, close), close };
   }
-  // Keep indicators calculated on daily bars; sample only formed-line dates so
+  // Keep indicators calculated on the source bars; sample only formed-line dates so
   // the chart does not reintroduce empty sessions into the compressed timeline.
   function project(indicator, lines) {
     const times = new Set(lines.map((row) => row.time));

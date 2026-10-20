@@ -14,7 +14,7 @@
     const rate=quote.changePercent;
     node.querySelector('.ticker-rate').textContent=valid(rate)?`${rate>0?'+':''}${rate.toFixed(2)}%`:'-';
     node.classList.toggle('up',valid(rate)&&rate>0);node.classList.toggle('down',valid(rate)&&rate<0);
-    node.title=`${quote.source || '원천 확인 중'}${quote.delayed?' · 지연 시세 가능':''}${quote.asOf?` · 원천 기준 ${quote.asOf}`:''}${quote.queriedAt?` · 조회 ${quote.queriedAt}`:''}`;
+    node.title=`${quote.source || '원천 확인 중'}${quote.sessionLabel?` · ${quote.sessionLabel}`:''}${quote.delayed?' · 지연 시세 가능':''}${quote.asOf?` · 원천 기준 ${quote.asOf}`:''}${quote.queriedAt?` · 조회 ${quote.queriedAt}`:''}`;
   }
   function start({urlFor,getStocks,onQuotes=()=>{},onCharts=()=>{}}){
     let running=false,lastPoll=0;

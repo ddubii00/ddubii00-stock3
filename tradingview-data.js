@@ -103,11 +103,11 @@ const chartSources = {
   SKHYNIX: { symbols: ['KRX:000660'], offset: 9 * 3600 }
 };
 
-async function fetchYahooSeries(symbol, interval = '1d') {
+async function fetchYahooSeries(symbol, interval = '1d', extended = false) {
   const minute = interval.endsWith('m');
   const range = minute ? '5d' : '2y';
   const yahooInterval = minute ? interval : interval;
-  const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${yahooInterval}`;
+  const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${yahooInterval}${minute && extended ? '&includePrePost=true' : ''}`;
   const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
   if (!response.ok) return null;
   const json = await response.json();
@@ -123,53 +123,18 @@ async function fetchYahooSeries(symbol, interval = '1d') {
     const close = Number(quotes.close?.[i]);
     if (![open, high, low, close].every(Number.isFinite) || close <= 0) continue;
     const date = minute
-      ? Number(timestamps[i]) + offset
+      ? (extended ? require('./us-market-session').displayTimestamp(Number(timestamps[i])) : Number(timestamps[i]) + offset)
       : new Date((Number(timestamps[i]) + offset) * 1000).toISOString().slice(0, 10);
     rows.push({ date, open, high, low, close });
   }
   return rows.length ? rows : null;
 }
 
-async function fetchNaverIndexClosingMinutes(key, date, targetMin = 1) {
-  if (!['KOSPI', 'KOSDAQ'].includes(key) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
-  const compactDate = date.replace(/-/g, '');
-  const step = Math.max(1, Number(targetMin) || 1);
-  const times = [];
-  for (let minute = 15 * 60; minute <= 15 * 60 + 20; minute += step) {
-    times.push(`${String(Math.floor(minute / 60)).padStart(2, '0')}${String(minute % 60).padStart(2, '0')}`);
-  }
-  if (!times.includes('1520')) times.push('1520');
-  // Check 15:30-15:32 because the official closing value can arrive a little late.
-  times.push('1530', '1531', '1532');
-  const snapshots = await Promise.all(times.map(async (hhmm) => {
-    try {
-      const url = `https://stock.naver.com/api/domestic/indexSise/time?koreaIndexType=${key}&thistime=${compactDate}${hhmm}00&startIdx=0&pageSize=20`;
-      const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://stock.naver.com/' } });
-      if (!response.ok) return null;
-      const payload = await response.json();
-      const row = Array.isArray(payload) ? payload[0] : null;
-      const close = Number(row?.nowVal);
-      if (!row || !Number.isFinite(close) || close <= 0) return null;
-      const displayTime = hhmm >= '1530' ? '1530' : hhmm;
-      const rawTimestamp = Date.parse(`${date}T${displayTime.slice(0, 2)}:${displayTime.slice(2)}:00Z`) / 1000;
-      const open = Number(row.openVal);
-      const high = Number(row.highVal);
-      const low = Number(row.lowVal);
-      return {
-        date: rawTimestamp,
-        open: Number.isFinite(open) ? open : close,
-        high: Number.isFinite(high) ? high : close,
-        low: Number.isFinite(low) ? low : close,
-        close
-      };
-    } catch (_) {
-      return null;
-    }
-  }));
-  const byTimestamp = new Map();
-  snapshots.filter(Boolean).forEach((row) => byTimestamp.set(row.date, row));
-  return [...byTimestamp.values()].sort((a, b) => a.date - b.date);
-}
+let indexSession;
+const sessionReader = () => indexSession ||= require('./korea-index-session').createReader();
+const fetchNaverIndexClosingMinutes = (...args) => sessionReader().tail(...args);
+const supplementKoreanIndexMinutes = (key, rows, interval) =>
+  ['KOSPI', 'KOSDAQ'].includes(key) && /^\d+m$/.test(interval) ? sessionReader().supplement(key, rows, interval) : rows;
 
 async function fetchUnifiedSeries(key, interval = '1d') {
   const primary = await require('./kis-market-data').series(key,interval).catch(()=>null);
@@ -182,7 +147,7 @@ async function fetchUnifiedSeries(key, interval = '1d') {
     NASDAQ_FUTURES: 'NQ=F', SAMSUNG: '005930.KS', SKHYNIX: '000660.KS'
   };
   if (stock || yahooSymbols[key]) {
-    const yahooRows = await fetchYahooSeries(stock?.yahoo || yahooSymbols[key], interval).catch(() => null);
+    const yahooRows = await fetchYahooSeries(stock?.yahoo || yahooSymbols[key], interval, stock?.country==='US').catch(() => null);
     if (yahooRows?.length) return yahooRows.slice(interval.endsWith('m') ? -5000 : -520);
   }
   const limit = interval.endsWith('m') ? (key === 'KOSPI_FUTURES' ? 3200 : 5000) : 520;
@@ -250,4 +215,4 @@ async function fetchBondYields() {
   return rows;
 }
 
-module.exports = { fetchTradingViewSeries, fetchUnifiedSeries, fetchBondYields, fetchNaverIndexClosingMinutes };
+module.exports = { fetchTradingViewSeries, fetchUnifiedSeries, fetchBondYields, fetchNaverIndexClosingMinutes, supplementKoreanIndexMinutes };

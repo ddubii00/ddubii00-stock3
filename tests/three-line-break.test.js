@@ -52,17 +52,20 @@ function dailyPrices(flat=false) {
   }
   return result;
 }
-function loaderHarness({key='KOSPI', mode='3lb', input=dailyPrices(), failFirst=false, macdBackground=false}={}) {
+function loaderHarness({key='KOSPI', mode='3lb', lineBreakInterval, now='2026-10-20T06:31:00Z', input=dailyPrices(), failFirst=false, macdBackground=false}={}) {
   const elements=new Map(),fills=[];
   const ctx={clearRect(){},fillRect(){fills.push(this.fillStyle);},beginPath(){},setLineDash(){},moveTo(){},lineTo(){},stroke(){}};
   const target={clientWidth:600,clientHeight:270,dataset:{},style:{},setAttribute(k,v){this[k]=v;},querySelector(s){return elements.get(s)||null;},appendChild(el){elements.set('.'+el.className,el);}};
   const series=()=>({data:[],setData(data){this.data=data;},setMarkers(data){this.markers=data;}});
   const scale={setVisibleRange(){},fitContent(){},getVisibleLogicalRange:()=>({from:0,to:input.length-1}),logicalToCoordinate:i=>i*2,unsubscribeVisibleLogicalRangeChange(){},unsubscribeSizeChange(){},subscribeVisibleLogicalRangeChange(){},subscribeSizeChange(){}};
-  const inst={key,interval:mode,containerId:'chart',visibleCount:120,options:{plain:true,noMarkers:true,macdBackground},
+  const applied=[];
+  const inst={key,interval:mode,lineBreakInterval,containerId:'chart',visibleCount:120,options:{plain:true,noMarkers:true,macdBackground},
     candleSeries:series(),maSeries:Object.fromEntries([5,10,20,60,120,200].map(p=>[p,series()])),
-    bbSeries:{upper:series(),lower:series()},chart:{applyOptions(){},subscribeCrosshairMove(){},timeScale(){return scale;}}};
+    bbSeries:{upper:series(),lower:series()},chart:{applyOptions(options){applied.push(options);},subscribeCrosshairMove(){},timeScale(){return scale;}}};
   const calls=[],refreshes=[];
+  class FixedDate extends Date { constructor(...args){super(...(args.length?args:[now]));} static now(){return Date.parse(now);} }
   const context=vm.createContext({window:{ThreeLineBreak:lb,MarketRegime:regime},lwChartInstances:{[key]:inst},
+    Date:FixedDate,
     document:{getElementById(){return target;},createElement(){return{style:{},getContext:()=>ctx,remove(){elements.delete('.'+this.className);}};}},
     apiUrl:x=>x,fetch:async url=>{calls.push(url);return{json:async()=>failFirst?{ok:false}:{ok:true,series:input}};},
     fetchJsonWithRetry:async url=>{calls.push(url);return{ok:true,series:input};},
@@ -74,8 +77,46 @@ function loaderHarness({key='KOSPI', mode='3lb', input=dailyPrices(), failFirst=
     extract('    function calculateEMA(', '    function buildMinuteWindow('),
     extract('    async function loadLwChart(', '    function initLwChart(')
   ].join('\n'),context);
-  return {inst,target,calls,refreshes,fills,run:()=>context.loadLwChart(key)};
+  return {inst,target,calls,refreshes,fills,applied,run:()=>context.loadLwChart(key)};
 }
+
+test('index three-line mode retains the selected minute interval and falls back to daily for non-minute views',()=>{
+  const context=vm.createContext({});
+  vm.runInContext(html.slice(html.indexOf('    function setIndexTimeframe('),html.indexOf('    async function loadLwChart(')),context);
+  for(const interval of ['1m','3m','5m','60m']){
+    const inst={interval};context.setIndexTimeframe(inst,'3lb',1);
+    assert.equal(inst.interval,'3lb');assert.equal(inst.lineBreakInterval,interval);
+    context.setIndexTimeframe(inst,'3lb',1);assert.equal(inst.lineBreakInterval,interval);
+    context.setIndexTimeframe(inst,'1d',1);assert.equal(inst.interval,'1d');
+  }
+  const inst={interval:'1wk'};context.setIndexTimeframe(inst,'3lb',1);assert.equal(inst.lineBreakInterval,'1d');
+});
+
+test('one-minute index line breaks use intraday timestamps and form many lines during one session',async()=>{
+  const start=Date.parse('2026-10-20T09:00:00Z')/1000;
+  const input=Array.from({length:180},(_,i)=>({date:start+i*60,close:3000+i}));
+  for(const key of ['KOSPI','KOSDAQ'])for(const failFirst of [false,true]){
+    const h=loaderHarness({key,input,lineBreakInterval:'1m',failFirst});await h.run();
+    assert.ok(h.calls.every(url=>url.endsWith('interval=1m')));
+    assert.equal(h.inst.candleSeries.data.length,179);
+    assert.equal(h.inst.candleSeries.data.at(-1).time,start+179*60);
+    assert.equal(h.refreshes[0],undefined); // Regime panel must fetch its own daily source.
+    assert.equal(h.target.dataset.sourceInterval,'1m');
+    if(!failFirst)assert.ok(h.applied.some(options=>options.timeScale?.timeVisible===true));
+  }
+});
+
+test('minute line break ignores an unfinished source candle but accepts the 15:30 final close after 15:31',async()=>{
+  const stamp=time=>Date.parse(`2026-10-20T${time}:00Z`)/1000;
+  const h=loaderHarness({lineBreakInterval:'5m',now:'2026-10-20T06:31:00Z',input:[
+    {date:stamp('15:10'),close:100},{date:stamp('15:15'),close:110},
+    {date:stamp('15:30'),close:120},{date:stamp('15:35'),close:999}
+  ]});await h.run();
+  assert.deepEqual(h.inst.candleSeries.data.map(row=>row.close),[110,120]);
+  const current=loaderHarness({lineBreakInterval:'5m',now:'2026-10-20T00:07:00Z',input:[
+    {date:stamp('09:00'),close:100},{date:stamp('09:05'),close:999}
+  ]});await current.run();assert.equal(current.inst.candleSeries.data.length,0);
+});
 test('all six line-break charts fetch daily input and keep daily regime/MA/BB values', async()=>{
   for (const key of ['KOSPI','KOSDAQ','NASDAQ','SP500','KR:005930:KOSPI','KR:000660:KOSPI']) {
     const h=loaderHarness({key});await h.run();

@@ -1,24 +1,27 @@
 'use strict';
 const kis = require('./kis-market-data');
 const {parseStockKey} = require('./stock-search');
+const {extendedQuote} = require('./us-market-session');
 const SYMBOLS={KOSPI:'^KS11',KOSDAQ:'^KQ11',NASDAQ:'^IXIC',SP500:'^GSPC',USDKRW:'KRW=X',USDJPY:'JPY=X',SOX:'^SOX',GOLD:'GC=F',WTI:'CL=F',DXY:'DX-Y.NYB',US10Y:'^TNX'};
 const canonical = key => Object.entries(SYMBOLS).find(([,symbol])=>symbol===key)?.[0] || key;
 function createQuotes({kisClient=kis,fetchImpl=(...args)=>fetch(...args),now=()=>Date.now()}={}) {
   const cache=new Map(),pending=new Map();
   async function publicQuote(key) {
     const symbol=parseStockKey(key)?.yahoo || SYMBOLS[key];
+    const us = parseStockKey(key)?.country === 'US';
     if(!symbol) return null;
     const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),8000);
     try {
-      const response=await fetchImpl(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1m`,{headers:{'User-Agent':'Mozilla/5.0'},signal:controller.signal});
+      const response=await fetchImpl(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1m${us?'&includePrePost=true':''}`,{headers:{'User-Agent':'Mozilla/5.0'},signal:controller.signal});
       if(!response.ok) return null;
-      const json=await response.json();const meta=json?.chart?.result?.[0]?.meta;
+      const json=await response.json();const result=json?.chart?.result?.[0],meta=result?.meta;
       const price=kis.number(meta?.regularMarketPrice);
       if(!(price>0)) return null;
       let previousClose=kis.number(meta.chartPreviousClose ?? meta.previousClose);
       const changePercent=previousClose>0?(price/previousClose-1)*100:kis.number(meta.regularMarketChangePercent);
       if(previousClose===null && changePercent!==null && changePercent!==-100)previousClose=price/(1+changePercent/100);
       return {key,symbol,price,previousClose,changePercent,asOf:meta.regularMarketTime?new Date(meta.regularMarketTime*1000).toISOString():null,
+        ...(us ? {session:'regular',sessionLabel:'정규장',...extendedQuote(result,now())} : {}),
         queriedAt:new Date(now()).toISOString(),source:'Yahoo Finance',raw:'yahoo',delayed:true};
     } finally {clearTimeout(timer);}
   }
@@ -30,7 +33,10 @@ function createQuotes({kisClient=kis,fetchImpl=(...args)=>fetch(...args),now=()=
     const request=(async()=>{
       try {
         const primary=await kisClient.quote(key).catch(()=>null);
-        const value=primary || await publicQuote(key).catch(()=>null);
+        // KIS remains the regular-session primary. Extended prices need explicit timestamps.
+        const publicValue = parseStockKey(key)?.country === 'US' || !primary ? await publicQuote(key).catch(()=>null) : null;
+        const value=publicValue?.session && publicValue.session !== 'regular' ? publicValue : primary || publicValue;
+        if (value && parseStockKey(key)?.country === 'US' && !value.session) { value.session='regular';value.sessionLabel='정규장'; }
         cache.set(key,{value,expiresAt:now()+15_000});
         return value;
       } finally {pending.delete(key);}

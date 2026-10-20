@@ -2,7 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const WebSocketClient = require('ws');
-const { fetchUnifiedSeries, fetchBondYields, fetchNaverIndexClosingMinutes } = require('./tradingview-data');
+const { fetchUnifiedSeries, fetchBondYields, supplementKoreanIndexMinutes } = require('./tradingview-data');
 const { fetchHighBreakouts } = require('./breakout-data');
 const { fetchDashboardPanels, fetchBinanceKoreaFutures, fetchInvestorTopFlows } = require('./dashboard-data');
 const { futuresStats, nullableArray, sumWindows } = require('./flow-stats');
@@ -1679,7 +1679,7 @@ async function fetchStooq(symbol) {
 
 async function fetchChartSeries(key, interval = '1d') {
   const unified = await fetchUnifiedSeries(key, interval).catch(() => null);
-  if (unified && unified.length) return unified;
+  if (unified && unified.length) return supplementKoreanIndexMinutes(key, unified, interval);
   if (key === 'US10Y') {
     const rows = await supplementTreasuryYield(await fetchFredYieldSeries('DGS10', 0.2), 'BC_10YEAR');
     if (!rows.length) return null;
@@ -1829,70 +1829,6 @@ async function fetchChartSeries(key, interval = '1d') {
     let lows = quotes.low || [];
     let closes = quotes.close || [];
 
-    if ((key === 'KOSPI' || key === 'KOSDAQ') && targetMin > 0) {
-      try {
-        const dUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?range=${rangeStr}&interval=1d`;
-        const dRes = await fetch(dUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-        const dJson = await dRes.json();
-        const dTs = dJson?.chart?.result?.[0]?.timestamp || [];
-        const dCloses = dJson?.chart?.result?.[0]?.indicators?.quote?.[0]?.close || [];
-        
-        let dailyCloses = {};
-        for (let j = 0; j < dTs.length; j++) {
-           if (dCloses[j]) {
-              let dDate = new Date(dTs[j] * 1000).toISOString().slice(0, 10);
-              dailyCloses[dDate] = dCloses[j];
-           }
-        }
-        const naverCode = key === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
-        const naverResponse = await fetch(`https://m.stock.naver.com/api/index/${naverCode}/price?pageSize=10&page=1`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-        const naverRows = await naverResponse.json();
-        if (Array.isArray(naverRows)) {
-          naverRows.forEach((row) => {
-            const naverDate = String(row.localTradedAt || row.localTradedDate || '').slice(0, 10);
-            const naverClose = Number(String(row.closePrice || '').replace(/,/g, ''));
-            if (naverDate && Number.isFinite(naverClose) && naverClose > 0) dailyCloses[naverDate] = naverClose;
-          });
-        }
-        
-        let appendedTs = [];
-        let appendedOpens = [];
-        let appendedHighs = [];
-        let appendedLows = [];
-        let appendedCloses = [];
-        const nowSec = Math.floor(Date.now() / 1000);
-
-        for (let i = 0; i < ts.length; i++) {
-           appendedTs.push(ts[i]);
-           appendedOpens.push(opens[i]);
-           appendedHighs.push(highs[i]);
-           appendedLows.push(lows[i]);
-           appendedCloses.push(closes[i]);
-           
-           let curDate = new Date(ts[i] * 1000).toISOString().slice(0, 10);
-           let nextDate = (i + 1 < ts.length) ? new Date(ts[i + 1] * 1000).toISOString().slice(0, 10) : null;
-           
-           if (curDate !== nextDate) {
-              let ts1530 = Math.floor(Date.parse(curDate + "T06:30:00Z") / 1000);
-              if (nowSec > ts1530 && dailyCloses[curDate] && ts[i] < ts1530) {
-                 appendedTs.push(ts1530);
-                 appendedOpens.push(closes[i]); 
-                 appendedHighs.push(Math.max(closes[i], dailyCloses[curDate]));
-                 appendedLows.push(Math.min(closes[i], dailyCloses[curDate]));
-                 appendedCloses.push(dailyCloses[curDate]);
-              }
-           }
-        }
-        ts = appendedTs;
-        opens = appendedOpens;
-        highs = appendedHighs;
-        lows = appendedLows;
-        closes = appendedCloses;
-      } catch (e) {
-        console.error("Failed to append KOSPI 15:30 candle", e);
-      }
-    }
-    
     const rows = [];
     let currentCandle = null;
     let currentCandlePeriod = null;
@@ -1910,7 +1846,7 @@ async function fetchChartSeries(key, interval = '1d') {
         if (!currentCandle || currentCandlePeriod !== periodStart) {
           if (currentCandle) rows.push(currentCandle);
           currentCandlePeriod = periodStart;
-          currentCandle = { date: periodStart + (9 * 3600), open, high, low, close };
+          currentCandle = { date: ['NASDAQ','SP500'].includes(key) ? require('./us-market-session').displayTimestamp(periodStart) : periodStart + (9 * 3600), open, high, low, close };
         } else {
           currentCandle.high = Math.max(currentCandle.high, high);
           currentCandle.low = Math.min(currentCandle.low, low);
@@ -1923,18 +1859,8 @@ async function fetchChartSeries(key, interval = '1d') {
       }
     }
     if (currentCandle) rows.push(currentCandle);
-    if ((key === 'KOSPI' || key === 'KOSDAQ') && targetMin > 0 && rows.length) {
-      const latestDate = new Date(Number(rows[rows.length - 1].date) * 1000).toISOString().slice(0, 10);
-      const closingRows = await fetchNaverIndexClosingMinutes(key, latestDate, targetMin).catch(() => []);
-      if (closingRows.length) {
-        const merged = new Map(rows.map((row) => [Number(row.date), row]));
-        closingRows.forEach((row) => merged.set(Number(row.date), row));
-        rows.length = 0;
-        rows.push(...[...merged.values()].sort((a, b) => Number(a.date) - Number(b.date)));
-      }
-    }
     if (!rows.length) return null;
-    return rows.slice(-1500); // 넉넉하게 1500개 전달 (프론트에서 700개 등 사용)
+    return supplementKoreanIndexMinutes(key, rows.slice(-1500), interval);
   }
 
   const stooq = chartMap[key];

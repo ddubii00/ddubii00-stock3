@@ -350,15 +350,16 @@
     body[data-locked] { padding-top:0; }
     body[data-locked] .wrap { display:none; }
     [hidden] { display:none !important; }
-    .market-header { position:fixed; inset:0 0 auto; z-index:500; display:grid; grid-template-columns:repeat(5,minmax(0,1fr)) auto; align-items:center; gap:4px; padding:4px 12px; box-sizing:border-box; background:rgba(255,255,255,.98); border-bottom:1px solid #dbe3f1; box-shadow:0 2px 8px #10234612; }
-    .market-ticker { min-width:0; font-variant-numeric:tabular-nums; line-height:1.05; color:#172033; }
+    .market-header { position:fixed; inset:0 0 auto; z-index:500; display:flex; flex-wrap:nowrap; align-items:center; gap:12px; padding:4px 8px; box-sizing:border-box; overflow-x:auto; white-space:nowrap; scrollbar-width:thin; background:rgba(255,255,255,.98); border-bottom:1px solid #dbe3f1; box-shadow:0 2px 8px #10234612; }
+    .market-ticker { display:flex; flex:0 0 auto; align-items:baseline; gap:3px; min-width:0; font-variant-numeric:tabular-nums; line-height:1.05; color:#172033; }
     .ticker-label { display:block; color:#5f6b85; font-size:10px; font-weight:800; }
-    .ticker-price { font-size:14px; font-weight:900; white-space:nowrap; }
-    .ticker-rate { display:inline-block; margin-left:3px; font-size:10px; font-weight:750; white-space:nowrap; }
+    .ticker-price { font-size:16px; font-weight:900; white-space:nowrap; }
+    .ticker-rate { display:inline-block; margin-left:0; font-size:11px; font-weight:750; white-space:nowrap; }
     .market-ticker.up .ticker-price,.market-ticker.up .ticker-rate { color:#d92c2c; }
     .market-ticker.down .ticker-price,.market-ticker.down .ticker-rate { color:#1f5bd8; }
     .market-ticker.stale { opacity:.5; }
-    .market-header .btn { padding:5px 8px; font-size:12px; border-radius:6px; }
+    .market-header .btn { flex:0 0 auto; padding:5px 8px; font-size:12px; border-radius:6px; }
+    .index-quote-session { font-size:11px; font-weight:700; color:#5f6b85; white-space:nowrap; }
     .access-gate { min-height:100vh; display:grid; place-items:center; padding:20px; box-sizing:border-box; }
     .access-form { width:min(320px,90vw); padding:25px; background:#fff; border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); }
     .access-form h1 { margin:0 0 20px; font-size:23px; }
@@ -383,7 +384,7 @@
     .flow-highlight small { display:block; color:#5f6b85; font-size:11px; }
     #refreshM2, #refreshUsM2 { flex-shrink:0; white-space:nowrap; }
     #chartStocksMessage { color:#9a6011; font-size:12px; margin:6px 0; }
-    @media(max-width:700px) { .market-header { gap:3px; padding:4px 6px; } .ticker-rate { display:block; margin-left:0; font-size:10px; } .ticker-price { font-size:13px; } .ticker-label { font-size:10px; } .market-header .btn { padding:6px; } }
+    @media(max-width:700px) { .market-header { gap:9px; padding:4px 6px; } .ticker-rate { font-size:10px; } .ticker-price { font-size:15px; } .ticker-label { font-size:10px; } .market-header .btn { flex:0 0 auto; padding:5px 6px; } }
   </style>
 </head>
 <body data-locked>
@@ -1059,7 +1060,12 @@
       previousEl.textContent = `${validPrevious ? format(previous) : '-'}\n직전가`;
       rateEl.textContent = validPrice && Number.isFinite(change) ? `${change > 0 ? '+' : ''}${change.toFixed(2)}%` : '-';
       priceEl.parentElement.className = `index-quote-current ${validPrice && change > 0 ? 'up' : validPrice && change < 0 ? 'down' : 'flat'}`;
-      priceEl.parentElement.title = quote?.asOf ? `시세 기준 ${quote.asOf}` : '시세 기준 확인 중';
+      priceEl.parentElement.title = [quote?.sessionLabel, quote?.changeBasis, quote?.asOf ? `시세 기준 ${quote.asOf}` : '시세 기준 확인 중', quote?.delayed ? '지연 시세 가능' : ''].filter(Boolean).join(' · ');
+      if (quote?.sessionLabel && priceEl.parentElement.querySelector) {
+        let badge = priceEl.parentElement.querySelector('.index-quote-session');
+        if (!badge) { badge = document.createElement('span'); badge.className = 'index-quote-session'; priceEl.parentElement.appendChild(badge); }
+        badge.textContent = quote.sessionLabel;
+      }
     }
 
     function refreshIndexRegime(inst, rows) {
@@ -1157,6 +1163,16 @@
     }
 
 
+    function setIndexTimeframe(inst, timeframe, minutes) {
+      if (timeframe === '3lb') {
+        if (inst.interval !== '3lb') inst.lineBreakInterval = /^\d+m$/.test(inst.interval) ? inst.interval : '1d';
+        inst.lineBreakInterval ||= '1d';
+        inst.interval = '3lb';
+      } else {
+        inst.interval = timeframe === 'minute' ? `${minutes || 1}m` : timeframe;
+      }
+    }
+
     async function loadLwChart(key) {
       const inst = lwChartInstances[key];
       if (!inst) return;
@@ -1164,13 +1180,29 @@
       const currentLoad = () => loadRevision === inst.loadRevision;
       const apiKey = inst.options?.apiKey || key;
       const isLineBreak = inst.interval === '3lb';
-      const sourceInterval = isLineBreak ? '1d' : inst.interval;
-      const confirmedInput = (rows) => isLineBreak ? window.MarketRegime.confirmedRows(rows, apiKey) : rows;
+      const sourceInterval = isLineBreak ? (inst.lineBreakInterval || '1d') : inst.interval;
+      const isMinuteSource = /^\d+m$/.test(sourceInterval);
+      const confirmedInput = (rows) => {
+        if (!isLineBreak) return rows;
+        if (!isMinuteSource) return window.MarketRegime.confirmedRows(rows, apiKey);
+        // Minute timestamps use the existing chart's display-clock convention.
+        // A source bar is confirmed at the start of the next interval; never use its live close.
+        const zone = window.MarketRegime.marketConfig(apiKey)?.zone || 'Asia/Seoul';
+        const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+          timeZone: zone, year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hourCycle:'h23'
+        }).formatToParts(new Date()).map(part => [part.type, part.value]));
+        const clock = Date.parse(`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}Z`) / 1000;
+        const step = parseInt(sourceInterval, 10) * 60;
+        return rows.filter(row => row.confirmed !== false && row.isFinal !== false &&
+          Number.isFinite(row.date) && row.date + (['KOSPI','KOSDAQ'].includes(apiKey) && new Date(row.date * 1000).toISOString().slice(11,16) === '15:30' ? 60 : step) <= clock);
+      };
       const projectIndicator = (rows, lines) => isLineBreak ? window.ThreeLineBreak.project(rows, lines) : rows;
       const chartTarget = document.getElementById(inst.containerId || ('lwchart-' + key));
       chartTarget.setAttribute('aria-busy', 'true');
       chartTarget.dataset.chartType = isLineBreak ? 'line-break' : 'candlestick';
+      chartTarget.dataset.sourceInterval = sourceInterval;
       chartTarget.setAttribute('aria-label', isLineBreak ? '삼선전환 차트' : '캔들 차트');
+      inst.chart.applyOptions({timeScale:{timeVisible:isMinuteSource}});
       const clearLineBreakBackground = () => {
         if (!isLineBreak) return;
         chartTarget.querySelector('.bg-canvas')?.remove();
@@ -1187,7 +1219,7 @@
         Object.values(inst.maSeries).forEach((series) => series.setData([]));
         if (inst.bbSeries) { inst.bbSeries.upper.setData([]); inst.bbSeries.lower.setData([]); }
         inst.candleSeries.setMarkers([]);
-        refreshIndexRegime(inst, rows);
+        refreshIndexRegime(inst, sourceInterval === '1d' ? rows : undefined);
         let warning = chartTarget.querySelector('.chart-load-warning');
         if (!warning) { warning = document.createElement('div'); warning.className = 'chart-load-warning'; chartTarget.appendChild(warning); }
         warning.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#5f6b85;background:#fff;z-index:60;';
@@ -1403,7 +1435,7 @@
           const candleColor = closeVal >= openVal ? '#e53935' : '#1e88e5'; // Adjusted for white background
 
           let dateHtml = '';
-          if (inst.interval.endsWith('m')) {
+          if (isMinuteSource) {
             dateHtml = `<div style="font-weight:700;margin-bottom:2px;color:#333;font-size:12px;">${dateStr}</div>`;
           }
 
@@ -1430,9 +1462,9 @@
         const intervalStep = inst.interval === '1mo' ? 6 : (inst.interval === '1wk' ? 3 : 1);
         inst.chart.applyOptions({
           timeScale: {
-            timeVisible: inst.interval.endsWith('m'),
+            timeVisible: isMinuteSource,
             tickMarkFormatter: (time) => {
-              if (inst.interval.endsWith('m')) {
+              if (isMinuteSource) {
                 const d = new Date(time * 1000);
                 return `${String(d.getUTCMonth() + 1).padStart(2, '0')}/${String(d.getUTCDate()).padStart(2, '0')} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
               }
@@ -1548,6 +1580,7 @@
               ? buildMinuteWindow(daily, inst.options.visibleHours)
               : null;
             inst.candleSeries.setData(fallbackWindow ? fallbackWindow.entries : daily);
+            if (isLineBreak) inst.candleSeries.setMarkers([]);
             inst.smaDataMap = {};
             [5, 10, 20, 60, 120, 200].forEach((period) => {
               const smaData = calculateSMA(fallbackInput, period);
@@ -1739,7 +1772,7 @@
                 <button class="btn outline tf-btn" data-key="${item.popupKey}" data-tf="1d" style="background:var(--accent);color:#fff;">일봉</button>
                 <button class="btn outline tf-btn" data-key="${item.popupKey}" data-tf="1wk">주봉</button>
                 <button class="btn outline tf-btn" data-key="${item.popupKey}" data-tf="1mo">월봉</button>
-                <button class="btn outline tf-btn" data-key="${item.popupKey}" data-tf="3lb" title="확정 일봉 종가 기준 3선 전환">삼선</button>
+                <button class="btn outline tf-btn" data-key="${item.popupKey}" data-tf="3lb" title="선택한 분봉 또는 확정 일봉 종가 기준 3선 전환">삼선</button>
               </div>
               <div class="summary-range-row">
                 <span>조회기간: <input class="period-input" type="number" id="period-${item.popupKey}" value="120" /></span>
@@ -1789,19 +1822,17 @@
             e.target.style.background = 'var(--accent)';
             e.target.style.color = '#fff';
             const tf = e.target.getAttribute('data-tf');
-            if (tf === 'minute') {
-              minInput.disabled = false;
-              lwChartInstances[item.popupKey].interval = (minInput.value || 1) + 'm';
-            } else {
-              minInput.disabled = true;
-              lwChartInstances[item.popupKey].interval = tf;
-            }
+            const inst = lwChartInstances[item.popupKey];
+            setIndexTimeframe(inst, tf, minInput.value);
+            minInput.disabled = tf !== 'minute' && tf !== '3lb';
             loadLwChart(item.popupKey);
           }));
 
           minInput.addEventListener('change', (e) => {
             if (!minInput.disabled) {
-              lwChartInstances[item.popupKey].interval = (e.target.value || 1) + 'm';
+              const inst = lwChartInstances[item.popupKey];
+              if (inst.interval === '3lb') inst.lineBreakInterval = (e.target.value || 1) + 'm';
+              else inst.interval = (e.target.value || 1) + 'm';
               loadLwChart(item.popupKey);
             }
           });
@@ -3601,14 +3632,35 @@
         maCompare:true, bollinger:true, referenceValues:true, valueSuffix:us?'달러':'원', valueDigits:us?2:0, axisDigits:us?2:0, periodControl:true
       });
       const stockCard = nameEl.closest('section');
+      let minuteSelect;
+      if (us) {
+        const controls = stockCard.querySelector('.stock-chart-timeframes');
+        minuteSelect = document.createElement('select');
+        minuteSelect.className = 'stock-minute-select';
+        minuteSelect.setAttribute('aria-label', `${stock.name} 분봉 간격`);
+        for (const minutes of [1,5,15,30,60]) {
+          const option = document.createElement('option'); option.value = String(minutes); option.textContent = `${minutes}분`; minuteSelect.appendChild(option);
+        }
+        const minuteButton = document.createElement('button'); minuteButton.type = 'button'; minuteButton.className = 'btn outline stock-tf-btn'; minuteButton.dataset.tf = 'minute'; minuteButton.textContent = '분봉';
+        minuteButton.title = '장전·정규장·장후 포함 · 미국 동부시간';
+        controls.prepend(minuteSelect, minuteButton);
+        minuteSelect.addEventListener('change', () => {
+          const inst = lwChartInstances[slot];
+          if (inst.interval === '3lb') inst.lineBreakInterval = `${minuteSelect.value}m`;
+          else inst.interval = `${minuteSelect.value}m`;
+          loadLwChart(slot);
+        });
+      }
       const timeframeButtons = stockCard.querySelectorAll('.stock-tf-btn');
       timeframeButtons.forEach((button) => button.addEventListener('click', () => {
         timeframeButtons.forEach((item) => {
           item.style.background = item === button ? 'var(--accent)' : '#e9f1ff';
           item.style.color = item === button ? '#fff' : '#134db5';
         });
-        lwChartInstances[slot].interval = button.dataset.tf;
-        stockCard.querySelector('.asof').textContent = button.textContent;
+        const inst = lwChartInstances[slot];
+        setIndexTimeframe(inst, button.dataset.tf, minuteSelect?.value);
+        const intraday = /^\d+m$/.test(inst.interval === '3lb' ? inst.lineBreakInterval : inst.interval);
+        stockCard.querySelector('.asof').textContent = button.textContent + (us && intraday ? ' · 장전·장후 포함 · 미국 동부시간' : '');
         loadLwChart(slot);
       }));
 
