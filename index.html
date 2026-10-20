@@ -614,13 +614,30 @@
         <div class="chart" id="chart-kospi-futures-minute"></div>
       </div>
       <div class="card span-6">
+        <div class="head-row"><div class="title">비트코인 일봉 (BTC/USD)</div></div>
+        <div class="chart" id="chart-btc"></div>
+      </div>
+
+      <div class="card span-6">
         <div class="head-row"><div class="title">원/달러 분봉 (KRW/USD)</div></div>
         <div class="chart-note" id="note-usdkrw-minute"></div>
         <div class="chart" id="chart-usdkrw-minute"></div>
       </div>
+
       <div class="card span-6">
-        <div class="head-row"><div class="title">비트코인 일봉 (BTC/USD)</div></div>
-        <div class="chart" id="chart-btc"></div>
+        <div class="head-row">
+          <div class="title">KOSPI 외국인/기관/개인 매수 분봉</div>
+        </div>
+        <div class="chart-note" id="note-kospi-investor-minute"></div>
+        <div class="chart" id="chart-kospi-investor-minute"></div>
+      </div>
+
+      <div class="card span-6">
+        <div class="head-row">
+          <div class="title">KOSDAQ 외국인/기관/개인 매수 분봉</div>
+        </div>
+        <div class="chart-note" id="note-kosdaq-investor-minute"></div>
+        <div class="chart" id="chart-kosdaq-investor-minute"></div>
       </div>
 
       <div class="card span-6">
@@ -636,14 +653,6 @@
 
       <div class="card span-6">
         <div class="head-row">
-          <div class="title">KOSPI 외국인/기관/개인 매수 분봉</div>
-        </div>
-        <div class="chart-note" id="note-kospi-investor-minute"></div>
-        <div class="chart" id="chart-kospi-investor-minute"></div>
-      </div>
-
-      <div class="card span-6">
-        <div class="head-row">
           <div class="title">KOSDAQ 외국인/기관 일봉</div>
           <label class="chart-control">거래일
             <input id="days-kosdaq-investor-daily" type="number" min="20" max="500" value="120" />
@@ -651,14 +660,6 @@
         </div>
         <div class="chart-note" id="note-kosdaq-investor-daily"></div>
         <div class="chart" id="chart-kosdaq-investor-daily"></div>
-      </div>
-
-      <div class="card span-6">
-        <div class="head-row">
-          <div class="title">KOSDAQ 외국인/기관/개인 매수 분봉</div>
-        </div>
-        <div class="chart-note" id="note-kosdaq-investor-minute"></div>
-        <div class="chart" id="chart-kosdaq-investor-minute"></div>
       </div>
 
       <div class="card span-6">
@@ -3063,7 +3064,7 @@
         let currentValues = options.showLastValues
           ? fields.filter((field) => field.type !== 'bar').map((field) => {
               const unit = unitForField(field);
-              return `${field.label}${options.cumulative ? ' 누적' : ''} ${formatChartValue(lastRow[field.key], unit)}${unit}`;
+              return `${field.label} ${formatChartValue(lastRow[field.key], unit)}${unit}`;
             }).join('   ')
           : '';
         let currentValuesMarkup = options.showLastValues
@@ -3071,7 +3072,7 @@
               const unit = unitForField(field);
               const value = fieldNumber(lastRow[field.key]);
               const valueColor = value > 0 ? '#d92c2c' : value < 0 ? '#1f5bd8' : '#5f6b85';
-              return `<tspan fill="#111827" font-weight="900">${field.label}${options.cumulative ? ' 누적' : ''}</tspan> <tspan fill="${valueColor}" font-weight="950">${formatChartValue(value, unit)}${unit}</tspan>`;
+              return `<tspan fill="#111827" font-weight="900">${field.label}</tspan> <tspan fill="${valueColor}" font-weight="950">${formatChartValue(value, unit)}${unit}</tspan>`;
             }).join('<tspan fill="#5f6b85">   </tspan>')
           : currentValues;
         if (options.latestSummary) {

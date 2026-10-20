@@ -124,10 +124,82 @@ test('rankings contain only the correct buy/sell sign and stop at 20', async () 
   }
 });
 
-test('old-only flows and failed calendar queries cannot appear as fresh data', async () => {
-  await assert.rejects(loadFixture({ histories: { '005930': [flow('2026-10-07')] } }).fetchFlows(), /2026-10-08.*아직/);
+test('unpublished current flows fall back to the most recent provided date without mixing sessions', async () => {
+  const fixture = loadFixture({ now: '2026-10-20T03:00:00Z', dates: ['20261019', '20261020'], histories: {
+    '005930': [flow('2026-10-16', '999999'), flow('2026-10-19', '30', '-40', '200')],
+    '000660': [flow('2026-10-19', '-50', '60', '300')],
+    '123456': [flow('2026-10-16', '999999', '999999')]
+  } });
+  const payload = await fixture.fetchFlows();
+  assert.equal(payload.asOf, '2026-10-19');
+  assert.equal(payload.latestOpenDate, '2026-10-20');
+  assert.equal(payload.fallback, true);
+  assert.match(payload.note, /2026-10-20.*미제공.*2026-10-19/);
+  assert.equal(payload.foreignBuy[0].foreignValue, 6000);
+  assert.equal(payload.foreignSell[0].foreignValue, -15000);
+  for (const key of ['foreignBuy', 'foreignSell', 'institutionBuy', 'institutionSell']) {
+    assert.equal(payload[key].length, 1);
+    assert.equal(payload[key][0].asOf, payload.asOf);
+  }
+  assert.equal(fixture.calls.filter((call) => call.url.includes('/trend?')).length, 3);
+});
+
+test('valid current zero flows do not trigger historical fallback', async () => {
+  const payload = await loadFixture({ histories: {
+    '005930': [flow('2026-10-08', '0', '0'), flow('2026-10-07', '999', '-999')]
+  } }).fetchFlows();
+  assert.equal(payload.asOf, '2026-10-08');
+  assert.equal(payload.fallback, false);
+  for (const key of ['foreignBuy', 'foreignSell', 'institutionBuy', 'institutionSell']) assert.equal(payload[key].length, 0);
+});
+
+test('missing quantities and historical prices cannot select an unavailable session', async () => {
+  const fixture = loadFixture({ dates: ['20261008'], histories: {
+    '005930': [flow('2026-10-08', null, null), flow('2026-10-07', '999', '-999', null), flow('2026-10-06', '20', '-30')]
+  } });
+  const payload = await fixture.fetchFlows([{ code: '005930', price: 900, asOf: '2026-10-08' }]);
+  assert.equal(payload.asOf, '2026-10-06');
+  assert.equal(payload.foreignBuy[0].price, 100);
+  assert.equal(payload.foreignBuy[0].foreignValue, 2000);
+});
+
+test('fresh data replaces the historical fallback on the next request and excludes future rows', async () => {
+  const histories = { '005930': [flow('2026-10-09', '999'), flow('2026-10-07', '10')] };
+  const fixture = loadFixture({ histories });
+  const previous = await fixture.fetchFlows();
+  assert.equal(previous.asOf, '2026-10-07');
+  assert.equal(previous.fallback, true);
+  histories['005930'].push(flow('2026-10-08', '20'));
+  const latest = await fixture.fetchFlows();
+  assert.equal(latest.asOf, '2026-10-08');
+  assert.equal(latest.foreignBuy[0].foreignValue, 2000);
+  assert.equal(latest.fallback, false);
+});
+
+test('empty histories and failed calendar queries remain explicit errors', async () => {
+  await assert.rejects(loadFixture({ histories: { '005930': [] } }).fetchFlows(), /이전 거래일.*확인하지 못/);
   await assert.rejects(loadFixture({ fail: true }).fetchFlows(), /source unavailable/);
   await assert.rejects(loadFixture({ dates: [] }).fetchFlows(), /최근 개장일/);
+});
+
+test('browser renders the actual fallback date and its explanation', () => {
+  const elements = { investorTopAsOf: {}, investorTopNote: {} };
+  const tables = [];
+  const context = vm.createContext({
+    document: { getElementById: (id) => elements[id] },
+    renderInvestorTopTable: (...args) => tables.push(args)
+  });
+  const start = html.indexOf('    function renderInvestorTopFlows(');
+  const end = html.indexOf('    function colorizeResultText(', start);
+  vm.runInContext(html.slice(start, end), context);
+  context.renderInvestorTopFlows({
+    asOf: '2026-10-19', latestOpenDate: '2026-10-20', fallback: true,
+    note: '2026-10-20 수급 미제공으로 최근 제공 거래일(2026-10-19) 수급을 표시합니다.'
+  });
+  assert.match(elements.investorTopAsOf.textContent, /기준일 2026-10-19/);
+  assert.doesNotMatch(elements.investorTopAsOf.textContent, /2026-10-20/);
+  assert.match(elements.investorTopNote.textContent, /미제공.*2026-10-19/);
+  assert.equal(tables.length, 4);
 });
 
 test('serverless endpoint bypasses CDN caching on normal visits and on errors', async () => {

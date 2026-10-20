@@ -315,8 +315,8 @@ async function fetchLatestInvestorTradingDate(today) {
   return dates.at(-1);
 }
 
-async function fetchStockInvestorFlow(row, tradingDate) {
-  if (!row?.code || !Number.isFinite(Number(row.price))) return null;
+async function fetchStockInvestorFlows(row, tradingDate) {
+  if (!row?.code || !Number.isFinite(Number(row.price))) return [];
   const json = await fetchJson(`https://m.stock.naver.com/front-api/stock/domestic/trend?code=${row.code}`, {
     cache: 'no-store',
     headers: { Referer: `https://stock.naver.com/domestic/stock/${row.code}/price` }
@@ -324,31 +324,33 @@ async function fetchStockInvestorFlow(row, tradingDate) {
   const history = Array.isArray(json?.result?.items)
     ? json.result.items
     : (Array.isArray(json?.result) ? json.result : []);
-  // Never rank a suspended stock's old flow alongside today's flow.
-  const latest = history.find((item) => investorDate(item.localTradedAt) === tradingDate);
-  if (!latest) return null;
-  const krx = latest.krx || latest;
-  const foreignQty = number(krx.foreignNetVolume ?? latest.foreignerPureBuyQuant);
-  const institutionQty = number(krx.organizationNetVolume ?? latest.organPureBuyQuant);
-  if (foreignQty === null && institutionQty === null) return null;
-  const price = number(krx.closingPrice ?? latest.closePrice)
-    ?? (row.asOf === tradingDate ? number(row.price) : null);
-  if (!(price > 0)) return null;
-  return {
-    code: row.code,
-    name: row.name,
-    marketType: row.marketType,
-    price,
-    changeRate: number(krx.changeRate) ?? (row.asOf === tradingDate ? row.changeRate : null),
-    foreignValue: Number.isFinite(foreignQty) ? foreignQty * price : null,
-    institutionValue: Number.isFinite(institutionQty) ? institutionQty * price : null,
-    foreignQty: Number.isFinite(foreignQty) ? foreignQty : null,
-    institutionQty: Number.isFinite(institutionQty) ? institutionQty : null,
-    tradeAmount: row.tradeAmount,
-    marketCap: row.marketCap,
-    asOf: tradingDate,
-    url: `https://stock.naver.com/domestic/stock/${row.code}/price`
-  };
+  // Reuse this one history request for older sessions when today's flow is not published.
+  return history.flatMap((item) => {
+    const asOf = investorDate(item.localTradedAt);
+    if (!asOf || asOf > tradingDate) return [];
+    const krx = item.krx || item;
+    const foreignQty = number(krx.foreignNetVolume ?? item.foreignerPureBuyQuant);
+    const institutionQty = number(krx.organizationNetVolume ?? item.organPureBuyQuant);
+    if (foreignQty === null && institutionQty === null) return [];
+    const price = number(krx.closingPrice ?? item.closePrice)
+      ?? (row.asOf === asOf ? number(row.price) : null);
+    if (!(price > 0)) return [];
+    return [{
+      code: row.code,
+      name: row.name,
+      marketType: row.marketType,
+      price,
+      changeRate: number(krx.changeRate) ?? (row.asOf === asOf ? row.changeRate : null),
+      foreignValue: Number.isFinite(foreignQty) ? foreignQty * price : null,
+      institutionValue: Number.isFinite(institutionQty) ? institutionQty * price : null,
+      foreignQty: Number.isFinite(foreignQty) ? foreignQty : null,
+      institutionQty: Number.isFinite(institutionQty) ? institutionQty : null,
+      tradeAmount: row.tradeAmount,
+      marketCap: row.marketCap,
+      asOf,
+      url: `https://stock.naver.com/domestic/stock/${row.code}/price`
+    }];
+  });
 }
 
 async function fetchInvestorTopFlows(marketRowsInput = null) {
@@ -366,21 +368,27 @@ async function fetchInvestorTopFlows(marketRowsInput = null) {
     .filter((row) => row.code && Number.isFinite(Number(row.price)) && Number(row.price) > 0);
   addRows(tradableRows.slice().sort((a, b) => (Number(b.tradeAmount) || 0) - (Number(a.tradeAmount) || 0)).slice(0, INVESTOR_TOP_SCAN_LIMIT));
   addRows(tradableRows.slice().sort((a, b) => (Number(b.marketCap) || 0) - (Number(a.marketCap) || 0)).slice(0, 150));
-  const flows = (await mapWithConcurrency([...byCode.values()], INVESTOR_TOP_CONCURRENCY, (row) => fetchStockInvestorFlow(row, tradingDate)))
-    .filter(Boolean);
-  if (!flows.length) throw new Error(`${tradingDate} 기준 투자자 수급이 아직 제공되지 않거나 조회에 실패했습니다. 잠시 후 새로고침해주세요.`);
+  const history = (await mapWithConcurrency([...byCode.values()], INVESTOR_TOP_CONCURRENCY, (row) => fetchStockInvestorFlows(row, tradingDate)))
+    .filter(Boolean).flat();
+  if (!history.length) throw new Error(`${tradingDate} 및 이전 거래일의 투자자 수급을 확인하지 못했습니다. 잠시 후 새로고침해주세요.`);
+  const asOf = history.reduce((latest, row) => row.asOf > latest ? row.asOf : latest, '');
+  // All four tables use one session; a suspended stock's older flow must not be mixed in.
+  const flows = history.filter((row) => row.asOf === asOf);
   const pick = (key, direction) => flows
     .filter((row) => Number.isFinite(row[key]) && (direction === 'buy' ? row[key] > 0 : row[key] < 0))
     .sort((a, b) => direction === 'buy' ? Number(b[key]) - Number(a[key]) : Number(a[key]) - Number(b[key]))
     .slice(0, 20);
   const payload = {
-    asOf: tradingDate,
+    asOf,
     requestedAt,
     fetchedAt: new Date().toISOString(),
     latestOpenDate: tradingDate,
-    note: tradingDate === today
-      ? '오늘 개장일의 원천 제공 최신 수급입니다.'
-      : `휴장일 또는 개장 전에는 최근 개장일(${tradingDate}) 수급을 표시합니다.`,
+    fallback: asOf < tradingDate,
+    note: asOf < tradingDate
+      ? `${tradingDate} 수급 미제공으로 최근 제공 거래일(${asOf}) 수급을 표시합니다.`
+      : tradingDate === today
+        ? '오늘 개장일의 원천 제공 최신 수급입니다.'
+        : `휴장일 또는 개장 전에는 최근 개장일(${asOf}) 수급을 표시합니다.`,
     source: `네이버 종목별 투자자 수급, 거래대금 상위 ${INVESTOR_TOP_SCAN_LIMIT}개+시총 상위 150개 스캔`,
     foreignBuy: pick('foreignValue', 'buy'),
     foreignSell: pick('foreignValue', 'sell'),
