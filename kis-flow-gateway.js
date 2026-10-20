@@ -35,7 +35,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { sumWindows, mergeWindowValues, mergeFlowStats, numericOrNull, programNetEok } = require('./flow-stats');
+const { sumWindows, mergeWindowValues, mergeFlowStats, numericOrNull } = require('./flow-stats');
 
 const ROOT = __dirname;
 const PORT = Number(process.env.PORT || 8000);
@@ -305,7 +305,7 @@ async function fetchJson(url, options = {}, timeoutMs = 10_000) {
   try {
     const response = await fetch(url, { ...options, signal: controller.signal });
     const json = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(`HTTP ${response.status}: ${json.msg1 || json.message || 'request failed'}`);
+    if (!response.ok) throw Object.assign(new Error(`KIS HTTP ${response.status}`),{kisCode:/^[A-Z0-9_]{1,32}$/.test(String(json.msg_cd))?json.msg_cd:`HTTP_${response.status}`});
     return json;
   } finally {
     clearTimeout(timer);
@@ -332,12 +332,13 @@ function kisHeaders(token, trId) {
 }
 
 async function kisGet(apiPath, trId, params) {
+  if(!hasKisCredentials())throw Object.assign(new Error('KIS 환경변수 미설정'),{kisCode:'NOT_CONFIGURED'});
   const token = await getAccessToken();
   const url = new URL(apiPath, KIS_BASE_URL);
   for (const [key, value] of Object.entries(params || {})) url.searchParams.set(key, String(value ?? ''));
   const json = await fetchJson(url, { method: 'GET', headers: kisHeaders(token, trId) }, 12_000);
   if (String(json.rt_cd ?? '0') !== '0') {
-    throw new Error(`${trId} ${json.msg_cd || ''} ${json.msg1 || 'KIS API error'}`.trim());
+    throw Object.assign(new Error(`${trId} 요청 실패`),{kisCode:/^[A-Z0-9_]{1,32}$/.test(String(json.msg_cd))?json.msg_cd:'API_ERROR'});
   }
   return json;
 }
@@ -463,54 +464,14 @@ async function fetchSpotDailyFinal(kind, date) {
   return values;
 }
 
-function parseProgramCurrentRows(json) {
-  // KIS official sample uses body.output (not output1) for FHPPG04600101.
-  const rows = Array.isArray(json?.output) ? json.output : (json?.output ? [json.output] : []);
-  return rows.map((row) => {
-    const rawHour = String(row?.bsop_hour || '').replace(/\D/g, '');
-    const value = programNetEok(row);
-    return {
-      hour: rawHour,
-      hhmm: /^\d{6}$/.test(rawHour) ? `${rawHour.slice(0, 2)}:${rawHour.slice(2, 4)}` : '',
-      value,
-    };
-  }).filter((row) => /^\d{6}$/.test(row.hour) && row.hour >= '090000' && row.hour <= '153000' && Number.isFinite(row.value))
-    .sort((a, b) => a.hour.localeCompare(b.hour));
+let programReader;
+function getProgramReader() {
+  if(!programReader)programReader=require('./kis-program-data').createProgramReader({request:kisGet});
+  return programReader;
 }
-
-async function fetchProgramCurrentRows(marketClass = 'K') {
-  const json = await kisGet('/uapi/domestic-stock/v1/quotations/comp-program-trade-today', 'FHPPG04600101', {
-    FID_COND_MRKT_DIV_CODE: 'J',
-    FID_MRKT_CLS_CODE: marketClass,
-    FID_SCTN_CLS_CODE: '',
-    FID_INPUT_ISCD: '',
-    FID_COND_MRKT_DIV_CODE1: '',
-    FID_INPUT_HOUR_1: '',
-  });
-  return parseProgramCurrentRows(json);
-}
-
-function parseProgramDailyRows(json) {
-  const rows = Array.isArray(json?.output) ? json.output : (json?.output ? [json.output] : []);
-  const map = new Map();
-  for (const row of rows) {
-    const date = ymdToDashed(row?.stck_bsop_date);
-    const value = programNetEok(row);
-    if (date && Number.isFinite(value)) map.set(date, value);
-  }
-  return [...map.entries()].map(([date, value]) => ({ date, value })).sort((a, b) => a.date.localeCompare(b.date));
-}
-
-async function fetchProgramDailyRows(endDate, marketClass = 'K') {
-  const startDate = shiftKoreaDate(endDate, -120);
-  const json = await kisGet('/uapi/domestic-stock/v1/quotations/comp-program-trade-daily', 'FHPPG04600001', {
-    FID_COND_MRKT_DIV_CODE: 'J',
-    FID_MRKT_CLS_CODE: marketClass,
-    FID_INPUT_DATE_1: startDate.replace(/-/g, ''),
-    FID_INPUT_DATE_2: endDate.replace(/-/g, ''),
-  });
-  return parseProgramDailyRows(json);
-}
+function parseProgramCurrentRows(json) {return require('./kis-program-data').parseCurrent(json);}
+function parseProgramDailyRows(json) {return require('./kis-program-data').parseDaily(json);}
+async function fetchProgramCurrentRows() {return getProgramReader().current();}
 
 async function captureOnce() {
   if (state.pollRunning || !hasKisCredentials()) return;
@@ -543,7 +504,8 @@ async function captureOnce() {
     // Program API returns the most recent ~30 minutes. Upsert every row so a short outage can be backfilled.
     if (inSpotSession) {
       try {
-        const programRows = await fetchProgramCurrentRows('K');
+        const programRows = (await fetchProgramCurrentRows('K')).filter(row=>
+          (!row.date||row.date===latestOpenDate)&&Number(row.hour.slice(0,2))*60+Number(row.hour.slice(2,4))<=clock.minutes);
         for (const row of programRows) upsertMinute('PROGRAM', latestOpenDate, { value: row.value }, row.hhmm);
         results.PROGRAM = { ok: true, rows: programRows.length, latest: programRows.at(-1) || null };
       } catch (error) {
@@ -707,28 +669,8 @@ async function buildFlowStats() {
   // windows. This also covers a process restart after the regular session.
   await ensureLatestDateFallbacks().catch(() => {});
 
-  // Program: KIS daily history + today's live KOSPI program value when the market is open.
-  let programRows = [];
-  let programSource = 'unavailable';
-  try {
-    programRows = await fetchProgramDailyRows(latestDate, 'K');
-    programSource = 'KIS FHPPG04600001/FHPPG04600101';
-  } catch (error) {
-    console.error('[KIS FLOW] program history unavailable:', error.message);
-  }
-  const clock = getKoreaClock();
-  if (latestDate === clock.date && clock.minutes >= 9 * 60 && clock.minutes <= 15 * 60 + 35) {
-    try {
-      const liveRows = await fetchProgramCurrentRows('K');
-      const latestLive = liveRows.at(-1);
-      if (latestLive && Number.isFinite(latestLive.value)) {
-        programSource = 'KIS FHPPG04600001/FHPPG04600101';
-        const map = new Map(programRows.map((row) => [row.date, row.value]));
-        map.set(latestDate, latestLive.value);
-        programRows = [...map.entries()].map(([date, value]) => ({ date, value })).sort((a, b) => a.date.localeCompare(b.date));
-      }
-    } catch (_) {}
-  }
+  const program=await getProgramReader().summary(latestDate,getKoreaClock());
+  state.programDiagnostics=program.diagnostics;
 
   const futuresRows = Object.entries(store.daily.FUTURES || {})
     .map(([date, value]) => ({ date, value: numericOrNull(value) }))
@@ -741,11 +683,14 @@ async function buildFlowStats() {
     futuresUnit: '계약',
     futuresArray: sumWindows(futuresRows),
     futuresLatest: futuresRows.length ? {value:futuresRows.at(-1).value,unit:'계약',asOf:futuresRows.at(-1).date,source:'KIS'} : null,
-    progsArray: sumWindows(programRows),
+    progsArray: program.values,
     futuresCoverageDays: futuresRows.length,
-    programCoverageDays: programRows.length,
-    programAsOfDate: programRows.at(-1)?.date || '',
-    programSource,
+    programCoverageDays: program.coverageDays,
+    programAsOfDate: program.asOfDate,
+    programAsOfHour: program.asOfHour,
+    programError: program.error,
+    programDiagnostics: program.diagnostics,
+    programSource: program.source,
   };
 }
 
@@ -810,6 +755,7 @@ async function fetchCoreJson(req) {
       });
     });
     proxy.on('error', reject);
+    proxy.setTimeout(15_000,()=>proxy.destroy(Object.assign(new Error('거래대금 보조 조회 지연'),{code:'CORE_TIMEOUT'})));
     proxy.end();
   });
 }
@@ -851,6 +797,7 @@ async function handleRequest(req, res) {
         lastErrorAt: state.lastErrorAt,
         lastError: state.lastError,
         lastResults: state.lastResults,
+        programDiagnostics: state.programDiagnostics || null,
         rows: latestOpenDate ? {
           kospi: getRows('KOSPI', latestOpenDate).length,
           kosdaq: getRows('KOSDAQ', latestOpenDate).length,
@@ -875,12 +822,14 @@ async function handleRequest(req, res) {
         buildFlowStats(),
       ]);
       const core = coreResult.status === 'fulfilled' ? coreResult.value : { ok: true };
-      const flow = flowResult.status === 'fulfilled' ? flowResult.value : null;
+      const flow = flowResult.status === 'fulfilled' ? flowResult.value : {
+        programError:`KIS 수급 조회 확인: ${require('./kis-program-data').safeCode(flowResult.reason)}`
+      };
       return sendJson(res, 200, {
-        ...mergeFlowStats(core, flow),
+        ...mergeFlowStats(core, flow, {preferKis:hasKisCredentials()}),
         ok: true,
         kisConfigured: hasKisCredentials(),
-        latestOpenDate: core.futuresMode === 'spot-fallback'
+        latestOpenDate: !hasKisCredentials() && core.futuresMode === 'spot-fallback'
           ? core.latestOpenDate || flow?.latestOpenDate || ''
           : flow?.latestOpenDate || core.latestOpenDate || '',
       });

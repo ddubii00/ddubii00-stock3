@@ -35,9 +35,11 @@ function programNetEok(row) {
   if(direct!==null)return direct/100;
   // The official DAILY schema may omit whole net money. Use whole buy minus
   // whole sell, or arbitrage + non-arbitrage totals; both operands are required.
-  const buy=num(row?.whol_smtn_shnu_tr_pbmn),sell=num(row?.whol_smtn_seln_tr_pbmn);
+  const sum=(a,b)=>a!==null&&b!==null?a+b:null;
+  const buy=num(row?.whol_smtn_shnu_tr_pbmn) ?? sum(num(row?.whol_onsl_shnu_tr_pbmn),num(row?.whol_entm_shnu_tr_pbmn));
+  const sell=num(row?.whol_smtn_seln_tr_pbmn) ?? sum(num(row?.whol_onsl_seln_tr_pbmn),num(row?.whol_entm_seln_tr_pbmn));
   if(buy!==null&&sell!==null)return (buy-sell)/100;
-  const arb=num(row?.arbt_smtn_ntby_tr_pbmn),nonarb=num(row?.nabt_smtn_ntby_tr_pbmn);
+  const arb=num(row?.arbt_smtn_ntby_tr_pbmn) ?? num(row?.arbt_smtm_ntby_tr_pbmn),nonarb=num(row?.nabt_smtn_ntby_tr_pbmn);
   return arb!==null&&nonarb!==null?(arb+nonarb)/100:null;
 }
 
@@ -62,15 +64,15 @@ function mergeWindowValues(primary, coverageDays, fallback) {
   });
 }
 
-function mergeFlowStats(core = {}, flow = null) {
-  const spot = core.futuresMode === 'spot-fallback';
+function mergeFlowStats(core = {}, flow = null, options = {}) {
+  const spot = core.futuresMode === 'spot-fallback' && !options.preferKis;
   // Choose one unit for the entire row; never fill spot windows with contracts.
   const futures = spot ? nullableArray(core.futuresArray) : nullableArray(mergeWindowValues(
     flow?.futuresArray, flow?.futuresCoverageDays || 0,
     core.futuresUnit === '계약' ? core.futuresArray : null
   ));
   const flowPrograms = flow?.programSource && flow.programSource !== 'unavailable' ? flow.progsArray : null;
-  const corePrograms = core.programSource && core.programSource !== 'unavailable' ? core.progsArray : null;
+  const corePrograms = core.programSource && core.programSource !== 'unavailable' && (!options.preferKis || /^KIS/.test(core.programSource)) ? core.progsArray : null;
   const programs = nullableArray(mergeWindowValues(flowPrograms, flow?.programCoverageDays || 0, corePrograms));
   const primaryProgram = nullableArray(flowPrograms) !== null;
   return {
@@ -81,8 +83,9 @@ function mergeFlowStats(core = {}, flow = null) {
     progsArray: programs,
     futuresLatest: flow?.futuresLatest || core.futuresLatest || null,
     programAsOfDate: primaryProgram ? flow.programAsOfDate || flow.latestOpenDate : core.programAsOfDate || '',
-    programError: programs ? '' : core.programError || '프로그램 원천 응답을 확인하세요.',
-    programSource: primaryProgram ? flow.programSource : core.programSource || 'unavailable',
+    programError: programs ? '' : flow?.programError || core.programError || 'KIS 프로그램 원천 응답을 확인하세요.',
+    programDiagnostics: flow?.programDiagnostics || core.programDiagnostics || null,
+    programSource: primaryProgram ? flow.programSource : corePrograms ? core.programSource : 'unavailable',
     futuresCoverageDays: spot ? core.futuresCoverageDays || 0 : flow?.futuresCoverageDays || 0,
     programCoverageDays: primaryProgram ? flow?.programCoverageDays || 0 : core.programCoverageDays || 0,
   };

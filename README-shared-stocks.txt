@@ -7,6 +7,19 @@
 서버 목록을 덮어쓰지 않습니다. 빈 목록도 저장되며 서버 재시작 후 유지됩니다.
 
 Oracle 서버
+- 외국인 선물·프로그램 수급 표는 서버 환경변수의 기존 KIS 키를 우선 사용합니다.
+  KIS_APP_KEY/KIS_APP_SECRET 및 기존 KIS_APPKEY/KIS_APPSECRET, KIS_KEY/KIS_SECRET,
+  APP_KEY/APP_SECRET, APPKEY/APPSECRET 이름을 유지합니다. 다른 앱의 키 파일을 읽지 않습니다.
+- KIS 키가 설정된 Oracle에서는 선물 행 전체를 계약 단위로 선택합니다. 수집 이력이 부족한
+  3/5/10/20일 값은 '-'이며 현물 금액으로 채우지 않습니다. 직접 core 실행 시 선물은 최근값만 제공합니다.
+- 프로그램은 KIS 일별(FHPPG04600001)과 시간별(FHPPG04600101)을 독립 조회합니다.
+  일별 응답의 자기/위탁 대금 합계 및 차익 대금 필드 변형을 처리하고,
+  장마감 후 15:30~17:00 동일 종가 응답도 반영합니다. 실패 코드는 화면 및 인증된
+  /api/kis-flow-health의 programDiagnostics에서 확인합니다. 공개 대체 값으로 KIS 실패를 숨기지 않습니다.
+- 실제 환경 점검: 코드 업데이트 후 기존 stock3 서비스를 재시작하고, 서비스와 같은 환경에서
+  node scripts/check-kis-program.js 를 실행합니다. 휴장일/장 시작 전에는 최근 거래일을 지정할 수 있습니다.
+  예: node scripts/check-kis-program.js 2026-10-20
+  출력은 설정 여부·API별 상태·기준일·수급값만 포함하며 키/토큰/응답 원문은 출력하지 않습니다.
 - 기본 저장 위치: 앱 디렉터리/.stock3-data/chart-stocks.json (Git 제외, HTTP 직접 접근 차단).
 - 서비스 실행 계정에 해당 디렉터리 생성·쓰기 권한이 필요합니다.
 - 선택 환경변수 STOCK3_STOCK_LIST_PATH로 앱 배포 경로 밖의 영구 경로를 지정할 수 있습니다.

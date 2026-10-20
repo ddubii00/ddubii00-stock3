@@ -11,11 +11,11 @@ function series(value) {
   return Array.from({ length: 20 }, (_, i) => ({ date: `2026-09-${String(i + 1).padStart(2, '0')}`, dailyForeign: value }));
 }
 
-async function coreStats(payload, program = null) {
+async function coreStats(payload, program = null, configured = true, gatewayOwned = false) {
   let handler;
-  const calls = [];
+  const calls = [],sourceCalls={futures:0,program:0};
   const context = vm.createContext({
-    module: { exports: {} }, __dirname: root, process: { env: {} }, payload, program, calls,
+    module: { exports: {} }, __dirname: root, process: { env: gatewayOwned?{STOCK3_KIS_FLOW_OWNER:'gateway'}:{} }, payload, program, calls, configured, sourceCalls,
     URL, console, setTimeout, clearTimeout, setInterval, AbortController,
     require: (id) => {
       if (id === 'http') return { createServer: (callback) => { handler = callback; return {}; } };
@@ -33,26 +33,26 @@ async function coreStats(payload, program = null) {
     getLatestMarketOpenDate = async () => '2026-09-20';
     getKoreaClock = () => ({ date: '2026-09-20', minutes: 600 });
     fetchMarketTurnoverRows = async () => [];
-    fetchForeignFuturesSeries = async () => payload;
-    fetchProgramFlowArray = async () => program;
+    fetchForeignFuturesSeries = async () => {sourceCalls.futures++;return payload;};
+    fetchProgramFlowArray = async () => {sourceCalls.program++;return program;};
     fetchKisInvestorSnapshot = async (kind) => { calls.push(kind); return { foreign: 7899 }; };
-    hasKisInvestorConfig = () => true;
+    hasKisInvestorConfig = () => configured;
   `, context);
   let result;
   await handler({ url: '/api/stats', headers: { host: 'localhost', 'x-stock3-password':'1222' } }, {
     writeHead: () => {}, end: (body) => { result = JSON.parse(body); },
   });
-  return { result, calls };
+  return { result, calls, sourceCalls };
 }
 
-test('Oracle stats keeps separate KIS contract highlights without merging them into spot history', async () => {
+test('configured Oracle stats selects a KIS contract row without filling it from spot history', async () => {
   const { result, calls } = await coreStats({ unit: '조원', source: 'spot-fallback', series: series(0.35) }, { values: [null, 0, null, 25, null], source: 'KIS' });
   assert.equal(calls.length, 1);
   assert.equal(result.futuresLatest.value,7899);
   assert.equal(result.futuresLatest.unit,'계약');
-  assert.deepEqual(result.futuresArray, [3500, 10500, 17500, 35000, 70000]);
-  assert.equal(result.futuresMode, 'spot-fallback');
-  assert.equal(result.futuresUnit, '억원');
+  assert.deepEqual(result.futuresArray, [7899, null, null, null, null]);
+  assert.equal(result.futuresMode, 'futures');
+  assert.equal(result.futuresUnit, '계약');
   assert.deepEqual(result.progsArray, [null, 0, null, 25, null]);
   assert.equal(result.programSource, 'KIS');
 });
@@ -65,11 +65,11 @@ test('Oracle stats permits KIS live merging only for contract history', async ()
   assert.equal(result.progsArray, null);
 });
 
-test('Oracle stats returns null for unavailable futures and programs', async () => {
+test('Oracle stats retains a KIS current contract value when public history is unavailable', async () => {
   const { result, calls } = await coreStats(null);
   assert.equal(calls.length, 1);
   assert.equal(result.futuresLatest.value,7899);
-  assert.equal(result.futuresArray, null);
+  assert.deepEqual(result.futuresArray,[7899,null,null,null,null]);
   assert.equal(result.progsArray, null);
   assert.equal(result.programSource, 'unavailable');
 });
@@ -103,4 +103,15 @@ test('Vercel source failure cannot fabricate zero flow arrays', async () => {
   const result = await vercelStats(null, true);
   assert.equal(result.futuresArray, null);
   assert.equal(result.progsArray, null);
+});
+
+test('an unconfigured server preserves the existing spot fallback rather than inventing KIS contracts',async()=>{
+  const {result,calls}=await coreStats({unit:'조원',source:'spot-fallback',series:series(0.35)},null,false);
+  assert.equal(calls.length,0);assert.equal(result.futuresMode,'spot-fallback');assert.equal(result.futuresUnit,'억원');
+  assert.deepEqual(result.futuresArray,[3500,10500,17500,35000,70000]);
+});
+
+test('a gateway-owned core does not query public flow fallbacks or duplicate the program request',async()=>{
+  const {sourceCalls}=await coreStats(null,null,false,true);
+  assert.deepEqual(sourceCalls,{futures:0,program:0});
 });

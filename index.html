@@ -3274,7 +3274,7 @@
       const highlight=document.getElementById('flowHighlights');
       const latest=json.futuresLatest;
       const latestValue=latest?.unit==='계약'?numeric(latest.value):(!spot?numeric(futures[0]):null);
-      if(highlight)highlight.innerHTML=`<div class="flow-highlight">외국인 선물 순매수 <strong style="color:${color(latestValue)}">${format(latestValue)}</strong> 계약<small>${latestValue===null?'KIS 선물 원천 확인 필요':escape(latest?.asOf || json.latestOpenDate)} · ${escape(latest?.source || '일별 선물 원천')}</small></div><div class="flow-highlight">프로그램 순매수 <strong style="color:${color(programs[0])}">${format(programs[0])}</strong> 억원<small>${numeric(programs[0])===null?escape(json.programError || '프로그램 원천 확인 필요'):escape(json.programAsOfDate || json.latestOpenDate)} · ${escape(json.programSource || '원천 확인 중')}</small></div>`;
+      if(highlight)highlight.innerHTML=`<div class="flow-highlight">외국인 선물 순매수 <strong style="color:${color(latestValue)}">${format(latestValue)}</strong> 계약<small>${latestValue===null?'KIS 선물 원천 확인 필요':escape(latest?.asOf || json.latestOpenDate)} · ${escape(latest?.source || '일별 선물 원천')}</small></div><div class="flow-highlight">프로그램 순매수 <strong style="color:${color(programs[0])}">${format(programs[0])}</strong> 억원<small>${numeric(programs[0])===null?escape(json.programError || '프로그램 원천 확인 필요'):escape(json.programAsOfDate || json.latestOpenDate)} · ${escape(json.programSource && json.programSource!=='unavailable'?json.programSource:'KIS 원천 확인 중')}</small></div>`;
       const body = document.getElementById('flowTableBody');
       if (body) body.innerHTML = [
         [spot ? '외국인 현물 순매수(억원·선물 원천 폐지로 대체)' : '외국인 선물 순매수(계약)', futures],

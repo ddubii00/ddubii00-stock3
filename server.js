@@ -5,7 +5,7 @@ const WebSocketClient = require('ws');
 const { fetchUnifiedSeries, fetchBondYields, fetchNaverIndexClosingMinutes } = require('./tradingview-data');
 const { fetchHighBreakouts } = require('./breakout-data');
 const { fetchDashboardPanels, fetchBinanceKoreaFutures, fetchInvestorTopFlows } = require('./dashboard-data');
-const { futuresStats, nullableArray, sumWindows, programNetEok } = require('./flow-stats');
+const { futuresStats, nullableArray, sumWindows } = require('./flow-stats');
 const stockSearchHandler = require('./api/stock-search');
 
 const PORT = Number(process.env.PORT || 8000);
@@ -55,7 +55,6 @@ const investorIntradaySnapshots = new Map();
 const INVESTOR_INTRADAY_STORE_PATH = process.env.INVESTOR_INTRADAY_STORE_PATH || path.join(ROOT, '.runtime', 'investor-intraday.json');
 const investorIntradayStore = { loaded: false, days: {} };
 let kisHolidayCache = { koreaDate: '', latestOpenDate: '', expiresAt: 0 };
-let kisProgramDailyCache = { rows: [], expiresAt: 0 };
 let investorCaptureRunning = false;
 const summaryItems = [
   { name: '코스피', symbol: '^KS11', popup: true, popupKey: 'KOSPI' },
@@ -603,77 +602,23 @@ async function fetchForeignFuturesMinuteSeries() {
   return { unit: '계약', latestOpenDate: latestDate, note: `코스피200 선물 최근 개장일(${latestDate}) 분봉 저장 데이터가 아직 없습니다.`, series: [] };
 }
 
-async function fetchKisProgramDailyRows(limit = 30) {
-  const safeLimit = Math.max(20, Math.min(60, Number(limit) || 30));
-  if (kisProgramDailyCache.rows.length >= safeLimit && kisProgramDailyCache.expiresAt > Date.now()) {
-    return kisProgramDailyCache.rows.slice(-safeLimit);
-  }
-  const token = await fetchKisAccessToken();
-  if (!token) throw new Error('KIS credentials unavailable');
-  const latestOpenDate = await getLatestMarketOpenDate();
-  const url = new URL('/uapi/domestic-stock/v1/quotations/comp-program-trade-daily', kisBaseUrl());
-  url.searchParams.set('FID_COND_MRKT_DIV_CODE', 'J');
-  url.searchParams.set('FID_MRKT_CLS_CODE', 'K');
-  url.searchParams.set('FID_INPUT_DATE_1', shiftKoreaDate(latestOpenDate, -120).replace(/-/g, ''));
-  url.searchParams.set('FID_INPUT_DATE_2', latestOpenDate.replace(/-/g, ''));
-  const response = await fetchWithTimeout(url, { headers: kisHeaders(token, 'FHPPG04600001') }, 10000);
-  const json = await response.json().catch(() => ({}));
-  if (!response.ok || json.rt_cd !== '0') throw new Error(`KIS program daily ${json.msg_cd || response.status}`);
-  const byDate = new Map();
-  for (const row of (Array.isArray(json.output) ? json.output : json.output ? [json.output] : [])) {
-    const date = ymdToDashed(row?.stck_bsop_date);
-    const value = programNetEok(row);
-    if (date && Number.isFinite(value)) byDate.set(date, value);
-  }
-  const rows = [...byDate.entries()].map(([date, value]) => ({ date, value })).sort((a, b) => a.date.localeCompare(b.date));
-  if (!rows.length) throw new Error('KIS program daily empty');
-  kisProgramDailyCache = { rows, expiresAt: Date.now() + 5 * 60 * 1000 };
-  return rows.slice(-safeLimit);
+let kisProgramReader;
+function getKisProgramReader() {
+  if(!kisProgramReader)kisProgramReader=require('./kis-program-data').createProgramReader({request:async(apiPath,trId,params)=>{
+    const token=await fetchKisAccessToken();
+    if(!token)throw Object.assign(new Error('KIS 환경변수 미설정'),{kisCode:'NOT_CONFIGURED'});
+    const url=new URL(apiPath,kisBaseUrl());
+    for(const [key,value] of Object.entries(params))url.searchParams.set(key,value);
+    const response=await fetchWithTimeout(url,{headers:kisHeaders(token,trId)},10000);
+    const json=await response.json().catch(()=>({}));
+    if(!response.ok)throw Object.assign(new Error('KIS 프로그램 요청 실패'),{kisCode:/^[A-Z0-9_]{1,32}$/.test(String(json.msg_cd))?json.msg_cd:`HTTP_${response.status}`});
+    return json;
+  }});
+  return kisProgramReader;
 }
-
-async function fetchKisProgramTodayValue() {
-  const latestOpenDate = await getLatestMarketOpenDate();
-  const clock = getKoreaClock();
-  if (latestOpenDate !== clock.date || clock.minutes < 9 * 60 || clock.minutes > 15 * 60 + 35) return null;
-  const token = await fetchKisAccessToken();
-  if (!token) return null;
-  const url = new URL('/uapi/domestic-stock/v1/quotations/comp-program-trade-today', kisBaseUrl());
-  url.searchParams.set('FID_COND_MRKT_DIV_CODE', 'J');
-  url.searchParams.set('FID_MRKT_CLS_CODE', 'K');
-  url.searchParams.set('FID_SCTN_CLS_CODE', '');
-  url.searchParams.set('FID_INPUT_ISCD', '');
-  url.searchParams.set('FID_COND_MRKT_DIV_CODE1', '');
-  url.searchParams.set('FID_INPUT_HOUR_1', '');
-  const response = await fetchWithTimeout(url, { headers: kisHeaders(token, 'FHPPG04600101') }, 10000);
-  const json = await response.json().catch(() => ({}));
-  if (!response.ok || json.rt_cd !== '0') throw new Error(`KIS program today ${json.msg_cd || response.status}`);
-  // The official response places program rows in `output`. Keep `output1`
-  // for older gateway payloads so a KIS schema rollout cannot blank the table.
-  const rawRows = Array.isArray(json.output) ? json.output : (Array.isArray(json.output1) ? json.output1 : []);
-  const rows = rawRows
-    .map((row) => ({
-      hour: String(row?.bsop_hour || '').replace(/\D/g, ''),
-      value: programNetEok(row)
-    }))
-    .filter((row) => /^\d{6}$/.test(row.hour) && row.hour >= '090000' && row.hour <= '153000' && Number.isFinite(row.value))
-    .sort((a, b) => a.hour.localeCompare(b.hour));
-  const latest = rows.at(-1);
-  return latest ? { date: latestOpenDate, hour: latest.hour, value: latest.value } : null;
-}
-
 async function fetchKisProgramFlowArray() {
-  const latestOpenDate = await getLatestMarketOpenDate();
-  const [rows, live] = await Promise.all([fetchKisProgramDailyRows(35).catch(()=>[]),fetchKisProgramTodayValue().catch(()=>null)]);
-  const byDate = new Map(rows.map((row) => [row.date, row.value]));
-  if (live?.date === latestOpenDate && Number.isFinite(live.value)) byDate.set(live.date, live.value);
-  const ordered = [...byDate.entries()]
-    .map(([date, value]) => ({ date, value }))
-    .filter((row) => row.date <= latestOpenDate && Number.isFinite(row.value))
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .slice(-35);
-  if (!ordered.length) throw new Error('KIS program flow empty');
-  const values = sumWindows(ordered);
-  return { values, latestOpenDate:ordered.at(-1).date, coverageDays:ordered.length, asOfHour: live?.hour || '153000', source: 'KIS' };
+  const program=await getKisProgramReader().summary(await getLatestMarketOpenDate(),getKoreaClock());
+  return {...program,latestOpenDate:program.asOfDate};
 }
 
 async function fetchNaverProgramDailyRows(limit = 35) {
@@ -711,8 +656,12 @@ async function fetchNaverProgramDailyRows(limit = 35) {
 }
 
 async function fetchProgramFlowArray() {
+  // Oracle uses its existing environment credentials. Do not hide KIS failures behind public data.
+  if(hasKisInvestorConfig())return fetchKisProgramFlowArray();
   try {
-    return await fetchKisProgramFlowArray();
+    const program=await fetchKisProgramFlowArray();
+    if(!program.values)throw new Error('KIS 프로그램 원천 미제공');
+    return program;
   } catch (kisError) {
     const rows = await fetchNaverProgramDailyRows(35);
     if (!rows.length) throw kisError;
@@ -2122,11 +2071,12 @@ const server = http.createServer(async (req, res) => {
   if (requestPath === '/api/stats') {
     try {
       const latestOpenDate = await getLatestMarketOpenDate().catch(() => '');
+      const gatewayOwned=process.env.STOCK3_KIS_FLOW_OWNER==='gateway';
       const [kospiResult, kosdaqResult, futuresResult, programResult] = await Promise.allSettled([
         fetchMarketTurnoverRows('KOSPI', 20),
         fetchMarketTurnoverRows('KOSDAQ', 20),
-        fetchForeignFuturesSeries(20).catch(() => null),
-        fetchProgramFlowArray()
+        gatewayOwned || hasKisInvestorConfig() ? Promise.resolve(null) : fetchForeignFuturesSeries(20).catch(() => null),
+        gatewayOwned ? Promise.resolve(null) : fetchProgramFlowArray()
       ]);
       const kospiData = kospiResult.status === 'fulfilled' ? kospiResult.value : [];
       const kosdaqData = kosdaqResult.status === 'fulfilled' ? kosdaqResult.value : [];
@@ -2188,6 +2138,7 @@ const server = http.createServer(async (req, res) => {
         series: historicalFutures.map((row) => ({ date: row.date, dailyForeign: row.value }))
       } : null);
 
+      const selectedFlow = hasKisInvestorConfig() ? {futuresMode:'futures',futuresUnit:'계약',futuresArray:futuresLatest?[futuresLatest.value,null,null,null,null]:null,futuresCoverageDays:futuresLatest?1:0} : flowSummary;
       return send(res, 200, JSON.stringify({
         ok: true,
         latestOpenDate,
@@ -2196,13 +2147,14 @@ const server = http.createServer(async (req, res) => {
         kosdaqTurnover: kosdaqTurnover.toLocaleString(),
         kospiTurnoverDiff,
         kosdaqTurnoverDiff,
-        ...flowSummary,
+        ...selectedFlow,
         futuresLatest,
         progsArray: programPayload?.source && programPayload.source !== 'unavailable' ? nullableArray(programPayload.values) : null,
         programSource: programPayload?.source || 'unavailable',
         programCoverageDays: programPayload?.coverageDays || 0,
-        programAsOfDate: programPayload?.latestOpenDate || '',
-        programError: programPayload ? '' : 'KIS 프로그램 조회 권한·응답 또는 공개 대체 원천을 확인하세요.',
+        programAsOfDate: programPayload?.asOfDate || programPayload?.latestOpenDate || '',
+        programDiagnostics: programPayload?.diagnostics || null,
+        programError: programPayload?.error || (programPayload ? '' : 'KIS 프로그램 조회 권한·응답 또는 공개 대체 원천을 확인하세요.'),
         programAsOfHour: programPayload?.asOfHour || '',
         turnoverSource: (kospiResult.status === 'fulfilled' && kosdaqResult.status === 'fulfilled') ? 'Daum Finance / Naver Finance fallback' : 'unavailable'
       }), 'application/json');
