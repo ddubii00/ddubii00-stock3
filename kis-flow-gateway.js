@@ -72,7 +72,10 @@ const state = {
   backfillPromise: null,
   closingPromise: null,
   lastClosingPollAt: {},
+  investorRefresh: {},
 };
+const investorRequests = new Map();
+const INVESTOR_REFRESH_MS = 20_000;
 
 const store = {
   version: 2,
@@ -145,6 +148,7 @@ function ymdToDashed(value) {
 }
 
 function toNumber(value) {
+  if (value === null || value === undefined || String(value).trim() === '') return NaN;
   const n = Number(String(value ?? '').replace(/,/g, '').trim());
   return Number.isFinite(n) ? n : NaN;
 }
@@ -439,6 +443,54 @@ async function fetchInvestorSnapshot(kind) {
   return parseInvestorSnapshot(json, kind);
 }
 
+function safeInvestorError(error) {
+  const code = String(error?.kisCode || error?.code || 'SOURCE_ERROR');
+  return /^[A-Z0-9_]{1,32}$/.test(code) ? code : 'SOURCE_ERROR';
+}
+
+async function refreshInvestorMarket(kind, date) {
+  const clock = getKoreaClock();
+  if (!hasKisCredentials() || date !== clock.date || !['KOSPI','KOSDAQ'].includes(kind) ||
+      clock.minutes < 9 * 60 || clock.minutes > 15 * 60 + 30) return;
+  const key = `${kind}:${date}`;
+  // A chart visitor joins its market's request instead of returning old rows
+  // while an unrelated futures/program collection is still running.
+  if (investorRequests.has(key)) return investorRequests.get(key);
+  const previous = state.investorRefresh[kind];
+  if (previous?.date === date && Date.now() - previous.attemptMs < INVESTOR_REFRESH_MS) return;
+  const status = { date, attemptMs:Date.now(), lastAttemptAt:nowIso(), lastSuccessAt:previous?.date === date ? previous.lastSuccessAt || '' : '', code:'' };
+  state.investorRefresh[kind] = status;
+  const request = (async () => {
+    try {
+      const values = await fetchInvestorSnapshot(kind);
+      const observed = getKoreaClock();
+      if (observed.date !== date || observed.minutes > 15 * 60 + 30) return;
+      upsertMinute(kind, date, values, observed.hhmm, { observed:true });
+      status.lastSuccessAt = nowIso();
+      state.lastResults[kind] = { ok:true, values };
+      state.lastSuccessAt = status.lastSuccessAt;
+      persistStore();
+      return values;
+    } catch (error) {
+      status.code = safeInvestorError(error);
+      state.lastResults[kind] = { ok:false, error:status.code };
+      state.lastErrorAt = nowIso();
+    }
+  })().finally(() => investorRequests.delete(key));
+  investorRequests.set(key, request);
+  return request;
+}
+
+function investorFreshness(kind, date, rows) {
+  const clock = getKoreaClock(), lastDataAt = rows.at(-1)?.date || '';
+  const live = date === clock.date && clock.minutes >= 9 * 60 && clock.minutes <= 15 * 60 + 30;
+  const elapsed = lastDataAt ? Date.now() - Date.parse(`${lastDataAt.replace(' ', 'T')}:00+09:00`) : Infinity;
+  const status = state.investorRefresh[kind];
+  const current = status?.date === date ? status : {};
+  return { lastDataAt, stale:live && (!Number.isFinite(elapsed) || elapsed > 120_000),
+    lastAttemptAt:current.lastAttemptAt || '', lastSuccessAt:current.lastSuccessAt || '', refreshError:current.code || '' };
+}
+
 async function fetchSpotDailyFinal(kind, date) {
   const cfg = kind === 'KOSDAQ'
     ? { market: 'KSQ', code: '1001' }
@@ -488,13 +540,13 @@ async function captureOnce() {
     }
     if (!activeKinds.length) return;
 
-    const tasks = activeKinds.map((kind) => [kind, () => fetchInvestorSnapshot(kind)]);
+    const tasks = activeKinds.map((kind) => [kind, () => kind === 'FUTURES' ? fetchInvestorSnapshot(kind) : refreshInvestorMarket(kind, latestOpenDate)]);
     const results = {};
     for (const [kind, fn] of tasks) {
       try {
         const values = await fn();
-        upsertMinute(kind, latestOpenDate, values);
-        results[kind] = { ok: true, values };
+        if (kind === 'FUTURES') upsertMinute(kind, latestOpenDate, values);
+        if (kind === 'FUTURES' || values) results[kind] = { ok: true, values };
       } catch (error) {
         results[kind] = { ok: false, error: error.message };
       }
@@ -607,15 +659,12 @@ async function ensureLatestDateFallbacks() {
 
 async function buildInvestorChart(kind) {
   const latestDate = await getLatestOpenDate();
-  await backfillIntradayRows(latestDate).catch(() => {});
+  await refreshInvestorMarket(kind, latestDate);
+  // An old curve can be backfilled separately; it must not delay the live market read.
+  void backfillIntradayRows(latestDate).catch(() => {});
   const clock = getKoreaClock();
   if (latestDate === clock.date && clock.minutes >= 15 * 60 + 32) {
     await refreshClosingAuction(latestDate).catch(() => {});
-  }
-  // A page opened during the session must begin collecting the current
-  // session immediately instead of waiting for the next 30-second timer.
-  if (latestDate === clock.date && clock.minutes >= 9 * 60 && clock.minutes <= 15 * 60 + 30) {
-    await captureOnce().catch(() => {});
   }
   let rows = getRows(kind, latestDate);
   if (!rows.length) {
@@ -623,14 +672,14 @@ async function buildInvestorChart(kind) {
     rows = getRows(kind, latestDate);
   }
   const label = kind === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
+  const freshness = investorFreshness(kind, latestDate, rows);
   return {
     ok: true,
     unit: '조원',
     source: 'KIS FHPTJ04030000',
     latestOpenDate: latestDate,
-    note: rows.length > 1
-      ? `${label} KIS 실제 누적 순매수 · 최근 개장일 ${latestDate} · 장중 30초 조회/1분 저장 · 09:00~15:30${rows.at(-1)?.confirmedAt ? ' · 15:30 값은 동시호가 반영 후 재조회' : ''}`
-      : `${label} KIS 최근 개장일 ${latestDate} 종가 수급입니다. 완전한 분봉 곡선은 장중 30초 수집 후 누적 저장됩니다.`,
+    ...freshness,
+    note: `${label} KIS 실제 순매수 · 최근 개장일 ${latestDate} · 20초 조회/1분 저장 · 마지막 수집 ${freshness.lastDataAt || '없음'}${freshness.stale ? ' · 갱신 지연' : ''}${freshness.refreshError ? ` · KIS 조회 오류 ${freshness.refreshError}` : ''}${rows.at(-1)?.confirmedAt ? ' · 15:30 동시호가 반영' : ''}`,
     series: rows,
   };
 }
@@ -798,6 +847,10 @@ async function handleRequest(req, res) {
         lastError: state.lastError,
         lastResults: state.lastResults,
         programDiagnostics: state.programDiagnostics || null,
+        investorStatus: latestOpenDate ? {
+          kospi: investorFreshness('KOSPI', latestOpenDate, getRows('KOSPI', latestOpenDate)),
+          kosdaq: investorFreshness('KOSDAQ', latestOpenDate, getRows('KOSDAQ', latestOpenDate)),
+        } : {},
         rows: latestOpenDate ? {
           kospi: getRows('KOSPI', latestOpenDate).length,
           kosdaq: getRows('KOSDAQ', latestOpenDate).length,

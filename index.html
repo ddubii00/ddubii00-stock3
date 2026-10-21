@@ -2857,6 +2857,10 @@
       const el = document.getElementById(containerId);
       const noteEl = document.getElementById(noteId);
       if (!el) return;
+      const revisions = renderExtraChart.revisions ||= new Map();
+      const revision = (revisions.get(containerId) || 0) + 1;
+      revisions.set(containerId, revision);
+      const currentRequest = () => revisions.get(containerId) === revision;
       const fieldNumber=value=>value===null||value===undefined||value===''?NaN:Number(value);
       try {
         const params = new URLSearchParams({ kind });
@@ -2866,6 +2870,7 @@
           params.set('days', String(safeDays));
         }
         const json = await fetchJsonWithRetry(`/api/extra-chart?${params.toString()}`);
+        if (!currentRequest()) return;
         if (kind === 'foreign-futures-daily' || kind === 'foreign-futures-minute') {
           const mode = json.source === 'spot-fallback' || json.unit === '조원' ? 'spot-fallback' : 'futures';
           if (noteEl) noteEl.dataset.flowMode = mode;
@@ -2873,6 +2878,7 @@
         }
         let series = json?.series || [];
         if (!json?.ok || !Array.isArray(series) || !series.length) throw new Error(json?.error || 'no data');
+        series = series.slice().sort((a,b) => String(a.date).localeCompare(String(b.date)));
         const minuteOfDay = (row) => {
           const time = String(row?.date || '').split(' ')[1] || '';
           const match = time.match(/^(\d{2}):(\d{2})/);
@@ -3194,6 +3200,7 @@
           el.onmouseleave = null;
         }
       } catch (e) {
+        if (!currentRequest()) return;
         const message = e?.message || '원천 데이터 미제공/확인 필요';
         if (noteEl) noteEl.textContent = message;
         el.innerHTML = `<div style="height:100%;display:flex;align-items:center;justify-content:center;text-align:center;padding:16px;color:#5f6b85;font-size:13px;line-height:1.5;">${message}</div>`;
@@ -3876,11 +3883,15 @@
       return minutes >= 8 * 60 + 45 && minutes <= 15 * 60 + 51;
     };
     let flowCloseRefreshDate = '';
-    setInterval(() => {
-      if (isKoreaMarketHours()) {
-        renderKospiInvestorMinute();
-        renderKosdaqInvestorMinute();
+    const refreshSpotInvestorMinutes = () => {
+      if (!document.hidden && isKoreaMarketHours()) {
+        void renderKospiInvestorMinute();
+        void renderKosdaqInvestorMinute();
       }
+    };
+    setInterval(refreshSpotInvestorMinutes, 20_000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshSpotInvestorMinutes(); });
+    setInterval(() => {
       if (isKoreaFuturesHours()) {
         renderForeignFuturesMinute();
         renderKospiFuturesMinute();
