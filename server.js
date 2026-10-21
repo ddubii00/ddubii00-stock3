@@ -1894,6 +1894,11 @@ const server = http.createServer(async (req, res) => {
     return require('./api/chart-stocks')(req,response);
   }
 
+  if (requestPath === '/api/dashboard-selection') {
+    const response={setHeader:(key,value)=>res.setHeader(key,value),status(code){this.code=code;return this;},json(body){return send(res,this.code || 200,JSON.stringify(body),'application/json');}};
+    return require('./api/dashboard-selection')(req,response);
+  }
+
   if (requestPath === '/api/stock-search') {
     req.query = { q: u.searchParams.get('q') || '' };
     const response = { setHeader: (key, value) => res.setHeader(key,value), status(code) { this.code = code; return this; },

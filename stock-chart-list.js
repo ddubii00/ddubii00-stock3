@@ -53,7 +53,7 @@
     };
     return {load:()=>request(),apply:action=>request(action)};
   }
-  async function create({urlFor,onMount,onRemove,onChange=()=>{}}){
+  async function create({urlFor,onMount,onRemove,onChange=()=>{},beforeRender=()=>{}}){
     const doc=browser.document,dialog=doc.getElementById('chartStocksDialog'),list=doc.getElementById('chartStocksList');
     const message=doc.getElementById('chartStocksMessage'),addArea=doc.getElementById('chartStocksAddArea');
     const originals=new Map(DEFAULTS.map(item=>[item.slot,doc.getElementById(`lwchart-${item.slot}`).closest('section')]));
@@ -76,6 +76,7 @@
       card.dataset.chartSlot=item.slot;card.dataset.stockKey=item.key;return card;
     }
     function render(){
+      beforeRender();
       for(const [slot,card] of mounted)if(!items.some(item=>item.slot===slot&&item.key===card.dataset.stockKey)){onRemove(slot);card.remove();mounted.delete(slot);}
       for(const [slot,card] of originals)if(!mounted.has(slot)&&!items.some(item=>item.slot===slot))card.remove();
       container.querySelector('.stock-charts-empty')?.remove();

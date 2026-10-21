@@ -1,0 +1,49 @@
+.market-header .dashboard-mode-button[aria-pressed="true"] { color:#fff; background:#134db5; }
+.dashboard-selection-dialog { width:min(580px,92vw); max-height:85dvh; overflow:auto; border:1px solid #dbe3f1; border-radius:12px; padding:16px; color:#172033; }
+.dashboard-selection-dialog::backdrop { background:#07112370; }
+.dashboard-selection-dialog .dialog-head { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.dashboard-selection-dialog h2 { margin:0; font-size:20px; }
+.dashboard-selection-row { display:grid; grid-template-columns:34px minmax(0,1fr) 34px; align-items:center; gap:6px; margin:10px 0; }
+.dashboard-selection-row label { font-size:13px; font-weight:800; }
+.dashboard-selection-row select { width:100%; min-width:0; padding:9px 6px; border:1px solid #cbd7e9; border-radius:6px; font-size:16px; color:#172033; background:#fff; }
+.dashboard-selection-row .btn { padding:6px; }
+.dashboard-selection-dialog button:disabled { opacity:.4; cursor:default; }
+#dashboardSelectionMessage { color:#5f6b85; font-size:13px; line-height:1.4; }
+#compactDashboard { display:none; }
+body[data-dashboard-mode="partial"] .wrap { max-width:none; height:calc(100vh - var(--market-header-height)); height:calc(100dvh - var(--market-header-height)); padding:6px; box-sizing:border-box; overflow:hidden; }
+body[data-dashboard-mode="partial"] .wrap > :not(#compactDashboard) { display:none!important; }
+body[data-dashboard-mode="partial"] #compactDashboard { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-rows:repeat(2,minmax(0,1fr)); height:100%; gap:6px; }
+#compactDashboard > .card { display:flex; flex-direction:column; grid-column:auto!important; min-width:0; min-height:0; margin:0; padding:7px; overflow:auto; box-sizing:border-box; }
+#compactDashboard > .compact-panel-empty { align-items:center; justify-content:center; color:#5f6b85; font-size:13px; text-align:center; }
+#compactDashboard .title, #compactDashboard .head-row .title, #compactDashboard .stock-chart-name { font-size:15px; margin:0; }
+#compactDashboard .head-row { margin-bottom:3px; gap:4px; flex-shrink:0; }
+#compactDashboard .summary-value-row, #compactDashboard .warning-memo { display:none; }
+#compactDashboard .summary-heading-line { align-items:center; gap:4px; margin-bottom:3px; }
+#compactDashboard .summary-time-controls { min-width:0; overflow-x:auto; }
+#compactDashboard .summary-range-row { font-size:10px; gap:3px; }
+#compactDashboard .summary-range-row input { width:42px; font-size:10px; padding:2px; }
+#compactDashboard .btn { padding:3px 5px; font-size:10px; }
+#compactDashboard .timeframe-row, #compactDashboard .stock-chart-timeframes { flex-wrap:nowrap; overflow-x:auto; margin-bottom:2px; gap:3px; flex-shrink:0; }
+#compactDashboard .chart, #compactDashboard .summary-index-chart, #compactDashboard .reference-chart { flex:1 0 100px; height:100px!important; min-height:100px; margin:0; }
+#compactDashboard .legend-row, #compactDashboard .technical-legend { margin:2px 0!important; gap:7px!important; font-size:10px!important; flex-wrap:nowrap; overflow-x:auto; flex-shrink:0; }
+#compactDashboard .legend-row > *, #compactDashboard .technical-legend > * { white-space:nowrap; }
+#compactDashboard .chart-note { font-size:10px; line-height:1.15; max-height:2.5em; overflow:auto; margin:2px 0; flex-shrink:0; }
+#compactDashboard .index-regime-panel { padding:3px; margin-bottom:3px; flex-shrink:0; }
+#compactDashboard .index-regime-layout { grid-template-columns:95px minmax(0,1fr); gap:4px; }
+#compactDashboard .regime-position-row { grid-template-columns:34px 12px minmax(0,1fr); min-height:12px; font-size:10px; }
+#compactDashboard .regime-allocations > span { font-size:9px; padding:1px 2px; }
+#compactDashboard .regime-allocations b { font-size:12px; }
+#compactDashboard .regime-targets, #compactDashboard .regime-confirmed-date { font-size:10px; }
+#compactDashboard .index-quote-current, #compactDashboard .index-quote-previous { font-size:12px; min-width:48px; }
+#compactDashboard .index-quote-rate { font-size:10px; }
+#compactDashboard .bridge-table-wrap, #compactDashboard .investor-top-scroll { min-height:0; overflow:auto; }
+@media(max-width:850px) {
+  #compactDashboard .summary-heading-line { display:block; }
+  #compactDashboard .index-regime-panel { grid-template-columns:minmax(0,1fr); row-gap:2px; }
+  #compactDashboard .index-regime-quotes { justify-self:end; }
+  #compactDashboard .regime-position-row { min-height:11px; }
+}
+@media(max-height:650px) {
+  #compactDashboard .summary-range-row { display:none; }
+  #compactDashboard .index-regime-panel { max-height:76px; overflow:auto; }
+}

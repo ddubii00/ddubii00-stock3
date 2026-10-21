@@ -27,8 +27,9 @@ function nextState(current,action) {
   if(current.initialized && JSON.stringify(items)===JSON.stringify(current.items)) return current;
   return {revision:current.revision+1,initialized:true,items};
 }
-function createStore({env=process.env,io=fs,fetchImpl=(...args)=>fetch(...args),warn=()=>console.warn('공유 종목 목록 저장소 접근 실패')}={}) {
-  const filename=env.STOCK3_STOCK_LIST_PATH || path.join(__dirname,'.stock3-data','chart-stocks.json');
+function createStore({env=process.env,io=fs,fetchImpl=(...args)=>fetch(...args),warn=()=>console.warn('공유 종목 목록 저장소 접근 실패'),
+  filename=env.STOCK3_STOCK_LIST_PATH || path.join(__dirname,'.stock3-data','chart-stocks.json'),
+  storeKey=STORE_KEY,decodeState=decode,validateAction=validate,applyAction=nextState}={}) {
   // Oracle persists on disk. Read-only/serverless deployments must use shared Redis REST,
   // never a temporary directory or a process-local list that disappears on a cold start.
   const restUrl=env.STOCK3_LIST_REST_URL || env.KV_REST_API_URL;
@@ -44,24 +45,24 @@ function createStore({env=process.env,io=fs,fetchImpl=(...args)=>fetch(...args),
     } finally {clearTimeout(timer);}
   }
   async function rawRead() {
-    if(remote) return redis(['GET',STORE_KEY]);
+    if(remote) return redis(['GET',storeKey]);
     if(env.VERCEL) throw unavailable();
     try {return await io.readFile(filename,'utf8');}
     catch(error) {if(error.code==='ENOENT')return null;throw error;}
   }
   async function read() {
-    try {return decode(await rawRead());}
+    try {return decodeState(await rawRead());}
     catch(_) {warn();throw unavailable();}
   }
   async function update(action) {
-    validate(action);
+    validateAction(action);
     if(remote) {
       try {
         // Compare-and-set prevents two browsers/serverless instances losing each other's edits.
         for(let attempt=0;attempt<8;attempt++) {
-          const old=await rawRead(),current=decode(old),next=nextState(current,action);
+          const old=await rawRead(),current=decodeState(old),next=applyAction(current,action);
           if(next===current)return current;
-          const success=await redis(['EVAL',"local v=redis.call('GET',KEYS[1]); if (v or '')==ARGV[1] then redis.call('SET',KEYS[1],ARGV[2]); return 1 else return 0 end",1,STORE_KEY,old || '',JSON.stringify(next)]);
+          const success=await redis(['EVAL',"local v=redis.call('GET',KEYS[1]); if (v or '')==ARGV[1] then redis.call('SET',KEYS[1],ARGV[2]); return 1 else return 0 end",1,storeKey,old || '',JSON.stringify(next)]);
           if(Number(success)===1)return next;
         }
         throw unavailable();
@@ -93,7 +94,7 @@ function createStore({env=process.env,io=fs,fetchImpl=(...args)=>fetch(...args),
         }
       }
       if(!lock)throw unavailable();
-      const current=decode(await rawRead()),next=nextState(current,action);
+      const current=decodeState(await rawRead()),next=applyAction(current,action);
       if(next===current)return current;
       temp=`${filename}.${randomUUID()}.tmp`;
       await io.writeFile(temp,JSON.stringify(next),'utf8');

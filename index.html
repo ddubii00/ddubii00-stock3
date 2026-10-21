@@ -386,6 +386,7 @@
     #chartStocksMessage { color:#9a6011; font-size:12px; margin:6px 0; }
     @media(max-width:700px) { .market-header { gap:9px; padding:4px 6px; } .ticker-rate { font-size:10px; } .ticker-price { font-size:15px; } .ticker-label { font-size:10px; } .market-header .btn { flex:0 0 auto; padding:5px 6px; } }
   </style>
+  <link rel="stylesheet" href="./dashboard-selection.css" />
 </head>
 <body data-locked>
   <div id="accessGate" class="access-gate"><form id="accessForm" class="access-form"><h1>시황 대시보드</h1><label for="accessPassword">접속 암호</label><input id="accessPassword" type="password" inputmode="numeric" autocomplete="current-password" maxlength="128" required autofocus /><button class="btn" type="submit">접속</button><p id="accessError" class="access-error" role="alert"></p></form></div>
@@ -396,7 +397,16 @@
     <div class="market-ticker" id="ticker-SP500"><span class="ticker-label">S&P500</span><strong class="ticker-price">-</strong><span class="ticker-rate">-</span></div>
     <div class="market-ticker" id="ticker-USDKRW"><span class="ticker-label">환율(원/달러)</span><strong class="ticker-price">-</strong><span class="ticker-rate">-</span></div>
     <button id="openChartStocks" type="button" class="btn" aria-haspopup="dialog">종목</button>
+    <button id="showAllPanels" type="button" class="btn dashboard-mode-button" aria-pressed="true">전체</button>
+    <button id="showSelectedPanels" type="button" class="btn dashboard-mode-button" aria-pressed="false">일부</button>
+    <button id="openDashboardSelection" type="button" class="btn" aria-haspopup="dialog">선택</button>
   </header>
+  <dialog id="dashboardSelectionDialog" class="dashboard-selection-dialog" aria-labelledby="dashboardSelectionTitle">
+    <div class="dialog-head"><h2 id="dashboardSelectionTitle">표시할 차트·대시보드 선택</h2><button id="closeDashboardSelection" type="button" class="btn outline">닫기</button></div>
+    <div id="dashboardSelectionRows"></div>
+    <p id="dashboardSelectionMessage" role="status">서버의 선택 목록을 확인하는 중입니다.</p>
+    <button id="saveDashboardSelection" type="button" class="btn" disabled>저장</button>
+  </dialog>
   <dialog id="chartStocksDialog" class="chart-stocks-dialog" aria-labelledby="chartStocksTitle">
     <div class="dialog-head"><h2 id="chartStocksTitle">종목 차트</h2><button type="button" class="btn outline" id="closeChartStocks">닫기</button></div>
     <div id="chartStocksList"></div>
@@ -404,6 +414,7 @@
     <div id="chartStocksAddArea" hidden><div class="stock-chart-search"><input id="stock-search-CHART_ADD" aria-label="추가할 종목 검색" role="combobox" aria-autocomplete="list" aria-controls="stock-results-CHART_ADD" aria-expanded="false" autocomplete="off" placeholder="국내 종목명 · 미국 회사명 또는 티커(AAPL)" /><div id="stock-results-CHART_ADD" class="stock-search-results" role="listbox" aria-label="추가 종목 검색 결과" hidden></div></div></div>
   </dialog>
   <div class="wrap">
+    <div id="compactDashboard" aria-label="선택한 차트·대시보드 4개" hidden></div>
     <div id="fileWarn" style="display:none;margin-bottom:12px;padding:10px 12px;border:1px solid #ffd8a8;background:#fff4e6;color:#8a4b08;border-radius:10px;font-size:13px;">
       현재 <b>file://</b> 로 열려 데이터 API가 동작하지 않습니다. <b>http://127.0.0.1:8000/index.html</b> 로 접속해주세요.
     </div>
@@ -968,6 +979,7 @@
   <script src="./three-line-break.js"></script>
   <script src="./stock-chart-picker.js"></script>
   <script src="./stock-chart-list.js"></script>
+  <script src="./dashboard-selection.js"></script>
   <script src="./market-header.js"></script>
   <script src="./access-client.js"></script>
   <script>
@@ -3672,7 +3684,10 @@
       }));
 
     }
+    let dashboardSelection;
     const chartStocks = await window.StockChartList.create({urlFor:apiUrl,
+      beforeRender:()=>dashboardSelection?.restore(),
+      onChange:()=>dashboardSelection?.catalogChanged(),
       onMount:(item)=>initSelectableStock(item.slot,item),
       onRemove:(slot)=>{
         const inst=lwChartInstances[slot];if(!inst)return;
@@ -3937,6 +3952,7 @@
         return loadLwChart(key);
       }))
     });
+    dashboardSelection = window.DashboardSelection.create({urlFor:apiUrl});
     setInterval(refreshBinanceKoreaFutures, 30000);
     setInterval(renderDashboardBridge, 2 * 60 * 1000);
     setInterval(renderHighBreakouts, 5 * 60 * 1000);
