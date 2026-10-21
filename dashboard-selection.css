@@ -29,7 +29,7 @@ body[data-dashboard-mode="partial"] #compactDashboard { display:grid; grid-templ
 #compactDashboard .legend-row, #compactDashboard .technical-legend { margin:2px 0!important; gap:7px!important; font-size:10px!important; flex-wrap:nowrap; overflow-x:auto; flex-shrink:0; }
 #compactDashboard .legend-row > *, #compactDashboard .technical-legend > * { white-space:nowrap; }
 #compactDashboard .chart-note { font-size:10px; line-height:1.15; max-height:2.5em; overflow:auto; margin:2px 0; flex-shrink:0; }
-#compactDashboard .index-regime-panel { padding:3px; margin-bottom:3px; flex-shrink:0; }
+#compactDashboard .index-regime-panel { display:none; }
 #compactDashboard .index-regime-layout { grid-template-columns:95px minmax(0,1fr); gap:4px; }
 #compactDashboard .regime-position-row { grid-template-columns:34px 12px minmax(0,1fr); min-height:12px; font-size:10px; }
 #compactDashboard .regime-allocations > span { font-size:9px; padding:1px 2px; }
