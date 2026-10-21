@@ -1,5 +1,5 @@
-.market-header .dashboard-mode-button { color:#fff; background:#2563eb; }
-.market-header .dashboard-mode-button[aria-pressed="true"] { background:#15803d; }
+.market-header .btn { color:#134db5; background:transparent; }
+.market-header .dashboard-mode-button[aria-pressed="true"] { color:#fff; background:#2563eb; }
 .dashboard-selection-dialog { width:min(580px,92vw); max-height:85dvh; overflow:auto; border:1px solid #dbe3f1; border-radius:12px; padding:16px; color:#172033; }
 .dashboard-selection-dialog::backdrop { background:#07112370; }
 .dashboard-selection-dialog .dialog-head { display:flex; align-items:center; justify-content:space-between; gap:8px; }
