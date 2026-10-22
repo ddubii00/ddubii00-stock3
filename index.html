@@ -100,7 +100,7 @@
     .technical-heading { grid-column:1/-1; margin:8px 2px -2px; font-size:22px; font-weight:950; letter-spacing:-.02em; }
     .technical-card .title { font-size:26px; margin:0; }
     .tradingview-card { display:flex; flex-direction:column; min-width:0; }
-    .tradingview-card .chart { display:flex; flex-direction:column; flex:1 0 auto; background:#fff; }
+    .tradingview-card .chart { display:flex; flex-direction:column; flex:1 0 auto; height:540px; background:#fff; }
     .tradingview-card .tradingview-widget-container__widget { flex:1; min-height:0; width:100%; }
     .tradingview-card iframe { width:100%; height:100%; border:0; }
     .tradingview-card .tradingview-widget-copyright { flex-shrink:0; text-align:center; font-size:11px; line-height:22px; }
@@ -340,6 +340,7 @@
     @media (max-width: 980px) {
       .span-3, .span-4, .span-6, .span-8 { grid-column: span 12; }
       .chart { height: 240px; }
+      .tradingview-card .chart { height:480px; }
       .score-shell { grid-template-columns:1fr; justify-items:center; }
       .score-components { grid-template-columns:repeat(2,minmax(0,1fr)); width:100%; }
       .sector-tiles { grid-template-columns:repeat(2,minmax(0,1fr)); }
