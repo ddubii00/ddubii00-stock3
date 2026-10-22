@@ -99,6 +99,12 @@
     .plain-chart { background:#fff; }
     .technical-heading { grid-column:1/-1; margin:8px 2px -2px; font-size:22px; font-weight:950; letter-spacing:-.02em; }
     .technical-card .title { font-size:26px; margin:0; }
+    .tradingview-card { display:flex; flex-direction:column; min-width:0; }
+    .tradingview-card .chart { display:flex; flex-direction:column; flex:1 0 auto; background:#fff; }
+    .tradingview-card .tradingview-widget-container__widget { flex:1; min-height:0; width:100%; }
+    .tradingview-card iframe { width:100%; height:100%; border:0; }
+    .tradingview-card .tradingview-widget-copyright { flex-shrink:0; text-align:center; font-size:11px; line-height:22px; }
+    .tradingview-card .tradingview-widget-copyright a { color:#2962ff; }
     .technical-legend { display:flex; align-items:center; gap:11px; flex-wrap:wrap; margin:2px 0 7px; color:var(--muted); font-size:11px; font-weight:850; }
     .legend-chip { display:inline-flex; align-items:center; gap:4px; cursor:pointer; user-select:none; transition:opacity .15s ease; }
     .legend-chip.off { opacity:.32; }
@@ -979,6 +985,7 @@
   <script src="./three-line-break.js"></script>
   <script src="./stock-chart-picker.js"></script>
   <script src="./stock-chart-list.js"></script>
+  <script src="./tradingview-card.js"></script>
   <script src="./dashboard-selection.js"></script>
   <script src="./market-header.js"></script>
   <script src="./access-client.js"></script>
@@ -3695,6 +3702,7 @@
         inst.stockPicker?.destroy();inst.resizeObserver?.disconnect();inst.chart.remove();delete lwChartInstances[slot];
       }
     });
+    window.TradingViewCard.mountAfterStocks(document);
     initLwChart('USDJPY_DAILY', 'lwchart-USDJPY_DAILY', '1d', 120, {
       apiKey:'USDJPY', plain:true, noMarkers:true, bollinger:true, visibleMa:[20,60,120],
       referenceValues:true, valueSuffix:'엔', valueDigits:2, axisDigits:2, periodControl:true
