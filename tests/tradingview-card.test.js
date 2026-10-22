@@ -23,16 +23,18 @@ function fixture(){
   return{root,stocks,peer,doc};
 }
 function parts(card){
-  const [heading,body,status]=card.children;
-  return{body,status,retry:heading.children[1],script:body.children.find(node=>node.tagName==='script')};
+  const [heading,frame,status]=card.children;
+  const body=frame.children[0];
+  return{frame,body,status,retry:heading.children[1],script:body.children.find(node=>node.tagName==='script')};
 }
 
 test('the official USTECH100 embed follows all registered stock cards and mounts only once',()=>{
   const f=fixture();const card=mountAfterStocks(f.doc);
   assert.deepEqual(f.root.children,[f.stocks,card,f.peer]);
-  const {body,script}=parts(card);
-  assert.equal(body.id,'tvchart-USTECH100');
-  assert.match(card.className,/span-6/);assert.match(body.className,/chart reference-chart/);
+  const {frame,body,script}=parts(card);
+  assert.equal(frame.id,'tvchart-USTECH100');
+  assert.match(card.className,/span-6/);assert.match(frame.className,/chart reference-chart/);
+  assert.equal(body.className,'tradingview-widget-container');assert.equal(body.parentNode,frame);
   assert.equal(script.src,'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js');
   assert.equal(script.async,true);
   const config=JSON.parse(script.textContent);
@@ -54,6 +56,7 @@ test('a failed external script can be retried without touching other charts or k
   const iframe=new Element('iframe');first.body.children[0].append(iframe);
   first.retry.listeners.click();
   const next=parts(card);
+  assert.equal(next.frame,first.frame);assert.equal(next.body.parentNode,first.frame);
   assert.equal(iframe.isConnected,false);assert.equal(first.script.isConnected,false);
   assert.notEqual(next.script,first.script);assert.equal(next.body.children.length,3);
   first.script.onerror();assert.equal(next.status.textContent,'TradingView · WH SelfInvest');

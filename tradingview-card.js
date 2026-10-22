@@ -16,9 +16,12 @@
     const retry=doc.createElement('button');retry.className='btn outline';retry.type='button';retry.textContent='다시 연결';
     retry.setAttribute('aria-label','USTECH100 위젯 다시 연결');
     heading.append(title,retry);
-    const body=doc.createElement('div');body.id='tvchart-USTECH100';
-    body.className='chart reference-chart tradingview-widget-container';
-    body.setAttribute('aria-label','USTECH100 TradingView 차트');
+    // Keep the app-sized frame separate from the container the external loader may resize.
+    const frame=doc.createElement('div');frame.id='tvchart-USTECH100';
+    frame.className='chart reference-chart';
+    frame.setAttribute('aria-label','USTECH100 TradingView 차트');
+    const body=doc.createElement('div');body.className='tradingview-widget-container';
+    frame.append(body);
     const widget=doc.createElement('div');widget.className='tradingview-widget-container__widget';
     const footer=doc.createElement('div');footer.className='tradingview-widget-copyright';
     const link=doc.createElement('a');
@@ -27,7 +30,7 @@
     footer.append(link);
     const status=doc.createElement('div');status.className='chart-note';status.setAttribute('role','status');
     status.title='실시간·지연 여부와 거래 상태는 TradingView 위젯 안에서 확인하세요.';
-    card.append(heading,body,status);
+    card.append(heading,frame,status);
     // The official iframe owns its live feed. Do not read its prices or recreate it on the app's 20-second poll.
     function load(){
       widget.replaceChildren();body.replaceChildren(widget,footer);

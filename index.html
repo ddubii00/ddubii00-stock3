@@ -100,8 +100,9 @@
     .technical-heading { grid-column:1/-1; margin:8px 2px -2px; font-size:22px; font-weight:950; letter-spacing:-.02em; }
     .technical-card .title { font-size:26px; margin:0; }
     .tradingview-card { display:flex; flex-direction:column; min-width:0; }
-    .tradingview-card .chart { display:flex; flex-direction:column; flex:1 0 auto; height:540px; background:#fff; }
-    .tradingview-card .tradingview-widget-container__widget { flex:1; min-height:0; width:100%; }
+    .tradingview-card .chart { flex:0 0 auto; height:540px; background:#fff; }
+    .tradingview-card .tradingview-widget-container { display:grid; grid-template-rows:minmax(0,1fr) 22px; height:100%; width:100%; }
+    .tradingview-card .tradingview-widget-container__widget { min-height:0; height:100%; width:100%; }
     .tradingview-card iframe { width:100%; height:100%; border:0; }
     .tradingview-card .tradingview-widget-copyright { flex-shrink:0; text-align:center; font-size:11px; line-height:22px; }
     .tradingview-card .tradingview-widget-copyright a { color:#2962ff; }
@@ -986,7 +987,7 @@
   <script src="./three-line-break.js"></script>
   <script src="./stock-chart-picker.js"></script>
   <script src="./stock-chart-list.js"></script>
-  <script src="./tradingview-card.js"></script>
+  <script src="./tradingview-card.js?v=20261022-size"></script>
   <script src="./dashboard-selection.js"></script>
   <script src="./market-header.js"></script>
   <script src="./access-client.js"></script>
