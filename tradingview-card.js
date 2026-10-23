@@ -35,7 +35,7 @@
       script.textContent=JSON.stringify({autosize:true,symbol:SYMBOL,interval:'1',
         timezone:'Asia/Seoul',theme:'light',style:'1',locale:'kr',
         allow_symbol_change:false,hide_side_toolbar:false,hide_top_toolbar:false,
-        hide_legend:false,save_image:false,calendar:false,studies:[]});
+        hide_legend:true,save_image:false,calendar:false,studies:[]});
       script.onerror=()=>{if(script.isConnected){status.hidden=false;status.textContent='위젯 연결 실패 · 화면을 새로고침해주세요.';}};
       body.append(script);
     }

@@ -42,6 +42,7 @@ test('the official USTECH100 embed follows all registered stock cards and mounts
   assert.equal(config.symbol,'WHSELFINVEST:USTECH100CFD');assert.equal(config.interval,'1');
   assert.equal(config.timezone,'Asia/Seoul');assert.equal(config.locale,'kr');assert.equal(config.autosize,true);
   assert.equal(config.allow_symbol_change,false);
+  assert.equal(config.hide_top_toolbar,false);assert.equal(config.hide_legend,true);
   const copyright=body.children.find(node=>node.className==='tradingview-widget-copyright');
   assert.equal(new URL(copyright.children[0].href).searchParams.get('symbol'),config.symbol);
   assert.match(copyright.children[0].textContent,/TradingView/);
