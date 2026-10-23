@@ -428,10 +428,7 @@
     <div id="fileWarn" style="display:none;margin-bottom:12px;padding:10px 12px;border:1px solid #ffd8a8;background:#fff4e6;color:#8a4b08;border-radius:10px;font-size:13px;">
       현재 <b>file://</b> 로 열려 데이터 API가 동작하지 않습니다. <b>http://127.0.0.1:8000/index.html</b> 로 접속해주세요.
     </div>
-    <div class="top">
-      <h1>시황 점검 대시보드</h1>
-      <div class="meta" id="updatedAt">업데이트: -</div>
-    </div>
+    <span id="updatedAt" hidden aria-hidden="true"></span>
 
     <div class="grid bridge-grid" id="dashboardBridge">
       <section class="card span-12 bridge-card">
@@ -990,7 +987,7 @@
   <script src="./stock-chart-picker.js"></script>
   <script src="./stock-chart-list.js"></script>
   <script src="./tradingview-card.js?v=20261023-chart-only"></script>
-  <script src="./dashboard-selection.js?v=20261023-panels"></script>
+  <script src="./dashboard-selection.js?v=20261023-view-mode"></script>
   <script src="./market-header.js"></script>
   <script src="./access-client.js"></script>
   <script>

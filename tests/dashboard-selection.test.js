@@ -90,21 +90,70 @@ class Element{
   querySelectorAll(selector){const result=[];for(const child of this.childNodes){if(child.matches?.(selector))result.push(child);result.push(...child.querySelectorAll(selector));}return result;}
   querySelector(selector){return this.querySelectorAll(selector)[0]||null;}
 }
-async function viewFixture(){
+const memoryStorage=()=>{const values=new Map();return{getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,String(value))};};
+const flush=()=>new Promise(resolve=>setImmediate(resolve));
+async function viewFixture({sessionStorage=memoryStorage(),localStorage=memoryStorage(),pathname='/stock3-7/',initialSlots=selection.empty()}={}){
   const body=new Element('body'),wrap=new Element(),group=new Element(),compact=new Element(),controls=new Element();wrap.className='wrap';compact.id='compactDashboard';compact.hidden=true;body.append(controls,wrap);wrap.append(compact,group);
   for(const id of ['dashboardSelectionDialog','dashboardSelectionMessage','saveDashboardSelection','dashboardSelectionRows','showAllPanels','showSelectedPanels','openDashboardSelection','closeDashboardSelection']){const node=new Element(id.includes('Dialog')?'dialog':'button');node.id=id;controls.appendChild(node);}
   const cards=slots.map((id,index)=>{const card=new Element('section');card.className='card';const title=new Element();title.className=index===3?'stock-chart-name':'title';title.textContent=['코스피','비트코인 일봉 (BTC/USD)','관심종목 트래커','삼성전자'][index];const chart=new Element();chart.id=id.startsWith('stock:')?'lwchart-SAMSUNG_DAILY':id.slice(6);chart.className='chart';card.append(title,chart);if(id.startsWith('stock:'))card.dataset.stockKey=id.slice(6);group.appendChild(card);return card;});
   const doc={body,hidden:false,events:{},createElement:tag=>new Element(tag),createComment:()=>new Element('comment',8),getElementById:id=>[body,...all(body)].find(node=>node.id===id),querySelectorAll:selector=>selector==='.wrap .card'?wrap.querySelectorAll('.card'):[],addEventListener(type,handler){(this.events[type]||=[]).push(handler);}};
   function all(node){return node.childNodes.flatMap(child=>[child,...all(child)]);}
-  let stored={revision:0,slots:selection.empty()},fail=false;
-  const context=vm.createContext({document:doc,AbortController,setTimeout,clearTimeout,setInterval(){},fetch:async(_url,options)=>{
+  let stored={revision:0,slots:initialSlots},fail=false,offline=false;const intervals=[];
+  const context=vm.createContext({document:doc,location:{pathname},sessionStorage,localStorage,AbortController,setTimeout,clearTimeout,setInterval(callback){intervals.push(callback);},fetch:async(_url,options)=>{
+    if(offline)throw new Error('네트워크 연결 실패');
     if(options.method==='POST'){if(fail)return{ok:false,json:async()=>({ok:false,error:'저장 실패'})};stored={revision:stored.revision+1,slots:JSON.parse(options.body).slots};}
     return ok({ok:true,...stored});
   }});
   vm.runInContext(await fs.readFile(path.join(root,'dashboard-selection.js'),'utf8'),context);
-  const api=context.DashboardSelection.create({urlFor:url=>url});await new Promise(resolve=>setImmediate(resolve));
-  return {api,doc,body,wrap,group,compact,cards,node:id=>doc.getElementById(id),stored:()=>stored,setFail:()=>{fail=true;}};
+  const startupMode=body.dataset.dashboardMode;
+  const api=context.DashboardSelection.create({urlFor:url=>url});await flush();
+  return {api,doc,body,wrap,group,compact,cards,startupMode,node:id=>doc.getElementById(id),stored:()=>stored,setFail:()=>{fail=true;},setOffline:value=>{offline=value;},setSlots:value=>{stored={revision:stored.revision+1,slots:value};},poll:async()=>{intervals.forEach(callback=>callback());await flush();}};
 }
+
+test('partial mode survives reload before initial data arrives; explicit all remains remembered',async()=>{
+  const storage={sessionStorage:memoryStorage(),localStorage:memoryStorage(),initialSlots:slots};
+  const first=await viewFixture(storage);await first.node('showSelectedPanels').fire('click');await flush();
+  const reloaded=await viewFixture(storage);
+  assert.equal(reloaded.startupMode,'partial');assert.equal(reloaded.body.dataset.dashboardMode,'partial');
+  assert.equal(reloaded.node('showSelectedPanels').attrs['aria-pressed'],'true');
+  assert.deepEqual(reloaded.compact.childNodes,reloaded.cards);
+  await reloaded.node('showAllPanels').fire('click');
+  const again=await viewFixture(storage);assert.equal(again.body.dataset.dashboardMode,'all');assert.equal(again.compact.hidden,true);
+});
+
+test('other tabs cannot reset this tab; new tabs use the last choice and app paths are isolated',async()=>{
+  const localStorage=memoryStorage(),sessionStorage=memoryStorage();
+  const first=await viewFixture({localStorage,sessionStorage});first.api.setMode('partial');
+  const other=await viewFixture({localStorage});assert.equal(other.startupMode,'partial');other.api.setMode('all');
+  const reloaded=await viewFixture({localStorage,sessionStorage,pathname:'/stock3-7/index.html'});
+  assert.equal(reloaded.startupMode,'partial');assert.equal(first.body.dataset.dashboardMode,'partial');
+  assert.equal((await viewFixture({localStorage})).startupMode,'all');
+  reloaded.api.setMode('partial');
+  assert.equal((await viewFixture({localStorage,pathname:'/other-app/'})).startupMode,'all');
+});
+
+test('three hours of refreshes, offline recovery and stock rerenders preserve partial mode',async()=>{
+  const f=await viewFixture({initialSlots:slots});f.api.setMode('partial');
+  for(let tick=0;tick<540;tick++){
+    f.setOffline(tick%10===0);f.doc.hidden=tick%12===0;
+    if(tick%40===0)f.setSlots(tick%80===0?slots:[slots[1],slots[0],slots[2],slots[3]]);
+    await f.poll();
+    if(f.doc.hidden){f.doc.hidden=false;for(const handler of f.doc.events.visibilitychange)handler();await flush();}
+    f.api.restore();f.api.catalogChanged();
+    assert.equal(f.body.dataset.dashboardMode,'partial');assert.equal(f.compact.hidden,false);
+    assert.equal(f.compact.childNodes.length,4);
+  }
+  f.setOffline(false);await f.poll();assert.ok(f.compact.childNodes.every(node=>f.cards.includes(node)));
+});
+
+test('blocked storage and invalid saved modes never prevent changing the view',async()=>{
+  const blocked={getItem(){throw new Error('SecurityError');},setItem(){throw new Error('QuotaExceededError');}};
+  const f=await viewFixture({sessionStorage:blocked,localStorage:blocked});
+  assert.equal(f.startupMode,'all');f.api.setMode('partial');assert.equal(f.body.dataset.dashboardMode,'partial');
+  f.api.setMode('invalid');assert.equal(f.body.dataset.dashboardMode,'partial');
+  const invalid={getItem:()=>'<invalid>',setItem(){}};
+  assert.equal((await viewFixture({sessionStorage:invalid,localStorage:invalid})).startupMode,'all');
+});
 
 function additionalPanels(){
   return [

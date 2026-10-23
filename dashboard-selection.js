@@ -4,6 +4,20 @@
 })(typeof globalThis!=='undefined'?globalThis:this,function(browser){
   'use strict';
   const COUNT=4;
+  const validMode=mode=>mode==='all'||mode==='partial';
+  const modeKey=()=>`stock3-dashboard-mode:v1:${(browser?.location?.pathname||'').replace(/\/index\.html$/,'').replace(/\/$/,'')}`;
+  function readMode(){
+    // Per-tab state wins: another tab choosing 'all' must not reset this tab on reload.
+    for(const name of ['sessionStorage','localStorage']){
+      try{const saved=browser?.[name]?.getItem(modeKey());if(validMode(saved))return saved;}catch(_){/* optional storage */}
+    }
+    return 'all';
+  }
+  function rememberMode(mode,rememberDefault=false){
+    for(const name of rememberDefault?['sessionStorage','localStorage']:['sessionStorage']){
+      try{browser?.[name]?.setItem(modeKey(),mode);}catch(_){/* keep the active view when storage is blocked */}
+    }
+  }
   const empty=()=>Array(COUNT).fill(null);
   const validId=id=>typeof id==='string' && (/^panel:[A-Za-z][A-Za-z0-9_-]{0,90}$/.test(id) || /^stock:(?:KR:\d{6}:(?:KOSPI|KOSDAQ)|US:[A-Z][A-Z0-9]{0,9}(?:[.-][A-Z0-9]{1,3})?:(?:NASDAQ|NYSE|AMEX))$/.test(id));
   function validSlots(slots){
@@ -54,7 +68,7 @@
     const message=doc.getElementById('dashboardSelectionMessage'),saveButton=doc.getElementById('saveDashboardSelection');
     const compact=doc.getElementById('compactDashboard'),rows=doc.getElementById('dashboardSelectionRows');
     const allButton=doc.getElementById('showAllPanels'),partialButton=doc.getElementById('showSelectedPanels');
-    let slots=empty(),draft=empty(),entries=[],portals=[],mode='all',ready=false,dirty=false,editing=false,saving=false,polling=false;
+    let slots=empty(),draft=empty(),entries=[],portals=[],mode=readMode(),ready=false,dirty=false,editing=false,saving=false,polling=false;
     const controls=[];
     function restore(){
       for(const {node,marker} of portals){
@@ -109,7 +123,7 @@
       catch(error){if(editing)message.textContent=`${error.message} · 서버 연결 후 다시 시도하세요.`;}
       finally{polling=false;}
     }
-    function setMode(next){mode=next;paint();}
+    function setMode(next){if(!validMode(next))return;mode=next;rememberMode(mode,true);paint();}
     for(let index=0;index<COUNT;index++){
       const row=doc.createElement('div');row.className='dashboard-selection-row';
       const label=doc.createElement('label');label.textContent=`${index+1}번`;
@@ -142,5 +156,7 @@
     doc.addEventListener('visibilitychange',()=>{if(!doc.hidden)void sync();});
     return {restore,catalogChanged:()=>{paint();options();},setMode};
   }
+  // Restore before authentication unlocks the page, avoiding a flash of the full dashboard.
+  if(browser?.document?.body){const mode=readMode();rememberMode(mode);browser.document.body.dataset.dashboardMode=mode;}
   return {COUNT,empty,validId,validSlots,createClient,catalog,create};
 });
