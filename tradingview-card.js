@@ -11,6 +11,8 @@
     if(existing)return existing;
     const card=doc.createElement('section');
     card.id='tradingview-USTECH100';card.className='card span-6 technical-card tradingview-card';
+    card.setAttribute('data-dashboard-id','panel:tvchart-USTECH100');
+    card.setAttribute('data-dashboard-title','USTECH100 (나스닥100 CFD)');
     const heading=doc.createElement('div');heading.className='head-row';
     const title=doc.createElement('div');title.className='title';title.textContent='USTECH100 (나스닥100 CFD)';
     const retry=doc.createElement('button');retry.className='btn outline';retry.type='button';retry.textContent='다시 연결';

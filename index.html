@@ -394,7 +394,7 @@
     #chartStocksMessage { color:#9a6011; font-size:12px; margin:6px 0; }
     @media(max-width:700px) { .market-header { gap:9px; padding:4px 6px; } .ticker-rate { font-size:10px; } .ticker-price { font-size:15px; } .ticker-label { font-size:10px; } .market-header .btn { flex:0 0 auto; padding:5px 6px; } }
   </style>
-  <link rel="stylesheet" href="./dashboard-selection.css" />
+  <link rel="stylesheet" href="./dashboard-selection.css?v=20261023-panels" />
 </head>
 <body data-locked>
   <div id="accessGate" class="access-gate"><form id="accessForm" class="access-form"><h1>시황 대시보드</h1><label for="accessPassword">접속 암호</label><input id="accessPassword" type="password" inputmode="numeric" autocomplete="current-password" maxlength="128" required autofocus /><button class="btn" type="submit">접속</button><p id="accessError" class="access-error" role="alert"></p></form></div>
@@ -506,7 +506,7 @@
         </div>
         <div class="bridge-table-wrap"><table class="bridge-table"><thead><tr><th>ETF</th><th>가격</th><th>등락률</th><th>거래대금</th><th>상태</th></tr></thead><tbody id="etfFlowBody"><tr><td colspan="5" class="panel-empty">ETF 확인 중...</td></tr></tbody></table></div>
       </section>
-      <section class="card span-6 bridge-card">
+      <section class="card span-6 bridge-card" data-dashboard-id="panel:binanceKoreaBody" data-dashboard-title="Binance 국내주식 30초 시세">
         <div class="head-row"><div class="title">Binance 국내주식 30초 시세</div><div class="asof">상장 페어 확인</div></div>
         <div class="bridge-note">삼성전자·SK하이닉스·네이버·현대차·한미반도체의 Binance 상장 페어 존재 여부를 확인합니다.</div>
         <div class="bridge-table-wrap"><table class="bridge-table"><thead><tr><th>종목</th><th>페어</th><th>현재가</th><th>등락률</th><th>상태</th></tr></thead><tbody id="binanceKoreaBody"><tr><td colspan="5" class="panel-empty">Binance 페어 확인 중...</td></tr></tbody></table></div>
@@ -517,7 +517,7 @@
 
     <div class="grid" id="technicalReferenceCharts" style="margin-top:14px;">
       <div class="technical-heading">주요 기술 차트</div>
-      <section class="card span-6 technical-card">
+      <section class="card span-6 technical-card" data-dashboard-id="panel:lwchart-US10Y_WEEK" data-dashboard-title="미국 국채 10년 금리 (주)">
         <div class="head-row"><div class="title">미국 국채 10년 금리 (주)</div><div class="asof">주봉</div></div>
         <div class="technical-legend"><span class="legend-chip"><i class="legend-dot" style="background:#d66b72"></i>볼린저 상단</span><span class="legend-chip"><i class="legend-dot" style="background:#0a9d58"></i>MA20</span><span class="legend-chip"><i class="legend-dot" style="background:#111827"></i>MA60</span><span class="legend-chip"><i class="legend-dot" style="background:#ed6f35"></i>MA120</span><span class="legend-chip"><i class="legend-dot" style="background:#6aa7e8"></i>볼린저 하단</span></div>
         <div class="chart lw-chart reference-chart" id="lwchart-US10Y_WEEK"></div>
@@ -987,8 +987,8 @@
   <script src="./three-line-break.js"></script>
   <script src="./stock-chart-picker.js"></script>
   <script src="./stock-chart-list.js"></script>
-  <script src="./tradingview-card.js?v=20261022-size"></script>
-  <script src="./dashboard-selection.js"></script>
+  <script src="./tradingview-card.js?v=20261023-panels"></script>
+  <script src="./dashboard-selection.js?v=20261023-panels"></script>
   <script src="./market-header.js"></script>
   <script src="./access-client.js"></script>
   <script>

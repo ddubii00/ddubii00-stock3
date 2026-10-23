@@ -32,11 +32,20 @@
     for(const card of doc.querySelectorAll('.wrap .card')){
       if(card.parentElement?.closest('.card'))continue;
       const titleNode=card.querySelector('.stock-chart-name')||card.querySelector('.title');
-      if(!titleNode)continue;
-      const anchor=card.querySelector('.chart[id]')||card.querySelector('[id]');
-      const id=card.dataset.stockKey?`stock:${card.dataset.stockKey}`:anchor?`panel:${anchor.id}`:'';
+      const title=String(card.dataset.dashboardTitle||titleNode?.textContent||'').trim().replace(/\s+/g,' ');
+      if(!title)continue;
+      let id=card.dataset.stockKey?`stock:${card.dataset.stockKey}`:card.dataset.dashboardId;
+      if(!validId(id)){
+        // A library can add/remove child IDs. Prefer stable panel metadata, then find a valid anchor.
+        for(const selector of ['.chart[id]','[id]']){
+          const anchor=Array.from(card.querySelectorAll(selector)).find(node=>validId(`panel:${node.id}`));
+          if(anchor){id=`panel:${anchor.id}`;break;}
+        }
+        if(!validId(id)&&validId(`panel:${card.id}`))id=`panel:${card.id}`;
+      }
       if(!validId(id)||seen.has(id))continue;
-      seen.add(id);entries.push({id,title:titleNode.textContent.trim().replace(/\s+/g,' '),node:card});
+      if(!card.dataset.stockKey)card.dataset.dashboardId=id;
+      seen.add(id);entries.push({id,title,node:card});
     }
     return entries;
   }

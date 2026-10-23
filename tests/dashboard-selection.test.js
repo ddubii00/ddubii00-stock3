@@ -106,6 +106,52 @@ async function viewFixture(){
   return {api,doc,body,wrap,group,compact,cards,node:id=>doc.getElementById(id),stored:()=>stored,setFail:()=>{fail=true;}};
 }
 
+function additionalPanels(){
+  return [
+    ['미국 국채 10년 금리 (주)','lwchart-US10Y_WEEK',true],
+    ['Binance 국내주식 30초 시세','binanceKoreaBody',false],
+    ['USTECH100 (나스닥100 CFD)','tvchart-USTECH100',true]
+  ].map(([name,id,chart])=>{
+    const card=new Element('section');card.className='card';
+    card.dataset.dashboardId=`panel:${id}`;card.dataset.dashboardTitle=name;
+    const title=new Element();title.className='title';title.textContent=name;
+    const body=new Element(chart?'div':'tbody');body.id=id;body.className=chart?'chart':'';
+    card.append(title,body);return card;
+  });
+}
+
+test('technical charts, widgets and tables keep selectable identities when library children change',async()=>{
+  const f=await viewFixture(),panels=additionalPanels();f.group.append(...panels);
+  const noisy=new Element('section');noisy.className='card';
+  const title=new Element();title.className='title';title.textContent='추가 차트';
+  const invalid=new Element();invalid.className='chart';invalid.id='7-invalid-library-id';
+  const valid=new Element();valid.className='chart';valid.id='chart-extra-valid';
+  noisy.append(title,invalid,valid);f.group.append(noisy);
+  const before=selection.catalog(f.doc);
+  for(const panel of panels)assert.equal(before.find(entry=>entry.id===panel.dataset.dashboardId)?.title,panel.dataset.dashboardTitle);
+  assert.equal(before.find(entry=>entry.node===noisy)?.id,'panel:chart-extra-valid');
+  for(const panel of panels)panel.replaceChildren();
+  valid.remove();
+  const after=selection.catalog(f.doc);
+  for(const panel of panels)assert.equal(after.find(entry=>entry.id===panel.dataset.dashboardId)?.node,panel);
+  assert.equal(after.find(entry=>entry.node===noisy)?.id,'panel:chart-extra-valid');
+});
+
+test('USTECH100, US10Y and Binance can be chosen, saved and moved into four equal-view slots',async()=>{
+  const f=await viewFixture(),panels=additionalPanels();f.group.append(...panels);
+  const chosen=[...panels.map(panel=>panel.dataset.dashboardId),slots[0]];
+  await f.node('openDashboardSelection').fire('click');
+  for(let index=0;index<4;index++){
+    const select=f.node(`dashboard-selection-${index}`);
+    assert.ok(select.childNodes.some(option=>option.value===chosen[index]&&!option.disabled));
+    select.value=chosen[index];await select.fire('change');
+  }
+  await f.node('saveDashboardSelection').fire('click');assert.deepEqual(f.stored().slots,chosen);
+  f.node('dashboardSelectionDialog').close();await f.node('showSelectedPanels').fire('click');
+  assert.deepEqual(f.compact.childNodes,[...panels,f.cards[0]]);
+  await f.node('showAllPanels').fire('click');assert.deepEqual(f.group.childNodes,[...f.cards,...panels]);
+});
+
 test('four dropdowns save, delete and show the same live cards in a 2x2 view; all restores original node order',async()=>{
   const f=await viewFixture();assert.equal(f.body.dataset.dashboardMode,'all');assert.equal(f.compact.hidden,true);
   await f.node('openDashboardSelection').fire('click');

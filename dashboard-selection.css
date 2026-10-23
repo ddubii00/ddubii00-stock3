@@ -14,7 +14,7 @@
 body[data-dashboard-mode="partial"] .wrap { max-width:none; height:calc(100vh - var(--market-header-height)); height:calc(100dvh - var(--market-header-height)); padding:6px; box-sizing:border-box; overflow:hidden; }
 body[data-dashboard-mode="partial"] .wrap > :not(#compactDashboard) { display:none!important; }
 body[data-dashboard-mode="partial"] #compactDashboard { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-rows:repeat(2,minmax(0,1fr)); height:100%; gap:6px; }
-#compactDashboard > .card { display:flex; flex-direction:column; grid-column:auto!important; min-width:0; min-height:0; margin:0; padding:7px; overflow:auto; box-sizing:border-box; }
+#compactDashboard > .card { display:flex; flex-direction:column; grid-column:auto!important; width:100%; height:100%; max-height:100%; min-width:0; min-height:0; margin:0; padding:7px; overflow:auto; box-sizing:border-box; }
 #compactDashboard > .compact-panel-empty { align-items:center; justify-content:center; color:#5f6b85; font-size:13px; text-align:center; }
 #compactDashboard .title, #compactDashboard .head-row .title, #compactDashboard .stock-chart-name { font-size:15px; margin:0; }
 #compactDashboard .head-row { margin-bottom:3px; gap:4px; flex-shrink:0; }
@@ -26,6 +26,9 @@ body[data-dashboard-mode="partial"] #compactDashboard { display:grid; grid-templ
 #compactDashboard .btn { padding:3px 5px; font-size:10px; }
 #compactDashboard .timeframe-row, #compactDashboard .stock-chart-timeframes { flex-wrap:nowrap; overflow-x:auto; margin-bottom:2px; gap:3px; flex-shrink:0; }
 #compactDashboard .chart, #compactDashboard .summary-index-chart, #compactDashboard .reference-chart { flex:1 0 100px; height:100px!important; min-height:100px; margin:0; }
+#compactDashboard > .tradingview-card { padding:0; overflow:hidden; }
+#compactDashboard > .tradingview-card > .head-row, #compactDashboard > .tradingview-card > .chart-note { display:none; }
+#compactDashboard > .tradingview-card > .chart { flex:1 1 0; height:100%!important; min-height:0; border:0; border-radius:0; }
 #compactDashboard .legend-row, #compactDashboard .technical-legend { margin:2px 0!important; gap:7px!important; font-size:10px!important; flex-wrap:nowrap; overflow-x:auto; flex-shrink:0; }
 #compactDashboard .legend-row > *, #compactDashboard .technical-legend > * { white-space:nowrap; }
 #compactDashboard .chart-note { font-size:10px; line-height:1.15; max-height:2.5em; overflow:auto; margin:2px 0; flex-shrink:0; }
