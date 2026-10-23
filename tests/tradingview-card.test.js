@@ -23,9 +23,8 @@ function fixture(){
   return{root,stocks,peer,doc};
 }
 function parts(card){
-  const [heading,frame,status]=card.children;
-  const body=frame.children[0];
-  return{frame,body,status,retry:heading.children[1],script:body.children.find(node=>node.tagName==='script')};
+  const frame=card.children[0], [body,status]=frame.children;
+  return{frame,body,status,script:body.children.find(node=>node.tagName==='script')};
 }
 
 test('the official USTECH100 embed follows all registered stock cards and mounts only once',()=>{
@@ -35,6 +34,8 @@ test('the official USTECH100 embed follows all registered stock cards and mounts
   assert.equal(frame.id,'tvchart-USTECH100');
   assert.match(card.className,/span-6/);assert.match(frame.className,/chart reference-chart/);
   assert.equal(body.className,'tradingview-widget-container');assert.equal(body.parentNode,frame);
+  assert.equal(card.children.length,1);assert.equal(parts(card).status.hidden,true);
+  assert.equal(card.attributes['data-dashboard-title'],'USTECH100 (나스닥100 CFD)');
   assert.equal(script.src,'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js');
   assert.equal(script.async,true);
   const config=JSON.parse(script.textContent);
@@ -49,17 +50,12 @@ test('the official USTECH100 embed follows all registered stock cards and mounts
   assert.equal(parts(card).script,script); // Polls/remount attempts must not reset the widget's viewport.
 });
 
-test('a failed external script can be retried without touching other charts or keeping stale frames',()=>{
+test('connection failures show an in-frame notice without a heading, retry button or reserved footer space',()=>{
   const f=fixture();const card=mountAfterStocks(f.doc);
   const first=parts(card);first.script.onerror();
-  assert.match(first.status.textContent,/연결 실패/);
-  const iframe=new Element('iframe');first.body.children[0].append(iframe);
-  first.retry.listeners.click();
-  const next=parts(card);
-  assert.equal(next.frame,first.frame);assert.equal(next.body.parentNode,first.frame);
-  assert.equal(iframe.isConnected,false);assert.equal(first.script.isConnected,false);
-  assert.notEqual(next.script,first.script);assert.equal(next.body.children.length,3);
-  first.script.onerror();assert.equal(next.status.textContent,'TradingView · WH SelfInvest');
+  assert.equal(first.status.hidden,false);assert.match(first.status.textContent,/화면을 새로고침/);
+  assert.equal(first.status.parentNode,first.frame);assert.equal(card.children.length,1);
+  assert.equal(mountAfterStocks(f.doc),card);assert.equal(parts(card).script,first.script);
   assert.deepEqual(f.root.children,[f.stocks,card,f.peer]);
 });
 

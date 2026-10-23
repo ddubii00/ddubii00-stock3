@@ -59,6 +59,7 @@
     .btn.outline { background: #e9f1ff; color: #134db5; }
     .summary-heading-line { display:flex; align-items:center; gap:8px; width:100%; min-width:0; margin-bottom:4px; }
     .summary-heading-line .title { flex:0 0 auto; margin:0; font-size:24px; }
+    .summary-heading-line .index-minute-status { flex:0 0 auto; font-size:10px; white-space:nowrap; }
     .summary-time-controls { display:flex; flex:1 1 auto; min-width:0; align-items:center; gap:6px; overflow-x:auto; padding-bottom:2px; }
     .timeframe-row, .summary-range-row { display:flex; flex:0 0 auto; flex-wrap:nowrap; gap:3px; align-items:center; white-space:nowrap; }
     .timeframe-row select { width:45px; margin:0; padding:2px; font-size:11px; }
@@ -99,13 +100,14 @@
     .plain-chart { background:#fff; }
     .technical-heading { grid-column:1/-1; margin:8px 2px -2px; font-size:22px; font-weight:950; letter-spacing:-.02em; }
     .technical-card .title { font-size:26px; margin:0; }
-    .tradingview-card { display:flex; flex-direction:column; min-width:0; }
-    .tradingview-card .chart { flex:0 0 auto; height:378px; background:#fff; }
-    .tradingview-card .tradingview-widget-container { display:grid; grid-template-rows:minmax(0,1fr) 22px; height:100%; width:100%; }
+    .tradingview-card { display:flex; flex-direction:column; align-self:start; min-width:0; padding:0; overflow:hidden; }
+    .tradingview-card .chart { flex:0 0 auto; height:378px; border:0; border-radius:0; background:#fff; }
+    .tradingview-card .tradingview-widget-container { display:grid; grid-template-rows:minmax(0,1fr) 16px; height:100%; width:100%; }
     .tradingview-card .tradingview-widget-container__widget { min-height:0; height:100%; width:100%; }
-    .tradingview-card iframe { width:100%; height:100%; border:0; }
-    .tradingview-card .tradingview-widget-copyright { flex-shrink:0; text-align:center; font-size:11px; line-height:22px; }
+    .tradingview-card iframe { display:block; width:100%; height:100%!important; min-height:0; border:0; }
+    .tradingview-card .tradingview-widget-copyright { flex-shrink:0; text-align:center; font-size:10px; line-height:16px; }
     .tradingview-card .tradingview-widget-copyright a { color:#2962ff; }
+    .tradingview-card .tradingview-error { position:absolute; inset:0; z-index:4; display:grid; place-items:center; padding:12px; text-align:center; background:rgba(255,255,255,.96); color:#5f6b85; font-size:12px; }
     .technical-legend { display:flex; align-items:center; gap:11px; flex-wrap:wrap; margin:2px 0 7px; color:var(--muted); font-size:11px; font-weight:850; }
     .legend-chip { display:inline-flex; align-items:center; gap:4px; cursor:pointer; user-select:none; transition:opacity .15s ease; }
     .legend-chip.off { opacity:.32; }
@@ -987,7 +989,7 @@
   <script src="./three-line-break.js"></script>
   <script src="./stock-chart-picker.js"></script>
   <script src="./stock-chart-list.js"></script>
-  <script src="./tradingview-card.js?v=20261023-panels"></script>
+  <script src="./tradingview-card.js?v=20261023-chart-only"></script>
   <script src="./dashboard-selection.js?v=20261023-panels"></script>
   <script src="./market-header.js"></script>
   <script src="./access-client.js"></script>
@@ -1223,6 +1225,21 @@
       chartTarget.dataset.chartType = isLineBreak ? 'line-break' : 'candlestick';
       chartTarget.dataset.sourceInterval = sourceInterval;
       chartTarget.setAttribute('aria-label', isLineBreak ? '삼선전환 차트' : '캔들 차트');
+      const updateMinuteStatus=(rows)=>{
+        const heading=chartTarget.closest?.('.card')?.querySelector('.summary-heading-line');
+        if(!heading||!['KOSPI','KOSDAQ'].includes(apiKey))return;
+        let label=heading.querySelector('.index-minute-status');
+        if(!isMinuteSource){if(label)label.hidden=true;return;}
+        if(!label){label=document.createElement('span');label.className='asof index-minute-status';heading.appendChild(label);}
+        label.hidden=false;
+        const last=(Array.isArray(rows)?rows:[]).filter(row=>Number.isFinite(row.date)).sort((a,b)=>a.date-b.date).at(-1);
+        const stamp=Number(last?.sourceTime??last?.date);
+        if(!Number.isFinite(stamp)){label.textContent='분봉 갱신 확인 중';return;}
+        const source=last.source==='KIS'?'KIS 분봉':'공개 분봉';
+        label.textContent=`${source} · ${new Date(stamp*1000).toISOString().slice(5,16).replace('T',' ')}${last.source==='KIS'?'':' · 지연 가능'}`;
+        label.title='분봉 원천의 마지막 시각(한국시간) · 20초마다 조회 · 헤더 현재가와 원천이 다를 수 있습니다.';
+      };
+      if(!isMinuteSource)updateMinuteStatus();
       inst.chart.applyOptions({timeScale:{timeVisible:isMinuteSource}});
       const clearLineBreakBackground = () => {
         if (!isLineBreak) return;
@@ -1274,6 +1291,7 @@
             ? a.time - b.time
             : String(a.time).localeCompare(String(b.time)));
         if (!indicatorData.length) throw new Error('no valid chart data');
+        updateMinuteStatus(series);
         const chartData = isLineBreak ? window.ThreeLineBreak.build(indicatorData) : indicatorData;
         if (!chartData.length && showEmptyLineBreak(json.series)) return;
         chartTarget.dataset.chartBars = String(chartData.length);
@@ -1594,6 +1612,7 @@
               ? [...new Map(fallbackRows.map((row) => [row.time, row])).values()].sort((a, b) => a.time - b.time)
               : fallbackRows;
             if (!fallbackInput.length) throw new Error('no fallback');
+            updateMinuteStatus(fallback.series);
             const daily = isLineBreak ? window.ThreeLineBreak.build(fallbackInput) : fallbackInput;
             if (!daily.length && showEmptyLineBreak(fallback.series)) return;
             chartTarget.dataset.chartBars = String(daily.length);
@@ -1629,6 +1648,7 @@
             }
           } catch (_) {
             if (!currentLoad()) return;
+            updateMinuteStatus();
             if (sourceInterval === '1d') refreshIndexRegime(inst, []);
             let warning = target.querySelector('.chart-load-warning');
             if (!warning) { warning = document.createElement('div'); warning.className = 'chart-load-warning'; target.appendChild(warning); }

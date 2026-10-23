@@ -52,10 +52,12 @@ function dailyPrices(flat=false) {
   }
   return result;
 }
-function loaderHarness({key='KOSPI', mode='3lb', lineBreakInterval, now='2026-10-20T06:31:00Z', input=dailyPrices(), failFirst=false, macdBackground=false}={}) {
+function loaderHarness({key='KOSPI', mode='3lb', lineBreakInterval, now='2026-10-20T06:31:00Z', input=dailyPrices(), failFirst=false, macdBackground=false,minuteStatus=false}={}) {
   const elements=new Map(),fills=[];
   const ctx={clearRect(){},fillRect(){fills.push(this.fillStyle);},beginPath(){},setLineDash(){},moveTo(){},lineTo(){},stroke(){}};
   const target={clientWidth:600,clientHeight:270,dataset:{},style:{},setAttribute(k,v){this[k]=v;},querySelector(s){return elements.get(s)||null;},appendChild(el){elements.set('.'+el.className,el);}};
+  let statusLabel=null;
+  if(minuteStatus)target.closest=()=>({querySelector:()=>({querySelector:()=>statusLabel,appendChild:node=>{statusLabel=node;}})});
   const series=()=>({data:[],setData(data){this.data=data;},setMarkers(data){this.markers=data;}});
   const scale={setVisibleRange(){},fitContent(){},getVisibleLogicalRange:()=>({from:0,to:input.length-1}),logicalToCoordinate:i=>i*2,unsubscribeVisibleLogicalRangeChange(){},unsubscribeSizeChange(){},subscribeVisibleLogicalRangeChange(){},subscribeSizeChange(){}};
   const applied=[];
@@ -77,8 +79,21 @@ function loaderHarness({key='KOSPI', mode='3lb', lineBreakInterval, now='2026-10
     extract('    function calculateEMA(', '    function buildMinuteWindow('),
     extract('    async function loadLwChart(', '    function initLwChart(')
   ].join('\n'),context);
-  return {inst,target,calls,refreshes,fills,applied,run:()=>context.loadLwChart(key)};
+  return {inst,target,calls,refreshes,fills,applied,status:()=>statusLabel,run:()=>context.loadLwChart(key)};
 }
+
+test('index minute status distinguishes KIS from public fallback, shows the source time and hides on daily view',async()=>{
+  const start=Date.parse('2026-10-20T09:00:00Z')/1000;
+  for(const source of ['KIS','public']){
+    const input=Array.from({length:20},(_,i)=>({date:start+i*60,close:3000+i,source}));
+    const h=loaderHarness({mode:'1m',input,minuteStatus:true});await h.run();
+    assert.match(h.status().textContent,/10-20 09:19/);
+    assert.equal(h.status().textContent.includes('KIS 분봉'),source==='KIS');
+    assert.equal(h.status().textContent.includes('지연 가능'),source!=='KIS');
+    assert.equal(h.status().hidden,false);
+    h.inst.interval='1d';await h.run();assert.equal(h.status().hidden,true);
+  }
+});
 
 test('index three-line mode retains the selected minute interval and falls back to daily for non-minute views',()=>{
   const context=vm.createContext({});

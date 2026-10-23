@@ -1,5 +1,6 @@
 'use strict';
 const { parseStockKey } = require('./stock-search');
+const indexMinutes = require('./kis-index-minutes');
 const QUOTE_TTL = 15_000, CHART_TTL = 15_000, HISTORY_TTL = 5 * 60_000;
 const ALIASES = {'^KS11':'KOSPI','^KQ11':'KOSDAQ','^IXIC':'NASDAQ','^GSPC':'SP500','KRW=X':'USDKRW','JPY=X':'USDJPY',SAMSUNG:'KR:005930:KOSPI',SKHYNIX:'KR:000660:KOSPI'};
 function credentials(env = process.env) {
@@ -24,13 +25,14 @@ function createClient({env = process.env, fetchImpl = (...args)=>fetch(...args),
   let token = null, tokenPending = null, tokenBlockedUntil = 0, queue = Promise.resolve();
   const cache = new Map(), pending = new Map(), history = new Map();
   const enabled = () => Boolean(credentials(env).appKey && credentials(env).appSecret);
-  async function jsonRequest(url, options) {
+  async function jsonRequest(url, options, includeContinuation=false) {
     const controller = new AbortController();
     const timer = setTimeout(()=>controller.abort(),8000);
     try {
       const response = await fetchImpl(url,{...options,signal:controller.signal});
       if (!response.ok) throw new Error('KIS 원천 응답 오류');
-      return await response.json();
+      const body=await response.json();
+      return includeContinuation?{body,continuation:response.headers?.get?.('tr_cont')||''}:body;
     } finally { clearTimeout(timer); }
   }
   async function getAccessToken() {
@@ -56,21 +58,23 @@ function createClient({env = process.env, fetchImpl = (...args)=>fetch(...args),
     catch(error) { tokenBlockedUntil=now()+60_000; throw error; }
     finally { tokenPending=null; }
   }
-  async function get(path, trId, params) {
+  async function get(path, trId, params, continuation=null) {
     const value=await getAccessToken();
     if (!value) throw new Error('KIS 환경변수 미설정');
     const task=queue.then(async()=>{
       const {appKey,appSecret}=credentials(env);
       const url=new URL(path,env.KIS_BASE_URL || 'https://openapi.koreainvestment.com:9443');
       for(const [k,v] of Object.entries(params)) url.searchParams.set(k,v);
-      const json=await jsonRequest(url,{headers:{authorization:`Bearer ${value}`,appkey:appKey,appsecret:appSecret,tr_id:trId,custtype:'P'}});
+      const result=await jsonRequest(url,{headers:{authorization:`Bearer ${value}`,appkey:appKey,appsecret:appSecret,tr_id:trId,custtype:'P',...(continuation===null?{}:{tr_cont:continuation})}},continuation!==null);
+      const json=continuation===null?result:result.body;
       if (json.rt_cd!=='0') throw new Error('KIS 시세 조회 실패');
-      return json;
+      return result;
     });
     // Serialize this reader's requests, including chart pagination. Never log response bodies or headers.
     queue=task.then(()=>{},()=>{});
     return task;
   }
+  const readIndexMinutes=indexMinutes.createReader({get,now});
   async function memo(key, ttl, load) {
     const entry=cache.get(key);
     if (entry && entry.expiresAt>now()) return entry.value;
@@ -113,6 +117,12 @@ function createClient({env = process.env, fetchImpl = (...args)=>fetch(...args),
   }
   async function series(input, interval='1d') {
     const c=config(input,env);
+    const minutes=/^(\d{1,3})m$/.exec(interval);
+    if(enabled()&&c?.kind==='index'&&minutes&&Number(minutes[1])>0&&Number(minutes[1])<=120){
+      // All minute intervals share one latest 1-minute read and the existing in-memory token.
+      const rows=await memo(`index-minute:${c.key}`,CHART_TTL,()=>readIndexMinutes(c));
+      return rows?.length?indexMinutes.aggregateRows(rows,Number(minutes[1])):null;
+    }
     // US equities use public OHLC history; never send them to the overseas INDEX history API.
     if(!enabled() || !c || c.kind==='us-stock' || !['1d','1wk','1mo'].includes(interval)) return null;
     return memo(`chart:${c.key}:${interval}`,CHART_TTL,async()=>{

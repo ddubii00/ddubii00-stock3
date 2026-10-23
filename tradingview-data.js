@@ -133,8 +133,12 @@ async function fetchYahooSeries(symbol, interval = '1d', extended = false) {
 let indexSession;
 const sessionReader = () => indexSession ||= require('./korea-index-session').createReader();
 const fetchNaverIndexClosingMinutes = (...args) => sessionReader().tail(...args);
-const supplementKoreanIndexMinutes = (key, rows, interval) =>
-  ['KOSPI', 'KOSDAQ'].includes(key) && /^\d+m$/.test(interval) ? sessionReader().supplement(key, rows, interval) : rows;
+const supplementKoreanIndexMinutes = (key, rows, interval) => {
+  if(!['KOSPI','KOSDAQ'].includes(key)||!/^\d+m$/.test(interval))return rows;
+  // Public snapshots must never replace authenticated KIS minute OHLC or its current close.
+  if(rows?.length&&rows.every(row=>row.source==='KIS'))return rows;
+  return sessionReader().supplement(key,rows,interval);
+};
 
 async function fetchUnifiedSeries(key, interval = '1d') {
   const primary = await require('./kis-market-data').series(key,interval).catch(()=>null);
