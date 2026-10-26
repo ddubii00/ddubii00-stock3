@@ -1993,13 +1993,13 @@
           const res = await fetch(cacheBustedUrl, options);
           const json = await res.json();
           if (res.ok && json?.ok) return json;
-          lastError = new Error(json?.error || `HTTP ${res.status}`);
+          lastError = new Error(json?.error || json?.note || `HTTP ${res.status}`);
         } catch (e) {
           lastError = e;
         }
         await new Promise(resolve => setTimeout(resolve, 350 * (attempt + 1)));
       }
-      throw lastError || new Error('no data');
+      throw lastError || new Error('차트 자료를 확인하지 못했습니다.');
     }
 
     function escapeDashboard(value) {
@@ -2915,7 +2915,7 @@
           setForeignFlowChartMode(noteId, mode);
         }
         let series = json?.series || [];
-        if (!json?.ok || !Array.isArray(series) || !series.length) throw new Error(json?.error || 'no data');
+        if (!json?.ok || !Array.isArray(series) || !series.length) throw new Error(json?.error || json?.note || `${json?.latestOpenDate ? `${json.latestOpenDate} · ` : ''}차트 자료를 확인하지 못했습니다. 서버의 원천·수집 상태를 확인해주세요.`);
         series = series.slice().sort((a,b) => String(a.date).localeCompare(String(b.date)));
         const minuteOfDay = (row) => {
           const time = String(row?.date || '').split(' ')[1] || '';
@@ -3239,9 +3239,11 @@
         }
       } catch (e) {
         if (!currentRequest()) return;
-        const message = e?.message || '원천 데이터 미제공/확인 필요';
+        const detail=String(e?.message||'');
+        const message = !detail || /^no data$/i.test(detail) ? '차트 자료를 확인하지 못했습니다. 서버의 원천·수집 상태를 확인해주세요.' : detail;
+        const safeMessage=message.replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
         if (noteEl) noteEl.textContent = message;
-        el.innerHTML = `<div style="height:100%;display:flex;align-items:center;justify-content:center;text-align:center;padding:16px;color:#5f6b85;font-size:13px;line-height:1.5;">${message}</div>`;
+        el.innerHTML = `<div style="height:100%;display:flex;align-items:center;justify-content:center;text-align:center;padding:16px;color:#5f6b85;font-size:13px;line-height:1.5;">${safeMessage}</div>`;
       }
     }
 

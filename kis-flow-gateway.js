@@ -450,7 +450,7 @@ function investorFreshness(kind, date, rows) {
   const status = state.investorRefresh[kind];
   const current = status?.date === date ? status : {};
   return { lastDataAt, stale:live && (!Number.isFinite(elapsed) || elapsed > 120_000),
-    lastAttemptAt:current.lastAttemptAt || '', lastSuccessAt:current.lastSuccessAt || '', refreshError:current.code || '' };
+    lastAttemptAt:current.lastAttemptAt || '', lastSuccessAt:current.lastSuccessAt || '', refreshError:current.code || (hasKisCredentials()?'':'NOT_CONFIGURED') };
 }
 
 async function fetchSpotDailyFinal(kind, date) {
@@ -638,14 +638,17 @@ async function buildInvestorChart(kind) {
   }
   const label = kind === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
   const freshness = investorFreshness(kind, latestDate, rows);
+  const configured=hasKisCredentials();
   return {
     ok: true,
     unit: '조원',
-    source: 'KIS FHPTJ04030000',
+    source: configured?'KIS FHPTJ04030000':rows.length?'KIS 저장 수급':'unavailable',
+    kisConfigured:configured,
     latestOpenDate: latestDate,
     displayDate: latestDate,
     ...freshness,
-    note: `${label} KIS 실제 순매수 · 최근 개장일 ${latestDate} · 20초 조회/1분 저장 · 마지막 수집 ${freshness.lastDataAt || '없음'}${freshness.stale ? ' · 갱신 지연' : ''}${freshness.refreshError ? ` · KIS 조회 오류 ${freshness.refreshError}` : ''}${rows.at(-1)?.confirmedAt ? ' · 15:30 동시호가 반영' : ''}`,
+    note: configured?`${label} KIS 실제 순매수 · 최근 개장일 ${latestDate} · 20초 조회/1분 저장 · 마지막 수집 ${freshness.lastDataAt || '없음'}${freshness.stale ? ' · 갱신 지연' : ''}${freshness.refreshError ? ` · KIS 조회 오류 ${freshness.refreshError}` : ''}${rows.at(-1)?.confirmedAt ? ' · 15:30 동시호가 반영' : ''}`:
+      `${label} 수급 갱신 중지 · stock3 실행 서비스의 KIS API 키 환경변수가 설정되지 않았습니다(NOT_CONFIGURED). · 기준 개장일 ${latestDate}${rows.length?' · 저장된 수급만 표시합니다.':''}`,
     series: rows,
   };
 }
@@ -664,14 +667,17 @@ async function buildFuturesChart() {
     rows = getRows('FUTURES', latestDate);
   }
   const freshness=investorFreshness('FUTURES',latestDate,rows);
+  const configured=hasKisCredentials();
   return {
     ok: true,
     unit: '계약',
-    source: 'KIS FHPTJ04030000 K2I/F001',
+    source: configured?'KIS FHPTJ04030000 K2I/F001':rows.length?'KIS 저장 수급':'unavailable',
+    kisConfigured:configured,
     latestOpenDate: latestDate,
     displayDate: latestDate,
     ...freshness,
-    note: `KOSPI200 선물 외국인 순매수 · 최근 개장일 ${latestDate} · 20초 조회/1분 저장 · 마지막 수집 ${freshness.lastDataAt||'없음'} · 08:45~15:45${rows.at(-1)?.final?' · 15:45 장마감 반영':''}${freshness.stale?' · 갱신 지연':''}${freshness.refreshError?` · KIS 조회 오류 ${freshness.refreshError}`:''}${rows.length===1?' · 실제 관측 1점(과거 분봉 미수집)':''}`,
+    note: configured?`KOSPI200 선물 외국인 순매수 · 최근 개장일 ${latestDate} · 20초 조회/1분 저장 · 마지막 수집 ${freshness.lastDataAt||'없음'} · 08:45~15:45${rows.at(-1)?.final?' · 15:45 장마감 반영':''}${freshness.stale?' · 갱신 지연':''}${freshness.refreshError?` · KIS 조회 오류 ${freshness.refreshError}`:''}${rows.length===1?' · 실제 관측 1점(과거 분봉 미수집)':''}`:
+      `선물 수급 갱신 중지 · stock3 실행 서비스의 KIS API 키 환경변수가 설정되지 않았습니다(NOT_CONFIGURED). · 기준 개장일 ${latestDate}${rows.length?' · 저장된 수급만 표시합니다.':''}`,
     series: rows,
   };
 }

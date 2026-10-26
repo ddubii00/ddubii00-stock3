@@ -2,12 +2,12 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const root=path.join(__dirname,'..'),date='2026-10-21';
 const values={foreign:0.1,institution:-0.2,individual:0.1};
-function fixture({snapshot=async()=>values,now='2026-10-21T01:01:00Z'}={}){
+function fixture({snapshot=async()=>values,now='2026-10-21T01:01:00Z',configured=true}={}){
   let clock=Date.parse(now),writes=0;
   const calls=[];
   class FixedDate extends Date{constructor(...args){super(...(args.length?args:[clock]));}static now(){return clock;}}
   const context=vm.createContext({module:{exports:{}},__dirname:root,Date:FixedDate,URL,Buffer,setTimeout,clearTimeout,setInterval,console,
-    process:{env:{KIS_APP_KEY:'TEST_ONLY_KEY',KIS_APP_SECRET:'TEST_ONLY_SECRET'},on(){}},
+    process:{env:configured?{KIS_APP_KEY:'TEST_ONLY_KEY',KIS_APP_SECRET:'TEST_ONLY_SECRET'}:{},on(){}},
     require:id=>id==='path'?path:id==='./flow-stats'?require('../flow-stats'):id==='./access-control'?require('../access-control'):id==='fs'?{readFileSync(){throw new Error('Protected store reads forbidden');}}:{},
     fixtureSnapshot:async kind=>{calls.push(kind);return snapshot(kind);}
   });
@@ -74,6 +74,17 @@ test('missing snapshot quantities or money are never recorded as zero',()=>{
   const {parseInvestorSnapshot}=require('../kis-flow-gateway');
   assert.throws(()=>parseInvestorSnapshot({output:[{frgn_ntby_tr_pbmn:null,orgn_ntby_tr_pbmn:'',prsn_ntby_tr_pbmn:undefined}]},'KOSPI'));
   assert.deepEqual(parseInvestorSnapshot({output:[{frgn_ntby_tr_pbmn:'0',orgn_ntby_tr_pbmn:'0',prsn_ntby_tr_pbmn:'0'}]},'KOSPI'),{foreign:0,institution:0,individual:0});
+});
+
+test('missing gateway credentials explicitly report NOT_CONFIGURED without claiming an active KIS source',async()=>{
+  const f=fixture({configured:false});f.api.seed('KOSPI',[]);f.api.seed('KOSDAQ',[]);
+  const payloads=await Promise.all([f.api.build('KOSPI'),f.api.build('KOSDAQ'),f.api.futures()]);
+  for(const payload of payloads){
+    assert.equal(payload.kisConfigured,false);assert.equal(payload.refreshError,'NOT_CONFIGURED');
+    assert.equal(payload.source,'unavailable');assert.equal(payload.series.length,0);
+    assert.match(payload.note,/stock3 실행 서비스.*KIS API 키 환경변수/);assert.match(payload.note,/2026-10-21/);
+  }
+  assert.equal(f.calls.length,0);
 });
 
 test('futures visitors refresh independently of a busy collector from 08:45 through 15:45',async()=>{
@@ -149,4 +160,30 @@ test('an older browser response cannot overwrite a newer investor minute chart',
   pending[1]({ok:true,unit:'조원',note:'새 자료',series:[{date:`${date} 10:03`,foreign:0.2}]});await latest;
   pending[0]({ok:true,unit:'조원',note:'이전 자료',series:[{date:`${date} 09:59`,foreign:0.1}]});await old;
   assert.match(nodes.chart.innerHTML,/10:03/);assert.doesNotMatch(nodes.chart.innerHTML,/09:59/);assert.equal(nodes.note.textContent,'새 자료');
+});
+
+test('an empty chart preserves the server diagnostic and trading date instead of hiding them as no data',async()=>{
+  const html=fs.readFileSync(path.join(root,'index.html'),'utf8');
+  for(const kind of ['kospi-investor-minute','kosdaq-investor-minute','foreign-futures-minute']){
+    const detail='2026-10-26 · stock3 KIS API 키 환경변수 미설정(NOT_CONFIGURED)';
+    const nodes={chart:{innerHTML:''},note:{textContent:'',dataset:{}}};
+    const context=vm.createContext({document:{getElementById:id=>nodes[id]},URLSearchParams,setForeignFlowChartMode(){},
+      fetchJsonWithRetry:async()=>({ok:true,latestOpenDate:'2026-10-26',note:detail,series:[]})});
+    vm.runInContext(html.slice(html.indexOf('    async function renderExtraChart('),html.indexOf('    function bindInvestorDaysInput(')),context);
+    await context.renderExtraChart('chart','note',kind,[]);
+    assert.equal(nodes.note.textContent,detail);assert.match(nodes.chart.innerHTML,/NOT_CONFIGURED/);assert.doesNotMatch(nodes.chart.innerHTML,/no data/);
+  }
+});
+
+test('chart diagnostics escape remote text and translate a generic no data response',async()=>{
+  const html=fs.readFileSync(path.join(root,'index.html'),'utf8');
+  for(const message of ['no data','<img src=x onerror=alert(1)>']){
+    const nodes={chart:{innerHTML:''},note:{textContent:''}};
+    const context=vm.createContext({document:{getElementById:id=>nodes[id]},URLSearchParams,fetchJsonWithRetry:async()=>{throw new Error(message);}});
+    vm.runInContext(html.slice(html.indexOf('    async function renderExtraChart('),html.indexOf('    function bindInvestorDaysInput(')),context);
+    await context.renderExtraChart('chart','note','kospi-investor-minute',[]);
+    assert.doesNotMatch(nodes.chart.innerHTML,/<img|no data/);
+    if(message==='no data')assert.match(nodes.note.textContent,/원천·수집 상태/);
+    else {assert.match(nodes.chart.innerHTML,/&lt;img/);assert.equal(nodes.note.textContent,message);}
+  }
 });
