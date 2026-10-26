@@ -54,7 +54,7 @@ const marketFundsInFlight = new Map();
 const investorIntradaySnapshots = new Map();
 const INVESTOR_INTRADAY_STORE_PATH = process.env.INVESTOR_INTRADAY_STORE_PATH || path.join(ROOT, '.runtime', 'investor-intraday.json');
 const investorIntradayStore = { loaded: false, days: {} };
-let kisHolidayCache = { koreaDate: '', latestOpenDate: '', expiresAt: 0 };
+let kisSessionDateReader;
 let investorCaptureRunning = false;
 const summaryItems = [
   { name: '코스피', symbol: '^KS11', popup: true, popupKey: 'KOSPI' },
@@ -316,45 +316,22 @@ function shiftKoreaDate(dateText, days) {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-async function fetchLatestKisOpenDate() {
-  const clock = getKoreaClock();
-  if (kisHolidayCache.koreaDate === clock.date && kisHolidayCache.latestOpenDate && kisHolidayCache.expiresAt > Date.now()) {
-    return kisHolidayCache.latestOpenDate;
-  }
-  if (!hasKisInvestorConfig()) return '';
-  const token = await fetchKisAccessToken();
-  const start = shiftKoreaDate(clock.date, -14).replace(/-/g, '');
-  const url = new URL('/uapi/domestic-stock/v1/quotations/chk-holiday', kisBaseUrl());
-  url.searchParams.set('BASS_DT', start);
-  url.searchParams.set('CTX_AREA_FK', '');
-  url.searchParams.set('CTX_AREA_NK', '');
-  const response = await fetchWithTimeout(url, {
-    headers: kisHeaders(token, 'CTCA0903R')
-  }, 10000);
-  const json = await response.json().catch(() => ({}));
-  if (!response.ok || json.rt_cd !== '0') throw new Error(`KIS holiday ${json.msg_cd || response.status}`);
-  const today = clock.date.replace(/-/g, '');
-  const rows = (Array.isArray(json.output) ? json.output : json.output ? [json.output] : [])
-    .filter((row) => String(row?.opnd_yn || '').toUpperCase() === 'Y')
-    .map((row) => String(row?.bass_dt || '').replace(/\D/g, ''))
-    .filter((date) => /^\d{8}$/.test(date) && date <= today)
-    .sort();
-  const latestOpenDate = ymdToDashed(rows.at(-1));
-  if (!latestOpenDate) throw new Error('KIS holiday open date unavailable');
-  kisHolidayCache = { koreaDate: clock.date, latestOpenDate, expiresAt: Date.now() + 20 * 60 * 60 * 1000 };
-  return latestOpenDate;
-}
-
 async function getLatestMarketOpenDate() {
-  const [kisDate, daumRows] = await Promise.all([
-    fetchLatestKisOpenDate().catch(() => ''),
-    fetchDaumInvestorDays('KOSPI', 1).catch(() => [])
-  ]);
-  // KIS holiday-calendar publication can lag on a fresh trading day. Daum's
-  // market row confirms that the session is publishing, so never let an older
-  // calendar date make today's intraday capture write into yesterday's bucket.
-  const latestPublished = daumRows.at(-1)?.date || '';
-  return [kisDate, latestPublished].filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)).sort().at(-1) || getKoreaClock().date;
+  if(!kisSessionDateReader)kisSessionDateReader=require('./kis-session-date').createSessionDateReader({
+    clock:getKoreaClock,
+    request:async(apiPath,trId,params)=>{
+      const token=await fetchKisAccessToken();
+      if(!token)throw new Error('KIS 환경변수 미설정');
+      const url=new URL(apiPath,kisBaseUrl());
+      for(const [key,value] of Object.entries(params))url.searchParams.set(key,value);
+      const response=await fetchWithTimeout(url,{headers:kisHeaders(token,trId)},10_000);
+      const json=await response.json();
+      if(!response.ok||String(json.rt_cd)!=='0')throw new Error('KIS 개장일 조회 실패');
+      return json;
+    },
+    publishedDate:async()=>{const rows=await fetchDaumInvestorDays('KOSPI',1);return rows.at(-1)?.date||'';}
+  });
+  return kisSessionDateReader.latest();
 }
 
 function kisPbmnToTrillion(value) {
@@ -428,6 +405,7 @@ function investorRowsFor(kind, date) {
 function recordInvestorSnapshot(kind, date, values) {
   loadInvestorIntradayStore();
   const clock = getKoreaClock();
+  if(clock.date!==date)return;
   const minutes = String(clock.minutes % 60).padStart(2, '0');
   const hours = String(Math.floor(clock.minutes / 60)).padStart(2, '0');
   const row = { date: `${date} ${hours}:${minutes}`, ...values, observed: true };
@@ -436,26 +414,27 @@ function recordInvestorSnapshot(kind, date, values) {
   const index = rows.findIndex((item) => item.date === row.date);
   if (index >= 0) rows[index] = row;
   else rows.push(row);
-  day[kind] = rows.filter((item) => item.date >= `${date} 09:00` && item.date <= `${date} 15:30`).slice(-450);
+  const start=kind==='FUTURES'?'08:45':'09:00',end=kind==='FUTURES'?'15:45':'15:30';
+  day[kind] = rows.filter((item) => item.date >= `${date} ${start}` && item.date <= `${date} ${end}`).slice(-450);
   persistInvestorIntradayStore();
 }
 
 async function captureKisInvestorSnapshots() {
   const clock = getKoreaClock();
-  if (investorCaptureRunning || clock.minutes < 9 * 60 || clock.minutes > 15 * 60 + 30 || !hasKisInvestorConfig()) return;
+  if (investorCaptureRunning || clock.minutes < 8 * 60 + 45 || clock.minutes > 15 * 60 + 45 || !hasKisInvestorConfig()) return;
   const latestOpenDate = await getLatestMarketOpenDate().catch(() => '');
   if (!latestOpenDate || latestOpenDate !== clock.date) return;
   investorCaptureRunning = true;
   try {
-    const results = await Promise.allSettled(Object.keys(KIS_INVESTOR_MARKETS).map(async (kind) => ({ kind, values: await fetchKisInvestorSnapshot(kind) })));
+    const results = await Promise.allSettled(Object.keys(KIS_INVESTOR_MARKETS).filter(kind=>kind==='FUTURES'||(clock.minutes>=9*60&&clock.minutes<=15*60+30)).map(async (kind) => ({ kind, values: await fetchKisInvestorSnapshot(kind) })));
     for (const result of results) if (result.status === 'fulfilled') recordInvestorSnapshot(result.value.kind, clock.date, result.value.values);
   } finally {
     investorCaptureRunning = false;
   }
 }
 
-function appendFinalInvestorRow(rows, date, values) {
-  const closeDate = `${date} 15:30`;
+function appendFinalInvestorRow(rows, date, values, close='15:30') {
+  const closeDate = `${date} ${close}`;
   const finalRow = { ...values, date: closeDate, final: true };
   const index = rows.findIndex((row) => row.date === closeDate);
   if (index >= 0) rows[index] = finalRow;
@@ -474,7 +453,11 @@ async function fetchKisInvestorTimeRows(market = 'KOSPI') {
     try { recordInvestorSnapshot(safeMarket, latestDate, await fetchKisInvestorSnapshot(safeMarket)); } catch {}
   }
   let series = investorRowsFor(safeMarket, latestDate);
-  if (!isLiveSession && finalDaily?.date === latestDate) series = appendFinalInvestorRow(series, latestDate, finalDaily);
+  if ((latestDate!==clock.date||clock.minutes>=15*60+31) && finalDaily?.date === latestDate) {
+    series = appendFinalInvestorRow(series, latestDate, finalDaily);
+    (investorIntradayStore.days[latestDate] ||= {})[safeMarket]=series;
+    persistInvestorIntradayStore();
+  }
   if (series.length) {
     return {
       unit: '조원',
@@ -579,15 +562,19 @@ async function fetchForeignFuturesSeries(limit = 120) {
 async function fetchForeignFuturesMinuteSeries() {
   const latestDate = await getLatestMarketOpenDate();
   const clock = getKoreaClock();
-  const isLiveSession = latestDate === clock.date && clock.minutes >= 9 * 60 && clock.minutes <= 15 * 60 + 30;
+  const isLiveSession = latestDate === clock.date && clock.minutes >= 8 * 60 + 45 && clock.minutes <= 15 * 60 + 45;
   if (isLiveSession) {
     try { recordInvestorSnapshot('FUTURES', latestDate, await fetchKisInvestorSnapshot('FUTURES')); } catch {}
   }
   let series = investorRowsFor('FUTURES', latestDate);
-  if (!isLiveSession && !series.length) {
+  if (latestDate===clock.date && clock.minutes>=15*60+47 && !series.some(row=>row.date===`${latestDate} 15:45`&&row.final)) {
     try {
       const close = await fetchKisInvestorSnapshot('FUTURES');
-      series = appendFinalInvestorRow(series, latestDate, close);
+      if(getKoreaClock().date!==latestDate)throw new Error('수급 응답 중 거래일이 변경되었습니다.');
+      series = appendFinalInvestorRow(series, latestDate, close, '15:45');
+      loadInvestorIntradayStore();
+      (investorIntradayStore.days[latestDate] ||= {}).FUTURES=series;
+      persistInvestorIntradayStore();
     } catch {}
   }
   if (series.length) {
@@ -595,7 +582,7 @@ async function fetchForeignFuturesMinuteSeries() {
       unit: '계약',
       source: 'kis-persisted',
       latestOpenDate: latestDate,
-      note: `코스피200 선물 최근 개장일(${latestDate}) 외국인 누적 순매수입니다. 09:00~15:30 고정 축에 KIS를 30초마다 수집해 1분 단위로 표시합니다.`,
+      note: `코스피200 선물 최근 개장일(${latestDate}) 외국인 누적 순매수입니다. 08:45~15:45 고정 축에 KIS를 30초마다 수집해 1분 단위로 표시합니다.`,
       series
     };
   }
@@ -2038,10 +2025,12 @@ const server = http.createServer(async (req, res) => {
         date: String(row.date || '').slice(0, 10),
         value: row.dailyForeign == null ? null : Number(row.dailyForeign)
       })).filter((row) => row.date);
-      let contractRequest;
-      const readContract=()=>contractRequest ||= fetchKisInvestorSnapshot('FUTURES').catch(()=>null);
       const clock = getKoreaClock();
-      const isLiveSession = latestOpenDate === clock.date && clock.minutes >= 9 * 60 && clock.minutes <= 15 * 60 + 30;
+      let contractRequest;
+      const readContract=()=>contractRequest ||= (latestOpenDate===clock.date&&clock.minutes>=8*60+45
+        ? fetchKisInvestorSnapshot('FUTURES').then(value=>getKoreaClock().date===clock.date?value:null).catch(()=>null)
+        : Promise.resolve(investorRowsFor('FUTURES',latestOpenDate).at(-1)||null));
+      const isLiveSession = latestOpenDate === clock.date && clock.minutes >= 8 * 60 + 45 && clock.minutes <= 15 * 60 + 45;
       const contracts = futuresPayload?.unit === '계약' && futuresPayload?.source !== 'spot-fallback';
       if (contracts && isLiveSession) {
         const liveFutures = await readContract();

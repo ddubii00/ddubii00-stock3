@@ -55,11 +55,7 @@ const BACKFILL_KINDS = {
 const state = {
   token: '',
   tokenExpiresAt: 0,
-  holidayDate: '',
   latestOpenDate: '',
-  holidayExpiresAt: 0,
-  publishedMarketDate: '',
-  publishedMarketDateExpiresAt: 0,
   pollRunning: false,
   lastPollAt: '',
   lastSuccessAt: '',
@@ -72,6 +68,7 @@ const state = {
   backfillPromise: null,
   closingPromise: null,
   lastClosingPollAt: {},
+  dailyFallbackAt: {},
   investorRefresh: {},
 };
 const investorRequests = new Map();
@@ -347,56 +344,20 @@ async function kisGet(apiPath, trId, params) {
   return json;
 }
 
+let sessionDateReader;
 async function getLatestOpenDate(force = false) {
-  const clock = getKoreaClock();
-  let calendarLatest = (!force && state.holidayDate === clock.date && state.latestOpenDate && state.holidayExpiresAt > Date.now())
-    ? state.latestOpenDate
-    : '';
-  if (!calendarLatest) {
-    try {
-      const baseDate = shiftKoreaDate(clock.date, -14).replace(/-/g, '');
-      const json = await kisGet('/uapi/domestic-stock/v1/quotations/chk-holiday', 'CTCA0903R', {
-        BASS_DT: baseDate,
-        CTX_AREA_FK: '',
-        CTX_AREA_NK: '',
+  if(!sessionDateReader)sessionDateReader=require('./kis-session-date').createSessionDateReader({
+    request:kisGet,clock:getKoreaClock,
+    publishedDate:async()=>{
+      const response=await fetch('https://finance.daum.net/api/market_index/days?page=1&perPage=1&market=KOSPI&pagination=true',{
+        headers:{'User-Agent':'Mozilla/5.0',Referer:'https://finance.daum.net/'},signal:AbortSignal.timeout(8_000)
       });
-      const rows = Array.isArray(json.output) ? json.output : (json.output ? [json.output] : []);
-      const openDates = rows
-        .filter((row) => String(row?.opnd_yn || '').toUpperCase() === 'Y')
-        .map((row) => String(row?.bass_dt || '').replace(/\D/g, ''))
-        .filter((date) => /^\d{8}$/.test(date) && date <= clock.ymd)
-        .sort();
-      calendarLatest = ymdToDashed(openDates.at(-1));
-    } catch (_) {}
-  }
-
-  // The KIS holiday calendar can lag at the start of a new session. The
-  // public KOSPI market feed is an independent proof that today's market is
-  // publishing, so choose the newer of the two dates.
-  let publishedLatest = (!force && state.publishedMarketDate && state.publishedMarketDateExpiresAt > Date.now())
-    ? state.publishedMarketDate
-    : '';
-  if (!publishedLatest) {
-    try {
-      const response = await fetch('https://finance.daum.net/api/market_index/days?page=1&perPage=1&market=KOSPI&pagination=true', {
-        headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://finance.daum.net/' },
-        signal: AbortSignal.timeout(8_000),
-      });
-      const json = await response.json().catch(() => ({}));
-      const date = String(json?.data?.[0]?.date || '').slice(0, 10);
-      if (/^\d{4}-\d{2}-\d{2}$/.test(date) && date <= clock.date) publishedLatest = date;
-    } catch (_) {}
-    if (publishedLatest) {
-      state.publishedMarketDate = publishedLatest;
-      state.publishedMarketDateExpiresAt = Date.now() + (clock.minutes >= 9 * 60 && clock.minutes <= 15 * 60 + 35 ? 60_000 : 15 * 60_000);
+      if(!response.ok)throw new Error('시장 개장일 보조 조회 실패');
+      const json=await response.json();return String(json?.data?.[0]?.date||'').slice(0,10);
     }
-  }
-
-  const latest = [calendarLatest, publishedLatest].filter(Boolean).sort().at(-1);
-  if (!latest) throw new Error('KIS holiday API returned no recent open date');
-  state.holidayDate = clock.date;
-  state.latestOpenDate = latest;
-  state.holidayExpiresAt = Date.now() + 6 * 60 * 60 * 1000;
+  });
+  const latest=await sessionDateReader.latest(force);
+  state.latestOpenDate=latest;
   return latest;
 }
 
@@ -450,8 +411,9 @@ function safeInvestorError(error) {
 
 async function refreshInvestorMarket(kind, date) {
   const clock = getKoreaClock();
-  if (!hasKisCredentials() || date !== clock.date || !['KOSPI','KOSDAQ'].includes(kind) ||
-      clock.minutes < 9 * 60 || clock.minutes > 15 * 60 + 30) return;
+  const start=kind==='FUTURES'?8*60+45:9*60,end=kind==='FUTURES'?15*60+45:15*60+30;
+  if (!hasKisCredentials() || date !== clock.date || !INVESTOR_MARKETS[kind] ||
+      clock.minutes < start || clock.minutes > end) return;
   const key = `${kind}:${date}`;
   // A chart visitor joins its market's request instead of returning old rows
   // while an unrelated futures/program collection is still running.
@@ -464,7 +426,7 @@ async function refreshInvestorMarket(kind, date) {
     try {
       const values = await fetchInvestorSnapshot(kind);
       const observed = getKoreaClock();
-      if (observed.date !== date || observed.minutes > 15 * 60 + 30) return;
+      if (observed.date !== date || observed.minutes < start || observed.minutes > end) return;
       upsertMinute(kind, date, values, observed.hhmm, { observed:true });
       status.lastSuccessAt = nowIso();
       state.lastResults[kind] = { ok:true, values };
@@ -483,7 +445,7 @@ async function refreshInvestorMarket(kind, date) {
 
 function investorFreshness(kind, date, rows) {
   const clock = getKoreaClock(), lastDataAt = rows.at(-1)?.date || '';
-  const live = date === clock.date && clock.minutes >= 9 * 60 && clock.minutes <= 15 * 60 + 30;
+  const live = date === clock.date && clock.minutes >= (kind==='FUTURES'?8*60+45:9*60) && clock.minutes <= (kind==='FUTURES'?15*60+45:15*60+30);
   const elapsed = lastDataAt ? Date.now() - Date.parse(`${lastDataAt.replace(' ', 'T')}:00+09:00`) : Infinity;
   const status = state.investorRefresh[kind];
   const current = status?.date === date ? status : {};
@@ -540,13 +502,12 @@ async function captureOnce() {
     }
     if (!activeKinds.length) return;
 
-    const tasks = activeKinds.map((kind) => [kind, () => kind === 'FUTURES' ? fetchInvestorSnapshot(kind) : refreshInvestorMarket(kind, latestOpenDate)]);
+    const tasks = activeKinds.map((kind) => [kind, () => refreshInvestorMarket(kind, latestOpenDate)]);
     const results = {};
     for (const [kind, fn] of tasks) {
       try {
         const values = await fn();
-        if (kind === 'FUTURES') upsertMinute(kind, latestOpenDate, values);
-        if (kind === 'FUTURES' || values) results[kind] = { ok: true, values };
+        if (values) results[kind] = { ok: true, values };
       } catch (error) {
         results[kind] = { ok: false, error: error.message };
       }
@@ -604,6 +565,7 @@ async function refreshClosingAuction(date) {
     await getAccessToken();
     const results = await Promise.allSettled(due.map(async ({ kind, close }) => {
       const values = await fetchInvestorSnapshot(kind);
+      if(getKoreaClock().date!==date)throw new Error('마감 수급 응답 중 거래일이 변경되었습니다.');
       upsertMinute(kind, date, values, close, { final: true, confirmedAt: nowIso() });
       return { kind, values };
     }));
@@ -634,7 +596,10 @@ async function ensureLatestDateFallbacks() {
 
   for (const kind of ['KOSPI', 'KOSDAQ']) {
     const closingRow = getRows(kind, latestDate).find((row) => row.date === `${latestDate} 15:30`);
-    if (closingRow?.final || (latestDate === clock.date && getRows(kind, latestDate).length)) continue;
+    if (closingRow?.final) continue;
+    const fallbackKey=`${kind}:${latestDate}`;
+    if(Date.now()-(state.dailyFallbackAt[fallbackKey]||0)<20_000)continue;
+    state.dailyFallbackAt[fallbackKey]=Date.now();
     try {
       const values = await fetchSpotDailyFinal(kind, latestDate);
       upsertMinute(kind, latestDate, values, '15:30', { final: true, fallback: 'KIS daily final' });
@@ -667,7 +632,7 @@ async function buildInvestorChart(kind) {
     await refreshClosingAuction(latestDate).catch(() => {});
   }
   let rows = getRows(kind, latestDate);
-  if (!rows.length) {
+  if (!rows.length || (latestDate===clock.date && clock.minutes>=15*60+32 && !rows.some(row=>row.date===`${latestDate} 15:30`&&row.final))) {
     await ensureLatestDateFallbacks().catch(() => {});
     rows = getRows(kind, latestDate);
   }
@@ -678,6 +643,7 @@ async function buildInvestorChart(kind) {
     unit: '조원',
     source: 'KIS FHPTJ04030000',
     latestOpenDate: latestDate,
+    displayDate: latestDate,
     ...freshness,
     note: `${label} KIS 실제 순매수 · 최근 개장일 ${latestDate} · 20초 조회/1분 저장 · 마지막 수집 ${freshness.lastDataAt || '없음'}${freshness.stale ? ' · 갱신 지연' : ''}${freshness.refreshError ? ` · KIS 조회 오류 ${freshness.refreshError}` : ''}${rows.at(-1)?.confirmedAt ? ' · 15:30 동시호가 반영' : ''}`,
     series: rows,
@@ -686,34 +652,48 @@ async function buildInvestorChart(kind) {
 
 async function buildFuturesChart() {
   const latestDate = await getLatestOpenDate();
-  await backfillIntradayRows(latestDate).catch(() => {});
+  await refreshInvestorMarket('FUTURES',latestDate);
+  void backfillIntradayRows(latestDate).catch(() => {});
   const clock = getKoreaClock();
-  if (latestDate === clock.date && clock.minutes >= 15 * 60 + 32) {
+  if (latestDate === clock.date && clock.minutes >= 15 * 60 + 47) {
     await refreshClosingAuction(latestDate).catch(() => {});
-  }
-  if (latestDate === clock.date && clock.minutes >= 8 * 60 + 45 && clock.minutes <= 15 * 60 + 45) {
-    await captureOnce().catch(() => {});
   }
   let rows = getRows('FUTURES', latestDate);
   if (!rows.length) {
     await ensureLatestDateFallbacks().catch(() => {});
     rows = getRows('FUTURES', latestDate);
   }
+  const freshness=investorFreshness('FUTURES',latestDate,rows);
   return {
     ok: true,
     unit: '계약',
     source: 'KIS FHPTJ04030000 K2I/F001',
     latestOpenDate: latestDate,
-    note: rows.length > 1
-      ? `KOSPI200 선물 외국인 누적 순매수 · 최근 개장일 ${latestDate} · 장중 30초 조회/1분 저장 · 08:45~15:45${rows.at(-1)?.confirmedAt ? ' · 15:45 값은 장마감 반영 후 재조회' : ''}`
-      : `KOSPI200 선물 최근 개장일 ${latestDate} KIS 최종 수급입니다. 완전한 분봉 곡선은 장중 30초 수집 후 누적 저장됩니다.`,
+    displayDate: latestDate,
+    ...freshness,
+    note: `KOSPI200 선물 외국인 순매수 · 최근 개장일 ${latestDate} · 20초 조회/1분 저장 · 마지막 수집 ${freshness.lastDataAt||'없음'} · 08:45~15:45${rows.at(-1)?.final?' · 15:45 장마감 반영':''}${freshness.stale?' · 갱신 지연':''}${freshness.refreshError?` · KIS 조회 오류 ${freshness.refreshError}`:''}${rows.length===1?' · 실제 관측 1점(과거 분봉 미수집)':''}`,
     series: rows,
   };
+}
+
+async function buildFuturesDailyChart(days=120) {
+  const latestDate=await getLatestOpenDate();
+  await refreshInvestorMarket('FUTURES',latestDate);
+  await ensureLatestDateFallbacks().catch(()=>{});
+  const limit=Math.max(1,Math.min(120,Math.floor(Number(days)||120)));
+  const daily=Object.entries(store.daily.FUTURES||{}).map(([date,value])=>({date,value:numericOrNull(value)}))
+    .filter(row=>row.date<=latestDate&&row.value!==null).sort((a,b)=>a.date.localeCompare(b.date)).slice(-limit);
+  let total=0;
+  const series=daily.map(row=>({date:row.date,dailyForeign:row.value,foreign:total+=row.value}));
+  return {ok:true,unit:'계약',source:'KIS FHPTJ04030000 K2I/F001',latestOpenDate:latestDate,
+    displayDate:daily.at(-1)?.date||'',series,
+    note:`KOSPI200 선물 외국인 일별 순매수 · 최근 개장일 ${latestDate} · 마지막 자료 ${daily.at(-1)?.date||'없음'} · 단위 계약 · 실제 수집한 ${daily.length}거래일${daily.at(-1)?.date!==latestDate?' · 최근 개장일 자료 확인 중':''}`};
 }
 
 async function buildFlowStats() {
   ensureStoreLoaded();
   const latestDate = await getLatestOpenDate();
+  await refreshInvestorMarket('FUTURES',latestDate);
   // Persist a final futures value for the latest open day before calculating
   // windows. This also covers a process restart after the regular session.
   await ensureLatestDateFallbacks().catch(() => {});
@@ -730,7 +710,7 @@ async function buildFlowStats() {
     latestOpenDate: latestDate,
     futuresMode: 'futures',
     futuresUnit: '계약',
-    futuresArray: sumWindows(futuresRows),
+    futuresArray: futuresRows.at(-1)?.date===latestDate?sumWindows(futuresRows):null,
     futuresLatest: futuresRows.length ? {value:futuresRows.at(-1).value,unit:'계약',asOf:futuresRows.at(-1).date,source:'KIS'} : null,
     progsArray: program.values,
     futuresCoverageDays: futuresRows.length,
@@ -850,6 +830,7 @@ async function handleRequest(req, res) {
         investorStatus: latestOpenDate ? {
           kospi: investorFreshness('KOSPI', latestOpenDate, getRows('KOSPI', latestOpenDate)),
           kosdaq: investorFreshness('KOSDAQ', latestOpenDate, getRows('KOSDAQ', latestOpenDate)),
+          futures: investorFreshness('FUTURES', latestOpenDate, getRows('FUTURES', latestOpenDate)),
         } : {},
         rows: latestOpenDate ? {
           kospi: getRows('KOSPI', latestOpenDate).length,
@@ -867,6 +848,7 @@ async function handleRequest(req, res) {
       if (kind === 'kospi-investor-minute') return sendJson(res, 200, await buildInvestorChart('KOSPI'));
       if (kind === 'kosdaq-investor-minute') return sendJson(res, 200, await buildInvestorChart('KOSDAQ'));
       if (kind === 'foreign-futures-minute') return sendJson(res, 200, await buildFuturesChart());
+      if (kind === 'foreign-futures-daily' && hasKisCredentials()) return sendJson(res,200,await buildFuturesDailyChart(url.searchParams.get('days')));
     }
 
     if (apiPath === '/api/stats') {

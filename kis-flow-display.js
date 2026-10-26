@@ -91,14 +91,14 @@ function findLatestStoredCurve(storeKind, notAfterDate) {
     .sort()
     .reverse();
 
-  let partial = null;
   for (const date of dates) {
     const rows = normalizeRows(store.days?.[date]?.[storeKind], date, storeKind);
     const quality = curveQuality(rows);
-    if (quality >= 2) return { date, rows, quality };
-    if (!partial && quality === 1) partial = { date, rows, quality };
+    // Recency wins over curve length: today's single real/final observation
+    // must never lose to a full curve saved on an older session.
+    if (rows.length) return { date, rows, quality };
   }
-  return partial;
+  return null;
 }
 
 function internalRequest(req) {
@@ -177,27 +177,28 @@ async function handleChartRequest(req, res, config) {
   if (payload?.source === 'spot-fallback' || (payload?.unit && payload.unit !== config.unit)) {
     return sendJson(res, inner.statusCode, payload);
   }
+  if(inner.statusCode!==200||!payload?.ok)return sendJson(res,inner.statusCode,payload);
 
   const currentRows = Array.isArray(payload?.series) ? payload.series : [];
-  // Keep even one real point from the latest trading session. If the gateway
-  // has none yet, show a previously collected curve instead of "no data".
+  // Keep even one real point from the latest trading session. A disk fallback
+  // below must belong to that same confirmed session.
   if (currentRows.length) {
     return sendJson(res, inner.statusCode, payload);
   }
 
-  // Prefer the most recent persisted session with an actual intraday curve.
-  const stored = findLatestStoredCurve(config.storeKind, payload?.latestOpenDate || '');
-  if (!stored) {
+  // The gateway establishes the trading date. A missing live response is not
+  // proof of a holiday; only reuse a saved curve from that exact session.
+  const targetDate=payload.latestOpenDate;
+  const stored = /^\d{4}-\d{2}-\d{2}$/.test(targetDate||'')?findLatestStoredCurve(config.storeKind,targetDate):null;
+  if (!stored || stored.date!==targetDate) {
     return sendJson(res, inner.statusCode, {
       ...payload,
-      note: `${payload?.note || ''} 분봉 저장 이력이 아직 없어 종가 1점만 표시됩니다. 다음 개장일부터 장중 수집된 최근 개장일 차트를 자동 표시합니다.`.trim(),
+      note: `${payload?.note || ''} ${targetDate||'최근 개장일'} 수급 자료를 확인하지 못했습니다. 이전 날짜 자료로 바꾸지 않고 재조회합니다.`.trim(),
     });
   }
 
   const marketLatestOpenDate = payload?.latestOpenDate || stored.date;
-  const suffix = stored.date === marketLatestOpenDate
-    ? '최근 개장일 저장 분봉'
-    : `분봉 저장된 최근 개장일 ${stored.date}`;
+  const suffix = '최근 개장일 저장 분봉';
 
   return sendJson(res, 200, {
     ...payload,

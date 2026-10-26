@@ -66,13 +66,16 @@ function mergeWindowValues(primary, coverageDays, fallback) {
 
 function mergeFlowStats(core = {}, flow = null, options = {}) {
   const spot = core.futuresMode === 'spot-fallback' && !options.preferKis;
+  const targetDate=flow?.latestOpenDate;
+  const sameFuturesDate=!targetDate||(core.futuresLatest?.asOf||core.latestOpenDate)===targetDate;
+  const sameProgramDate=!targetDate||(core.programAsOfDate||core.latestOpenDate)===targetDate;
   // Choose one unit for the entire row; never fill spot windows with contracts.
   const futures = spot ? nullableArray(core.futuresArray) : nullableArray(mergeWindowValues(
     flow?.futuresArray, flow?.futuresCoverageDays || 0,
-    core.futuresUnit === '계약' ? core.futuresArray : null
+    core.futuresUnit === '계약' && sameFuturesDate ? core.futuresArray : null
   ));
   const flowPrograms = flow?.programSource && flow.programSource !== 'unavailable' ? flow.progsArray : null;
-  const corePrograms = core.programSource && core.programSource !== 'unavailable' && (!options.preferKis || /^KIS/.test(core.programSource)) ? core.progsArray : null;
+  const corePrograms = core.programSource && core.programSource !== 'unavailable' && sameProgramDate && (!options.preferKis || /^KIS/.test(core.programSource)) ? core.progsArray : null;
   const programs = nullableArray(mergeWindowValues(flowPrograms, flow?.programCoverageDays || 0, corePrograms));
   const primaryProgram = nullableArray(flowPrograms) !== null;
   return {
