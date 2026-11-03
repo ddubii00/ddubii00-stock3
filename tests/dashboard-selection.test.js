@@ -71,16 +71,19 @@ test('selection API authenticates reads/writes, validates all four slots, limits
 // Minimal DOM keeps the real controller's listeners, node moves and save flow testable
 // without a browser or any external chart/API source.
 class Element{
-  constructor(tag='div',type=1){this.tagName=tag.toUpperCase();this.nodeType=type;this.childNodes=[];this.parentNode=null;this.dataset={};this.events={};this.attrs={};this.hidden=false;this.className='';this.textContent='';}
+  constructor(tag='div',type=1){this.tagName=tag.toUpperCase();this.nodeType=type;this.childNodes=[];this.parentNode=null;this.dataset={};this.events={};this.attrs={};this.hidden=false;this.className='';this.textContent='';this.style={};}
+  getBoundingClientRect(){return this.rect||{left:20,top:40,width:600,height:380};}
   get parentElement(){return this.parentNode?.nodeType===1?this.parentNode:null;}
   get isConnected(){return this.tagName==='BODY'||Boolean(this.parentNode?.isConnected);}
   appendChild(node){node.remove();node.parentNode=this;this.childNodes.push(node);return node;}
   append(...nodes){nodes.forEach(node=>this.appendChild(node));}
-  remove(){if(this.parentNode){this.parentNode.childNodes=this.parentNode.childNodes.filter(node=>node!==this);this.parentNode=null;}}
+  remove(){if(this.parentNode){if(this.isConnected){for(const node of [this,...this.descendants()])if(node.tagName==='IFRAME')node.disconnects=(node.disconnects||0)+1;}this.parentNode.childNodes=this.parentNode.childNodes.filter(node=>node!==this);this.parentNode=null;}}
+  descendants(){return this.childNodes.flatMap(node=>[node,...node.descendants()]);}
   before(node){const parent=this.parentNode;node.remove();node.parentNode=parent;parent.childNodes.splice(parent.childNodes.indexOf(this),0,node);}
+  after(node){const parent=this.parentNode;node.remove();node.parentNode=parent;parent.childNodes.splice(parent.childNodes.indexOf(this)+1,0,node);}
   replaceWith(node){this.before(node);this.remove();}
   replaceChildren(...nodes){this.childNodes.slice().forEach(node=>node.remove());this.append(...nodes);}
-  setAttribute(key,value){this.attrs[key]=value;}
+  setAttribute(key,value){this.attrs[key]=value;if(key.startsWith('data-'))this.dataset[key.slice(5).replace(/-([a-z])/g,(_,letter)=>letter.toUpperCase())]=value;}
   addEventListener(type,handler){(this.events[type]||=[]).push(handler);}
   async fire(type){for(const handler of this.events[type]||[])await handler({target:this});}
   showModal(){this.open=true;}
@@ -92,14 +95,20 @@ class Element{
 }
 const memoryStorage=()=>{const values=new Map();return{getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,String(value))};};
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
-async function viewFixture({sessionStorage=memoryStorage(),localStorage=memoryStorage(),pathname='/stock3-7/',initialSlots=selection.empty()}={}){
+async function viewFixture({sessionStorage=memoryStorage(),localStorage=memoryStorage(),pathname='/stock3-7/',initialSlots=selection.empty(),withWidget=false}={}){
   const body=new Element('body'),wrap=new Element(),group=new Element(),compact=new Element(),controls=new Element();wrap.className='wrap';compact.id='compactDashboard';compact.hidden=true;body.append(controls,wrap);wrap.append(compact,group);
   for(const id of ['dashboardSelectionDialog','dashboardSelectionMessage','saveDashboardSelection','dashboardSelectionRows','showAllPanels','showSelectedPanels','openDashboardSelection','closeDashboardSelection']){const node=new Element(id.includes('Dialog')?'dialog':'button');node.id=id;controls.appendChild(node);}
   const cards=slots.map((id,index)=>{const card=new Element('section');card.className='card';const title=new Element();title.className=index===3?'stock-chart-name':'title';title.textContent=['코스피','비트코인 일봉 (BTC/USD)','관심종목 트래커','삼성전자'][index];const chart=new Element();chart.id=id.startsWith('stock:')?'lwchart-SAMSUNG_DAILY':id.slice(6);chart.className='chart';card.append(title,chart);if(id.startsWith('stock:'))card.dataset.stockKey=id.slice(6);group.appendChild(card);return card;});
   const doc={body,hidden:false,events:{},createElement:tag=>new Element(tag),createComment:()=>new Element('comment',8),getElementById:id=>[body,...all(body)].find(node=>node.id===id),querySelectorAll:selector=>selector==='.wrap .card'?wrap.querySelectorAll('.card'):[],addEventListener(type,handler){(this.events[type]||=[]).push(handler);}};
   function all(node){return node.childNodes.flatMap(child=>[child,...all(child)]);}
+  const TradingViewCard=require('../tradingview-card');let widget,iframe;
+  if(withWidget){
+    const stockAnchor=new Element();stockAnchor.id='selectedStockCharts';group.append(stockAnchor);
+    widget=TradingViewCard.mountAfterStocks(doc);iframe=new Element('iframe');iframe.interval='5';iframe.zoom='custom';
+    widget.querySelector('.tradingview-widget-container__widget').append(iframe);
+  }
   let stored={revision:0,slots:initialSlots},fail=false,offline=false;const intervals=[];
-  const context=vm.createContext({document:doc,location:{pathname},sessionStorage,localStorage,AbortController,setTimeout,clearTimeout,setInterval(callback){intervals.push(callback);},fetch:async(_url,options)=>{
+  const context=vm.createContext({document:doc,TradingViewCard,location:{pathname},sessionStorage,localStorage,AbortController,setTimeout,clearTimeout,setInterval(callback){intervals.push(callback);},fetch:async(_url,options)=>{
     if(offline)throw new Error('네트워크 연결 실패');
     if(options.method==='POST'){if(fail)return{ok:false,json:async()=>({ok:false,error:'저장 실패'})};stored={revision:stored.revision+1,slots:JSON.parse(options.body).slots};}
     return ok({ok:true,...stored});
@@ -107,8 +116,25 @@ async function viewFixture({sessionStorage=memoryStorage(),localStorage=memorySt
   vm.runInContext(await fs.readFile(path.join(root,'dashboard-selection.js'),'utf8'),context);
   const startupMode=body.dataset.dashboardMode;
   const api=context.DashboardSelection.create({urlFor:url=>url});await flush();
-  return {api,doc,body,wrap,group,compact,cards,startupMode,node:id=>doc.getElementById(id),stored:()=>stored,setFail:()=>{fail=true;},setOffline:value=>{offline=value;},setSlots:value=>{stored={revision:stored.revision+1,slots:value};},poll:async()=>{intervals.forEach(callback=>callback());await flush();}};
+  return {api,doc,body,wrap,group,compact,cards,widget,iframe,startupMode,node:id=>doc.getElementById(id),stored:()=>stored,setFail:()=>{fail=true;},setOffline:value=>{offline=value;},setSlots:value=>{stored={revision:stored.revision+1,slots:value};},poll:async()=>{intervals.forEach(callback=>callback());await flush();}};
 }
+
+test('live widget keeps its iframe connected through hours of polling, mode switches and stock-list rerenders',async()=>{
+  const chosen=['panel:tvchart-USTECH100',slots[0],slots[1],slots[2]];
+  const f=await viewFixture({withWidget:true,initialSlots:chosen});
+  for(let tick=0;tick<720;tick++){
+    if(tick%50===0)f.api.setMode(tick%100===0?'partial':'all');
+    if(tick%15===0){f.api.restore();f.api.catalogChanged();}
+    await f.poll();
+    assert.equal(f.widget.parentNode,f.body);assert.equal(f.iframe.isConnected,true);
+    assert.equal(f.iframe.disconnects||0,0);assert.equal(f.iframe.interval,'5');assert.equal(f.iframe.zoom,'custom');
+  }
+  f.api.setMode('partial');assert.equal(f.compact.childNodes[0],f.node('tradingview-USTECH100-slot'));
+  const slot=f.node('tradingview-USTECH100-slot');slot.rect={left:640,top:390,width:500,height:300};
+  require('../tradingview-card').refreshLayout(f.doc);assert.equal(f.widget.style.height,'300px');assert.equal(f.widget.style.left,'640px');
+  slot.rect={left:0,top:0,width:0,height:0};require('../tradingview-card').refreshLayout(f.doc);
+  assert.equal(f.widget.style.visibility,'hidden');assert.equal(f.widget.style.height,'300px');assert.equal(f.iframe.disconnects||0,0);
+});
 
 test('partial mode survives reload before initial data arrives; explicit all remains remembered',async()=>{
   const storage={sessionStorage:memoryStorage(),localStorage:memoryStorage(),initialSlots:slots};

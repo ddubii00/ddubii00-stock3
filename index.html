@@ -396,7 +396,7 @@
     #chartStocksMessage { color:#9a6011; font-size:12px; margin:6px 0; }
     @media(max-width:700px) { .market-header { gap:9px; padding:4px 6px; } .ticker-rate { font-size:10px; } .ticker-price { font-size:15px; } .ticker-label { font-size:10px; } .market-header .btn { flex:0 0 auto; padding:5px 6px; } }
   </style>
-  <link rel="stylesheet" href="./dashboard-selection.css?v=20261023-panels" />
+  <link rel="stylesheet" href="./dashboard-selection.css?v=20261103-widget-state" />
 </head>
 <body data-locked>
   <div id="accessGate" class="access-gate"><form id="accessForm" class="access-form"><h1>시황 대시보드</h1><label for="accessPassword">접속 암호</label><input id="accessPassword" type="password" inputmode="numeric" autocomplete="current-password" maxlength="128" required autofocus /><button class="btn" type="submit">접속</button><p id="accessError" class="access-error" role="alert"></p></form></div>
@@ -986,10 +986,10 @@
   <script src="./three-line-break.js"></script>
   <script src="./stock-chart-picker.js"></script>
   <script src="./stock-chart-list.js"></script>
-  <script src="./tradingview-card.js?v=20261023-no-legend"></script>
-  <script src="./dashboard-selection.js?v=20261023-view-mode"></script>
+  <script src="./tradingview-card.js?v=20261103-widget-state"></script>
+  <script src="./dashboard-selection.js?v=20261103-widget-state"></script>
   <script src="./market-header.js"></script>
-  <script src="./access-client.js"></script>
+  <script src="./access-client.js?v=20261103-widget-state"></script>
   <script>
   async function startDashboard() {
     const APP_BASE_PATH = (() => {

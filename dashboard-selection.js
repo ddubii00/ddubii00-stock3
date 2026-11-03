@@ -76,6 +76,7 @@
         else marker.remove();
       }
       portals=[];compact.replaceChildren();
+      browser.TradingViewCard?.refreshLayout(doc);
     }
     function paint(){
       restore();entries=catalog(doc);
@@ -83,7 +84,7 @@
       allButton.setAttribute('aria-pressed',String(mode==='all'));
       partialButton.setAttribute('aria-pressed',String(mode==='partial'));
       compact.hidden=mode!=='partial';
-      if(mode!=='partial')return;
+      if(mode!=='partial'){browser.TradingViewCard?.refreshLayout(doc);return;}
       slots.forEach(id=>{
         const entry=entries.find(item=>item.id===id);
         if(entry){
@@ -95,6 +96,7 @@
           compact.appendChild(cell);
         }
       });
+      browser.TradingViewCard?.refreshLayout(doc);
     }
     function options(){
       controls.forEach(({select,clear},index)=>{

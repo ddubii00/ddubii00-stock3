@@ -122,6 +122,31 @@ test('readding a stock after renaming its previous chart generates a fresh uniqu
   assert.equal(items.length,2);assert.notEqual(items[0].slot,items[1].slot);
   assert.deepEqual(items.map(item=>item.key),[electro.key,sdi.key]);
 });
+
+test('an API 401 reopens authentication without reloading charts or queuing locked polling requests',async()=>{
+  const nodes={accessGate:{hidden:false},marketHeader:{hidden:true},accessError:{textContent:''},accessPassword:{value:'1222'}};
+  let submit,reloads=0,apiCalls=0,expire=true,lateReply;
+  nodes.accessForm={addEventListener(_type,fn){submit=fn;},querySelector:()=>({disabled:false})};
+  const body={locked:true,setAttribute(){this.locked=true;},removeAttribute(){this.locked=false;}};
+  const location={pathname:'/stock3-7/',href:'https://example.invalid/stock3-7/',origin:'https://example.invalid',reload(){reloads++;}};
+  const context=vm.createContext({URL,Headers,location,document:{body,getElementById:id=>nodes[id]},localStorage:{getItem(){return '';},setItem(){},removeItem(){}},fetch:async(url,options)=>{
+    if(String(url).endsWith('/api/access'))return{ok:options.headers['x-stock3-password']==='1222',json:async()=>({ok:true})};
+    apiCalls++;
+    if(String(url).endsWith('/late'))return new Promise(resolve=>{lateReply=resolve;});
+    return {ok:!expire,status:expire?401:200};
+  }});context.window=context;
+  vm.runInContext(fs.readFileSync(path.join(root,'access-client.js'),'utf8'),context);
+  await submit({preventDefault(){}});
+  const late=context.fetch('/stock3-7/api/late');await new Promise(resolve=>setImmediate(resolve));
+  await context.fetch('/stock3-7/api/chart');assert.equal(nodes.accessGate.hidden,false);assert.equal(body.locked,true);assert.equal(reloads,0);
+  for(let tick=0;tick<100;tick++)await assert.rejects(context.fetch('/stock3-7/api/chart'),/접속 암호/);
+  assert.equal(apiCalls,2);
+  nodes.accessPassword.value='wrong';await submit({preventDefault(){}});assert.equal(body.locked,true);assert.equal(apiCalls,2);
+  expire=false;nodes.accessPassword.value='1222';await submit({preventDefault(){}});await context.fetch('/stock3-7/api/chart');
+  assert.equal(apiCalls,3);assert.equal(body.locked,false);assert.equal(nodes.accessGate.hidden,true);
+  // An old unauthorized response must not lock a newly authenticated session.
+  lateReply({status:401});await late;assert.equal(body.locked,false);assert.equal(reloads,0);
+});
 test('gateway passes KIS environment aliases to the core, isolates flow collection, and shares its token only over IPC',async()=>{
   const source=fs.readFileSync(path.join(root,'kis-flow-gateway.js'),'utf8');
   const block=source.slice(source.indexOf('function spawnCore() {'),source.indexOf('\nlet child =',source.indexOf('function spawnCore() {')));

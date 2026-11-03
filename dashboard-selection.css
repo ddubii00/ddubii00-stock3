@@ -1,4 +1,9 @@
 .market-header .btn { color:#134db5; background:transparent; }
+.tradingview-slot { height:380px; padding:0; visibility:hidden; pointer-events:none; }
+body > .tradingview-floating { position:fixed; z-index:20; margin:0; min-width:0; min-height:0; box-sizing:border-box; }
+body > .tradingview-floating > .chart { flex:1 1 0; height:100%!important; min-height:0; }
+body[data-locked] > .tradingview-floating { visibility:hidden!important; pointer-events:none!important; }
+@media(max-width:980px) { .tradingview-slot { height:338px; } }
 .market-header .dashboard-mode-button[aria-pressed="true"] { color:#fff; background:#2563eb; }
 .dashboard-selection-dialog { width:min(580px,92vw); max-height:85dvh; overflow:auto; border:1px solid #dbe3f1; border-radius:12px; padding:16px; color:#172033; }
 .dashboard-selection-dialog::backdrop { background:#07112370; }
